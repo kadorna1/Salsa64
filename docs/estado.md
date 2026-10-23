@@ -1,5 +1,27 @@
 # Estado
 
+## 2026-10-23 — #29, cuadriláteros de Shadows of the Empire
+
+- El microcódigo se anunciaba como Fast3D 2.0D, pero `B5` es un cuadrilátero
+  con índices por cinco: la HLE genérica descartaba 13080 comandos en 120 de
+  240 tareas y dejaba 1836960 píxeles reales distintos frente al RSP LLE.
+- El CRC del código `E7FA4491` selecciona la variante F3DWR ya existente; no
+  depende del CRC de la ROM. Una prueba sintética cubre ambos CRC de la familia.
+- Tras el cambio: 240/240 tareas sin diferencia real ni comandos desconocidos;
+  la partida llega al campo 5600 con escenario, vehículo y HUD. Falta la PS3.
+- Docker: 682 pruebas, 887363 verificaciones, cero fallos; build completo con
+  holguras de 1568 a 14368 bytes en las imágenes gráficas del SPE.
+
+## 2026-10-23 — #16, Donald Duck: escena no reproducible con la partida disponible
+
+- El estado recibido pertenece a la versión europea (`3DF17480`), mientras que
+  la ROM disponible es la americana (`C16C421B`) y no puede cargarlo.
+- El avance europeo procedía además de un Controller Pak que no se recibió. El
+  guion del registro sobre un Pak americano nuevo entra al primer nivel y sigue
+  hasta el campo 5000, pero no alcanza la escena del sobrino con todos los juguetes.
+- No se atribuye causa ni se cambia código: hace falta la ROM europea del autor,
+  o un estado o Controller Pak americano situado inmediatamente antes de la escena.
+
 ## 2026-10-22 — HLE de F3DEX2ACCLAIM
 
 - Encendida por omisión (`sin-acclaim` la apaga; host `SALSA64_GFX_ACCLAIM=0`).

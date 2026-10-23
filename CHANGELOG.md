@@ -4,6 +4,11 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
+## [Unreleased]
+
+### Fixed
+- **Star Wars: Shadows of the Empire:** recognize its Fast3D quadrilateral variant so the intro and gameplay geometry is rendered instead of a black screen.
+
 ## [0.2.10] — 2026-10-22
 
 ### Added

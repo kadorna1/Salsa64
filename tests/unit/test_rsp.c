@@ -394,8 +394,9 @@ static void rsp_detect_gbi_crc(void)
 	memset(p, 0, size);
 }
 
-/* Wave Race 64: su microcódigo dice "RSP SW Version: 2.0D" pero no es Fast3D;
- * lo distingue el CRC-32 de su código, que va antes que el texto. */
+/* Wave Race 64 y Shadows of the Empire: sus microcódigos dicen
+ * "RSP SW Version: 2.0D" pero no son Fast3D; los distingue el CRC-32 de su
+ * código, que va antes que el texto. */
 static void rsp_detect_gbi_wr(void)
 {
 	const uint32_t code = 0x8000, size = 0x1000;
@@ -418,6 +419,16 @@ static void rsp_detect_gbi_wr(void)
 	task.ucode_size = size;
 	task.ucode_data = 0x80005000;
 	task.ucode_data_size = 0x800;
+	CHECK_EQ(salsa64_rsp_detect_gbi(&t_n64.bus, &task), SALSA64_GBI_F3DWR);
+	memset(p, 0, size);
+	state = 0xFFFFFFFFu;
+	for (uint32_t i = 0; i < size - 4; i++) {
+		state ^= p[i];
+		for (int k = 0; k < 8; k++)
+			state = (state >> 1) ^ (0xEDB88320u & (0u - (state & 1)));
+	}
+	crc32_force(state, 0xE7FA4491u, p + size - 4);
+	CHECK_EQ(salsa64_crc32(p, size), 0xE7FA4491u);
 	CHECK_EQ(salsa64_rsp_detect_gbi(&t_n64.bus, &task), SALSA64_GBI_F3DWR);
 	p[17] ^= 1;  /* otro código con el mismo texto: Fast3D */
 	CHECK_EQ(salsa64_rsp_detect_gbi(&t_n64.bus, &task), SALSA64_GBI_F3D);
