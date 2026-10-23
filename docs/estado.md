@@ -12,15 +12,16 @@
 - Docker: 682 pruebas, 887363 verificaciones, cero fallos; build completo con
   holguras de 1568 a 14368 bytes en las imágenes gráficas del SPE.
 
-## 2026-10-23 — #16, Donald Duck: escena no reproducible con la partida disponible
+## 2026-10-23 — #16, Donald Duck: el estado ya contiene el bloqueo
 
-- El estado recibido pertenece a la versión europea (`3DF17480`), mientras que
-  la ROM disponible es la americana (`C16C421B`) y no puede cargarlo.
-- El avance europeo procedía además de un Controller Pak que no se recibió. El
-  guion del registro sobre un Pak americano nuevo entra al primer nivel y sigue
-  hasta el campo 5000, pero no alcanza la escena del sobrino con todos los juguetes.
-- No se atribuye causa ni se cambia código: hace falta la ROM europea del autor,
-  o un estado o Controller Pak americano situado inmediatamente antes de la escena.
+- El estado europeo `3DF17480` carga en el campo 41374 y reproduce la captura.
+  Desde el campo siguiente solo corre el hilo ocioso; los otros siete esperan
+  en colas vacías y siguen idénticos 926 campos después.
+- Acercarse al sobrino y repetir B/A como en el registro llega por el PIF, pero
+  no despierta la lógica. Intérprete/JIT: 86 campos, 3089430 entradas y cero
+  diferencias. Con Controller Pak o sin él solo difieren dos bytes de RDRAM.
+- ares no puede cargar este formato de estado. Para buscar la primera divergencia
+  hace falta un estado o Controller Pak de antes de llegar al sobrino.
 
 ## 2026-10-22 — HLE de F3DEX2ACCLAIM
 
