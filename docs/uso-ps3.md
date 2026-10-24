@@ -168,8 +168,18 @@ Opciones:
   si pediste 1080p y no se logró, recuerda activarlo en Ajustes de pantalla
   del XMB.
 - **Escala interna**: tamaño del render de la N64, independiente de la
-  salida de video: Auto (3× a 720p, 4× a 1080p), 1× nativa (320 × 240, la
-  imagen original), 2×, 3×, 4× o 5× (1600 × 1200). La escala fija un objetivo
+  salida de video: 1× nativa (320 × 240, la imagen original), 2×, 3×, 4× o
+  5× (1600 × 1200), cada una fija o «Automática (hasta N×)». La automática
+  baja un paso cuando durante 3 s la emulación conserva al menos 92 % del
+  ritmo del VI, aumentan los cuadros saltados y el trabajo medido del RSX
+  ocupa un período de la tele; una carga aislada o un juego lento por CPU no
+  la baja. Una escala que ya falló no se vuelve a probar mientras ese juego
+  siga abierto; la inferior se guarda en `juegos/<ROM>.cfg` y es la escala
+  inicial y el techo aprendido la próxima vez. No sube automáticamente: el
+  coste del paso siguiente no se puede predecir de forma fiable por el margen
+  del actual.
+  Deja al menos 10 s entre bajadas. Una escala fija
+  no cambia: si el RSX no alcanza, un aviso propone bajarla. El límite elegido fija un objetivo
   de líneas (5× = 1200) y cada imagen usa la entera que llega ahí sin
   pasarse: una de 640 × 480 usa 2× a 5×. Una escala mayor que la
   pantalla es supermuestreo: la imagen se reduce con filtro lineal al
@@ -278,15 +288,16 @@ extensión>.cfg`:
 aspecto = 16:9      # 4:3 | 16:9 | global
 filtro = lineas     # suave | nitido | lineas | lineas+ | crt-mascara | crt-rgb | crt-svideo | crt-compuesto | crt-trinitron | global
 recorte = apagado   # apagado | normal | amplio | global
-escala = 2          # auto | 1 … 5 | global
+escala = 2          # auto-N | 1 … 5 | global
+escala-estable = ninguna # 1 … 5 | ninguna (techo aprendido de la automática)
 densidad = fina     # normal | fina | global (la de «CRT máscara»)
 interpolacion = geometria  # no | geometria | global
 accesorio = controller-pak # controller-pak | ninguno
 ```
 
-Al abrir el juego, el log dice «imagen: … (con ajustes de este juego)» y, si
-la escala es otra que la de Opciones, «escala interna: …, al abrir el
-juego»; al cerrarlo vuelve la de Opciones.
+Al abrir el juego, el log dice «imagen: … (con ajustes de este juego)» y
+«escala interna: por juego|global|por omisión, modo fija|automática, …»; al
+cerrarlo vuelve la de Opciones.
 
 ### Descargas (experimental, apagadas)
 
@@ -391,9 +402,11 @@ recorte se ven al momento sobre el cuadro en pausa (el recorte de una imagen
 que el juego dibujó con el CPU, al seguir). La escala interna se pone al
 seguir jugando: cambiarla suelta las imágenes del juego en el RSX, que se
 vuelven a dibujar a la escala nueva en el cuadro siguiente (puede verse un
-cuadro raro en los juegos que reusan el anterior). Lo elegido vale para esta
-partida; **Guardar para este juego** lo deja en `juegos/<ROM>.cfg` (lo que
-coincide con Opciones queda «global»). ○ o «Volver» regresan al menú de
+cuadro raro en los juegos que reusan el anterior). La escala queda guardada
+de inmediato para ese juego, incluida «Automática (hasta N×)» y su techo
+aprendido. Los demás valores duran esta partida; **Guardar para este juego**
+los deja en `juegos/<ROM>.cfg` (lo que coincide con Opciones queda
+«global»). ○ o «Volver» regresan al menú de
 pausa; START cierra todo y el juego sigue.
 
 El **botón PS** abre el menú del sistema encima del juego: Salsa64 pausa la
@@ -534,9 +547,10 @@ rectángulo de la imagen en la pantalla. Las capturas, las miniaturas de
 los estados y los volcados siguen sin filtro.
 
 **Con un CRT la escala interna no pasa de 3×**: si en Opciones, por juego
-o en «Imagen» está en 4×, 5× o Auto a 1080p (4×), mientras haya un CRT se
-usa 3× y al quitarlo vuelve la elegida (en «Imagen» se lee «3× (tope con
-CRT)»; el log lo dice). Lo elegido menor (1× o 2×) se respeta. A 3× el
+o en «Imagen» está fija o automática por encima de 3×, mientras haya un CRT
+se usa 3× y al quitarlo vuelve el límite elegido (en una escala fija,
+«3× (tope con CRT)»; en una automática se muestra la escala actual; el log
+lo dice). Lo elegido menor (1× o 2×) se respeta. A 3× el
 supermuestreo ya no se nota detrás del CRT y el RSX se ahorra el render y
 la reducción de la imagen grande.
 
@@ -675,10 +689,11 @@ se crean por FTP.
 | Archivo | Formato | Qué hace |
 |---|---|---|
 | `menu.cfg` | Líneas `fondo = si\|no`, `fps = si\|no`, `confirmar = si\|no`, `aspecto = 4:3\|16:9`, `filtro = suave\|nitido\|lineas\|lineas+\|crt-mascara\|crt-rgb\|crt-svideo\|crt-compuesto` , `densidad = normal\|fina`, `idioma = es\|en\|fr\|de\|it\|pt` e `interpolacion = no\|geometria` | Fondo animado del menú, contador de velocidad en el juego, si «Salir» del menú de pausa pregunta antes (sí sin la línea), aspecto, filtro, idioma e interpolación. Lo escriben el menú (Opciones) y SELECT + △ |
-| `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `accesorio` = `controller-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM) y «Imagen» del menú de pausa |
+| `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `escala-estable` = `1` a `5` o `ninguna`; `accesorio` = `controller-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM), «Imagen» del menú de pausa y la escala automática cuando aprende un límite estable |
 | `descargas.cfg` | `activar = si` y direcciones | Enciende las descargas experimentales (sección «Descargas») |
 | `overscan.cfg` | Uno, dos o cuatro números: `8`, `8 6` o `izq der arr abajo` | Recorte de la imagen en píxeles de la N64 (a 320 × 240) por lado. Por omisión `8 6`; `0` lo apaga; máximo 64. Lo escribe el menú (`0`, `8 6` o `16 12`) |
-| `video.cfg` | `salida = 720` o `1080`; `escala = auto` o `1` a `5` | Salida de video y escala interna del render de la N64 (se leen al arrancar). Sin archivo: 720p y escala automática (3×, 960 × 720; a 1080p, 4×, 1280 × 960). Si la tele o el XMB no aceptan 1080, usa el siguiente modo. Acepta el formato viejo de una línea (`1080` o `720`). Lo escribe el menú con «Resolución» y «Escala interna» |
+| `video.cfg` | `salida = 720` o `1080`; `escala = auto-N`, `auto` o `1` a `5` | Salida de video y escala interna del render de la N64 (se leen al arrancar). `auto-N` ajusta la escala sin pasar N; `auto` conserva la compatibilidad anterior (3× a 720p, 4× a 1080p). Sin archivo: 720p y `auto`. Si la tele o el XMB no aceptan 1080, usa el siguiente modo. Acepta el formato viejo de una línea (`1080` o `720`). Lo escribe el menú con «Resolución» y «Escala interna» |
+| `sin-escala-auto` | Basta con que exista | Diagnóstico: impide los cambios automáticos y conserva la escala máxima elegida para comparar; no afecta a las escalas fijas |
 | `controles.cfg` | Líneas `BOTON_N64 = BOTON_DS3`; `#` comenta | Mapeo del control (abajo) |
 | `guardado.cfg` | Líneas `CLAVE = tipo`; `#` comenta | Tipo de guardado por juego (abajo) |
 | `audio.cfg` | Líneas `clave = valor` | Audio (abajo) |

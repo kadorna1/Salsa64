@@ -1,5 +1,39 @@
 # Estado
 
+## 2026-10-23 — La escala elegida en la pausa queda por juego
+
+- Al cambiar «Escala interna» en «Imagen» se escribe de inmediato su modo
+  fijo o `auto-N`; ya no reaparece un valor fijo anterior al abrir la ROM.
+- La bajada automática conserva a la vez `escala = auto-N` y
+  `escala-estable = M`, y M se restaura como escala y techo aprendido.
+- El arranque registra si la elección viene del juego, de la global o de la
+  omisión, y si su modo es fijo o automático. Hay prueba de ida y vuelta
+  5× fija → automática hasta 5× → estable 4× → reapertura a techo 4×.
+
+## 2026-10-23 — La escala automática recuerda el límite estable
+
+- Pokémon Snap confirmó en la PS3 que 5× ocupa el 107,8 % del período y
+  corta, mientras 4× presenta 300/300 y el RSX tarda 5,2–7,4 ms. El coste no
+  crece de forma lineal con los píxeles, por lo que se quitó la subida basada
+  en un porcentaje de margen.
+- Al fallar una escala, el techo de esa apertura queda en la inmediatamente
+  inferior y no vuelve a probarla. Esa escala se guarda en el ajuste del
+  juego y es el punto de partida la próxima vez.
+- El log registra el arranque, cada bajada, la escritura del valor estable y
+  el techo vigente. Las pruebas reproducen Snap, el juego lento por CPU y el
+  tirón aislado. Host: 689/887798 sin fallos; build completo y
+  `test-phase2.sh` correctos.
+
+## 2026-10-23 — Escala interna automática según la carga del RSX
+
+- «Automática (hasta N×)» baja un paso tras 3 s con saltos, VI ≥ 92 % y
+  trabajo del RSX ≥ un período; nunca actúa si la emulación es el cuello.
+- La primera versión subía tras 10 s sin saltos y RSX < 60 %; la medición de
+  Snap mostró que ese criterio no predice el coste del paso siguiente.
+- La escala fija solo avisa; `sin-escala-auto` conserva el camino anterior.
+- El cambio pausa en el límite de campo y reutiliza la recreación en vivo de
+  destinos. Se añadieron series sintéticas de carga, margen y oscilación.
+
 ## 2026-10-22 — HLE de F3DEX2ACCLAIM
 
 - Encendida por omisión (`sin-acclaim` la apaga; host `SALSA64_GFX_ACCLAIM=0`).

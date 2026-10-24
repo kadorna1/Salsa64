@@ -135,13 +135,44 @@ static const char *resolution_name(int r)
 	return r == MENU_RES_1080P ? "1080p" : "720p";
 }
 
-/* «Auto (3×)», «1× nativa», «4×»... */
-const char *menu_scale_name(int scale, int resolution, char *buf, size_t n)
+bool menu_scale_is_auto(int scale)
+{
+	return scale == 0 || (scale > MENU_SCALE_AUTO_BASE && scale <= MENU_SCALE_VALUE_MAX);
+}
+
+int menu_scale_limit(int scale, int resolution)
 {
 	if (scale == 0)
-		snprintf(buf, n, "Auto (%d×)", resolution == MENU_RES_1080P ? 4 : 3);
+		return resolution == MENU_RES_1080P ? 4 : 3;
+	if (scale > MENU_SCALE_AUTO_BASE && scale <= MENU_SCALE_VALUE_MAX)
+		return scale - MENU_SCALE_AUTO_BASE;
+	return scale >= 1 && scale <= MENU_SCALE_MAX ? scale : 1;
+}
+
+int menu_scale_auto_value(int limit)
+{
+	return MENU_SCALE_AUTO_BASE + (limit < 1 ? 1 : limit > MENU_SCALE_MAX ? MENU_SCALE_MAX : limit);
+}
+
+/* El 0 antiguo se normaliza a su límite antes de avanzar. */
+int menu_scale_step(int scale, int resolution, int direction)
+{
+	int v = scale == 0 ? menu_scale_auto_value(menu_scale_limit(scale, resolution)) : scale;
+	if (v < 1 || v > MENU_SCALE_VALUE_MAX)
+		v = 1;
+	int limit = menu_scale_limit(v, resolution);
+	int slot = 2 * (limit - 1) + (menu_scale_is_auto(v) ? 1 : 0);
+	slot = (slot + (direction < 0 ? MENU_SCALE_VALUE_MAX - 1 : 1)) % MENU_SCALE_VALUE_MAX;
+	return slot & 1 ? menu_scale_auto_value(slot / 2 + 1) : slot / 2 + 1;
+}
+
+/* «Automática (hasta 3×)», «1× nativa», «4×»... */
+const char *menu_scale_name(int scale, int resolution, char *buf, size_t n)
+{
+	if (menu_scale_is_auto(scale))
+		snprintf(buf, n, tr("Automática (hasta %d×)"), menu_scale_limit(scale, resolution));
 	else if (scale == 1)
-		snprintf(buf, n, "1× nativa");
+		snprintf(buf, n, "%s", tr("1× nativa"));
 	else
 		snprintf(buf, n, "%d×", scale);
 	return buf;
@@ -219,6 +250,7 @@ void menu_settings_parse(struct menu_settings *s, const char *text, size_t len)
 void menu_game_default(struct menu_game *g)
 {
 	g->aspect = g->filter = g->overscan = g->scale = g->density = g->interp = -1;
+	g->stable_scale = 0;
 	g->accessory = MENU_ACC_PAK;
 	salsa64_padmap_inherit(&g->controls);
 }
@@ -255,7 +287,11 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 				      : !strcmp(val, "amplio") ? MENU_OVERSCAN_WIDE : -1;
 		} else if (!strcmp(key, "escala")) {
 			g->scale = !strcmp(val, "auto") ? 0
+				   : !strncmp(val, "auto-", 5) && val[5] >= '1' && val[5] <= '0' + MENU_SCALE_MAX && !val[6]
+					     ? menu_scale_auto_value(val[5] - '0')
 				   : val[0] >= '1' && val[0] <= '0' + MENU_SCALE_MAX && !val[1] ? val[0] - '0' : -1;
+		} else if (!strcmp(key, "escala-estable")) {
+			g->stable_scale = val[0] >= '1' && val[0] <= '0' + MENU_SCALE_MAX && !val[1] ? val[0] - '0' : 0;
 		} else if (!strcmp(key, "densidad")) {
 			g->density = -1;
 			for (int d = 0; d < MENU_DENSITIES; d++)
@@ -276,15 +312,16 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 {
 	static const char *const crop[] = { "apagado", "normal", "amplio" };
-	static const char *const scale[] = { "auto", "1", "2", "3", "4", "5" };
-	_Static_assert(sizeof scale / sizeof scale[0] == MENU_SCALE_MAX + 1, "una clave por escala");
+	static const char *const scale[] = { "auto", "1", "2", "3", "4", "5", "auto-1", "auto-2", "auto-3", "auto-4", "auto-5" };
+	_Static_assert(sizeof scale / sizeof scale[0] == MENU_SCALE_VALUE_MAX + 1, "una clave por escala");
 	int n = snprintf(buf, size,
 			"# Ajustes de este juego (global = los de Opciones)\naspecto = %s\nfiltro = %s\nrecorte = %s\nescala = %s\n"
-			"densidad = %s\ninterpolacion = %s\naccesorio = %s\n",
+			"escala-estable = %s\ndensidad = %s\ninterpolacion = %s\naccesorio = %s\n",
 			g->aspect == MENU_ASPECT_16_9 ? "16:9" : g->aspect == MENU_ASPECT_4_3 ? "4:3" : "global",
 			g->filter >= 0 && g->filter < MENU_FILTERS ? filter_key(g->filter) : "global",
 			g->overscan >= MENU_OVERSCAN_OFF && g->overscan <= MENU_OVERSCAN_WIDE ? crop[g->overscan] : "global",
-			g->scale >= 0 && g->scale <= MENU_SCALE_MAX ? scale[g->scale] : "global",
+			g->scale >= 0 && g->scale <= MENU_SCALE_VALUE_MAX ? scale[g->scale] : "global",
+			g->stable_scale >= 1 && g->stable_scale <= MENU_SCALE_MAX ? scale[g->stable_scale] : "ninguna",
 			g->density >= 0 && g->density < MENU_DENSITIES ? density_key[g->density] : "global",
 			g->interp >= 0 && g->interp < MENU_INTERPS ? interp_key[g->interp] : "global",
 			g->accessory == MENU_ACC_NONE ? "ninguno" : "controller-pak");
@@ -292,6 +329,14 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 		return -1;
 	int k = salsa64_padmap_format(&g->controls, buf + n, size - (size_t)n, 1);
 	return k < 0 ? -1 : n + k;
+}
+
+bool menu_game_scale_set(struct menu_game *g, int scale)
+{
+	if (!g || scale < 0 || scale > MENU_SCALE_VALUE_MAX)
+		return false;
+	g->scale = scale;
+	return true;
 }
 
 int menu_game_density(const struct menu_settings *s, const struct menu_game *g)
@@ -338,8 +383,9 @@ void menu_game_effective(const struct menu_settings *s, const struct menu_game *
 		*scale = g->scale >= 0 ? g->scale : s->scale;
 }
 
-void menu_video_parse(struct menu_settings *s, const char *text, size_t len)
+bool menu_video_parse(struct menu_settings *s, const char *text, size_t len)
 {
+	bool have_scale = false;
 	size_t i = 0;
 	while (i < len) {
 		size_t e = i;
@@ -371,12 +417,19 @@ void menu_video_parse(struct menu_settings *s, const char *text, size_t len)
 			else if (!strncmp(val, "720", 3))
 				s->resolution = MENU_RES_720P;
 		} else if (!strcmp(key, "escala")) {
-			if (!strcmp(val, "auto"))
+			if (!strcmp(val, "auto")) {
 				s->scale = 0;
-			else if (val[0] >= '1' && val[0] <= '5' && (!val[1] || (val[1] == 'x' && !val[2])))
+				have_scale = true;
+			} else if (!strncmp(val, "auto-", 5) && val[5] >= '1' && val[5] <= '5' && !val[6]) {
+				s->scale = menu_scale_auto_value(val[5] - '0');
+				have_scale = true;
+			} else if (val[0] >= '1' && val[0] <= '5' && (!val[1] || (val[1] == 'x' && !val[2]))) {
 				s->scale = val[0] - '0';
+				have_scale = true;
+			}
 		}
 	}
+	return have_scale;
 }
 
 int menu_video_format(const struct menu_settings *s, char *buf, size_t size)
@@ -384,8 +437,10 @@ int menu_video_format(const struct menu_settings *s, char *buf, size_t size)
 	char scale[8] = "auto";
 	if (s->scale >= 1 && s->scale <= 5)
 		snprintf(scale, sizeof scale, "%d", s->scale);
+	else if (s->scale > MENU_SCALE_AUTO_BASE && s->scale <= MENU_SCALE_VALUE_MAX)
+		snprintf(scale, sizeof scale, "auto-%d", s->scale - MENU_SCALE_AUTO_BASE);
 	return snprintf(buf, size,
-			"# Video de Salsa64 (se lee al arrancar)\n# salida = 720|1080; escala = auto|1|2|3|4|5\n"
+			"# Video de Salsa64 (se lee al arrancar)\n# escala = 1..5 fija, auto-N automática hasta N; auto conserva el valor anterior\n"
 			"salida = %s\nescala = %s\n",
 			s->resolution == MENU_RES_1080P ? "1080" : "720", scale);
 }
@@ -620,9 +675,8 @@ static enum menu_action options_buttons(struct menu *m, uint32_t pressed)
 	if (m->opt == MENU_OPT_APPLY && (pressed & BIT(SALSA64_DS3_CROSS)))
 		return MENU_APPLY;
 	if (m->opt == MENU_OPT_SCALE && (pressed & change)) {
-		/* Auto → 1× → ... → 5× → Auto (izquierda, al revés). */
-		int v = m->set.scale + (pressed & BIT(SALSA64_DS3_LEFT) ? 5 : 1);
-		m->set.scale = v % 6;
+		m->set.scale = menu_scale_step(m->set.scale, m->set.resolution,
+					       pressed & BIT(SALSA64_DS3_LEFT) ? -1 : 1);
 		return MENU_SETTINGS;
 	}
 	if (m->opt == MENU_OPT_FPS && (pressed & change)) {
@@ -777,10 +831,24 @@ static enum menu_action game_buttons(struct menu *m, uint32_t pressed)
 		 : m->game_sel == MENU_GAME_DENSITY ? &m->game.density
 		 : m->game_sel == MENU_GAME_SCALE ? &m->game.scale
 		 : m->game_sel == MENU_GAME_INTERP ? &m->game.interp : &m->game.overscan;
+	if (m->game_sel == MENU_GAME_SCALE) {
+		if (*v < 0)
+			*v = pressed & BIT(SALSA64_DS3_LEFT) ? MENU_SCALE_VALUE_MAX : 1;
+		else {
+			int normalized = *v == 0 ? menu_scale_auto_value(menu_scale_limit(*v, m->set.resolution)) : *v;
+			if ((pressed & BIT(SALSA64_DS3_LEFT)) && normalized == 1)
+				*v = -1;
+			else if (!(pressed & BIT(SALSA64_DS3_LEFT)) && normalized == MENU_SCALE_VALUE_MAX)
+				*v = -1;
+			else
+				*v = menu_scale_step(normalized, m->set.resolution,
+						     pressed & BIT(SALSA64_DS3_LEFT) ? -1 : 1);
+		}
+		return MENU_GAME_CHANGED;
+	}
 	int count = m->game_sel == MENU_GAME_ASPECT ? 2
 		    : m->game_sel == MENU_GAME_FILTER ? MENU_FILTERS
 		    : m->game_sel == MENU_GAME_DENSITY ? MENU_DENSITIES
-		    : m->game_sel == MENU_GAME_SCALE ? MENU_SCALE_MAX + 1
 		    : m->game_sel == MENU_GAME_INTERP ? MENU_INTERPS : 3;
 	int slot = *v + 1;  /* 0 = global */
 	slot = (slot + (pressed & BIT(SALSA64_DS3_LEFT) ? count : 1)) % (count + 1);

@@ -198,6 +198,7 @@
 #include "cuelgue.h"
 #include "romlist.h"
 #include "savefile.h"
+#include "scale_auto.h"
 #include "mempakfile.h"
 #include "screenshot.h"
 #include "selftest.h"
@@ -231,6 +232,7 @@ SYS_PROCESS_PARAM(1001, 0x100000);
 #define MENU_IDLE_FIELDS 900  /* prueba automática: sin acción en tanto, falla */
 #define OVERSCAN_PATH SALSA64_DATA_DIR "/overscan.cfg"
 #define VIDEO_CFG_PATH SALSA64_DATA_DIR "/video.cfg"
+#define SCALE_AUTO_OFF_PATH SALSA64_DATA_DIR "/sin-escala-auto"
 /* Diagnóstico: con este archivo, el menú del sistema no pausa la emulación
  * (como hasta v0.1.0); los mandos siguen sueltos y el latido mira. */
 #define NO_PAUSE_PATH SALSA64_DATA_DIR "/sin-pausa"
@@ -2215,6 +2217,7 @@ static struct {
 	/* Estadísticas de la ventana en curso. */
 	uint64_t us_present, us_flip;
 	uint32_t presented, blank, rsx_frames, skipped;
+	uint64_t skipped_total;  /* no se vacía con la ventana de estadísticas */
 	/* Retraso de la presentación: campos que la emulación lleva de ventaja
 	 * al campo que se presenta (cola entre hilos), sumado y el mayor. */
 	uint64_t behind_sum;
@@ -2269,6 +2272,7 @@ static struct {
 	bool pending[RT_PAIRS];
 	uint32_t fence[RT_PAIRS];
 	uint64_t ns[RT_KINDS];
+	uint64_t total_ns[RT_KINDS];  /* desde el principio del juego */
 	uint32_t n[RT_KINDS];
 	int open;  /* par abierto, o -1 */
 } rt = { .open = -1 };
@@ -2283,6 +2287,7 @@ static void rt_collect(void)
 		if (b < a || b - a > 200000000u)
 			continue;
 		rt.ns[rt.kind[i]] += b - a;
+		rt.total_ns[rt.kind[i]] += b - a;
 		rt.n[rt.kind[i]]++;
 	}
 }
@@ -2583,6 +2588,18 @@ static struct {
 	struct menu_game game;
 	const char *source;
 } img;
+/* La política decide con muestras de un segundo. El cambio real se hace
+ * después de pausar en un límite de campo, por el mismo camino del menú. */
+#define PAUSE_SCALE_AUTO 0x10u
+static struct scale_auto scale_policy;
+static struct {
+	bool disabled;  /* SCALE_AUTO_OFF_PATH: comparación con el camino anterior */
+	bool pending;
+	uint64_t t0, rsx0, skipped0;
+	uint32_t fields0, presented0;
+	int from, to;
+	struct scale_auto_result reason;
+} auto_scale;
 /* La «t» de INTERP_TEST_PATH (al abrir el juego), o < 0 sin el archivo. */
 static float interp_test_t = -1.0f;
 /* Prueba de la interpolación cambiada en vivo (INTERP_ALT_PATH, al abrir el
@@ -2594,10 +2611,14 @@ static struct {
 	int stage;         /* 0 apagada; 1 esperando el campo; 2 pidiendo la pausa; 3 en pausa hasta t */
 	uint64_t t;
 } interp_alt;
-static int rdp_scale_req;  /* escala interna pedida al RDP ahora (0: automática) */
+static int rdp_scale_req;  /* escala interna explícita pedida al RDP ahora */
 static struct menu_settings video_cfg;  /* video y escala que corren (video.cfg al arrancar o lo último aplicado) */
+static bool video_scale_configured;     /* video.cfg traía una escala explícita */
 static int scale_wanted(void);
 static const char *scale_label(char *buf, size_t n);
+static void scale_control_configure(bool new_game);
+static void scale_control_sample(uint64_t now);
+static void scale_control_apply(void);
 
 static void present_overlay(uint64_t now)
 {
@@ -2667,6 +2688,7 @@ static void present_field(const struct field_msg *m, uint64_t now)
 		if (m->snap >= 0)
 			snap_cas(m->snap, SNAP_QUEUED, SNAP_FREE);
 		pres.skipped++;
+		pres.skipped_total++;
 		trace_vi_log(m, "saltado", 0, NULL, NULL, NULL, NULL);
 		cj_note_field(m, BB_FLD_SKIPPED);
 		return;
@@ -2678,6 +2700,7 @@ static void present_field(const struct field_msg *m, uint64_t now)
 		if (!have) {
 			/* Emulación la soltó al encolar un campo más nuevo. */
 			pres.skipped++;
+			pres.skipped_total++;
 			trace_vi_log(m, "copia descartada", 0, NULL, NULL, NULL, NULL);
 			cj_note_field(m, BB_FLD_SKIPPED);
 			return;
@@ -3644,6 +3667,8 @@ static void pause_update(void)
 	uint32_t want = pausectl_reasons(&pause_ctl), was = pause_req;
 	if (interp_alt.stage >= 2)
 		want |= PAUSECTL_MENU;  /* la pausa de la prueba (interp_alt_step) */
+	if (auto_scale.pending)
+		want |= PAUSE_SCALE_AUTO;
 	if (sys_no_pause)
 		want &= ~PAUSECTL_SYSTEM;
 	if (want == was)
@@ -3663,7 +3688,8 @@ static void pause_update(void)
 		salsa64_log("pausa: emulación detenida en el campo %u (%s%s%s%s)", n64.bus.vi.fields,
 			    want & PAUSECTL_SYSTEM ? "menú del sistema" : "",
 			    (want & PAUSECTL_SYSTEM) && (want & ~PAUSECTL_SYSTEM) ? " y " : "",
-			    want & PAUSECTL_CONFIRM ? "cuadro de salir" : "", want & PAUSECTL_PANEL ? "lista de trucos" : want & PAUSECTL_MENU ? "menú de pausa" : "");
+			    want & PAUSECTL_CONFIRM ? "cuadro de salir" : "", want & PAUSECTL_PANEL ? "lista de trucos" :
+			    want & PAUSECTL_MENU ? "menú de pausa" : want & PAUSE_SCALE_AUTO ? "escala automática" : "");
 	} else if (!want) {
 		if (scale_wanted() != rdp_scale_req)
 			image_scale_apply();  /* con la emulación todavía quieta */
@@ -3752,7 +3778,7 @@ static int menu_filter_crt(int filter, int density)
 		       : SALSA64_CRT_NONE;
 }
 
-/* Pide al RDP la escala interna `scale` (0: automática) si no es la que
+/* Pide al RDP la escala interna `scale` si no es la que
  * tiene: sin juego corriendo o con la emulación quieta en el límite de un
  * campo (salsa64_rdp_set_scale suelta los destinos; el juego los vuelve a
  * crear a la escala nueva en su cuadro siguiente). */
@@ -3764,29 +3790,145 @@ static void rdp_scale_set(int scale, const char *why)
 	salsa64_rdp_set_scale((uint32_t)scale);
 	rdp_scale_req = scale;
 	uint32_t es = salsa64_rdp_scale(&cut);
-	salsa64_log("escala interna: %u× (%s%s), %s", es, scale ? "pedida" : "automática",
-		    cut ? ", reducida por memoria del RSX" : "", why);
+	salsa64_log("escala interna: %u× (pedida%s), %s", es, cut ? ", reducida por memoria del RSX" : "", why);
 }
 
-/* Si la escala elegida (img.scale; 0 automática) pasa de CRT_SCALE_MAX con
+/* Si el límite elegido pasa de CRT_SCALE_MAX con
  * un CRT en pantalla (o con el ciclo de medición, que los pasa todos). */
 static bool scale_capped(void)
 {
 	bool crt = !filter_tests() && (flt.cycle || flt.cur != SALSA64_CRT_NONE);
-	int chosen = img.scale ? img.scale : video_cfg.resolution == MENU_RES_1080P ? 4 : 3;  /* menu_scale_name */
+	int chosen = menu_scale_limit(img.scale, video_cfg.resolution);
 	return crt && chosen > CRT_SCALE_MAX;
 }
 
-/* La escala que se le pide al RDP: la elegida o, con un CRT, el tope. */
-static int scale_wanted(void)
+static int scale_limit(void)
 {
-	return scale_capped() ? CRT_SCALE_MAX : img.scale;
+	return scale_capped() ? CRT_SCALE_MAX : menu_scale_limit(img.scale, video_cfg.resolution);
 }
 
-/* La escala para mostrar: la elegida o «3× (tope con CRT)». */
+/* La escala que se le pide al RDP: la fija o la que lleva la política. */
+static int scale_wanted(void)
+{
+	return scale_policy.maximum ? scale_policy.current : scale_limit();
+}
+
+/* La escala para mostrar: la fija, o la actual y el máximo de la automática. */
 static const char *scale_label(char *buf, size_t n)
 {
-	return scale_capped() ? "3× (tope con CRT)" : menu_scale_name(img.scale, video_cfg.resolution, buf, n);
+	if (menu_scale_is_auto(img.scale)) {
+		snprintf(buf, n, tr("Automática: %d× (hasta %d×)"), scale_wanted(),
+			 menu_scale_limit(img.scale, video_cfg.resolution));
+		return buf;
+	}
+	return scale_capped() ? tr("3× (tope con CRT)") : menu_scale_name(img.scale, video_cfg.resolution, buf, n);
+}
+
+static void scale_control_configure(bool new_game)
+{
+	unsigned maximum = (unsigned)scale_limit();
+	bool automatic = menu_scale_is_auto(img.scale) && !auto_scale.disabled;
+	bool learned = automatic && img.game.stable_scale >= 1 && img.game.stable_scale <= MENU_SCALE_MAX;
+	unsigned start = learned ? (unsigned)img.game.stable_scale : maximum;
+	if (start > maximum)
+		start = maximum;
+	if (new_game || !scale_policy.maximum) {
+		scale_auto_init(&scale_policy, automatic, start, maximum);
+	} else {
+		bool was_automatic = scale_policy.automatic;
+		scale_policy.automatic = automatic;
+		scale_policy.maximum = (uint8_t)maximum;
+		if (!automatic) {
+			scale_policy.ceiling = (uint8_t)maximum;
+			scale_policy.failed = false;
+		} else if (learned) {
+			scale_policy.ceiling = (uint8_t)start;
+			scale_policy.failed = start < maximum;
+		} else if (!was_automatic || !scale_policy.failed) {
+			scale_policy.ceiling = (uint8_t)maximum;
+			scale_policy.failed = false;
+		}
+		unsigned wanted = automatic ? start : maximum;
+		unsigned ceiling = scale_auto_ceiling(&scale_policy);
+		if (wanted > ceiling)
+			wanted = ceiling;
+		scale_policy.current = (uint8_t)(!automatic || wanted > maximum ? maximum : wanted);
+		scale_policy.overload_us = 0;
+	}
+	auto_scale.pending = false;
+	auto_scale.t0 = 0;
+}
+
+static void scale_control_sample(uint64_t now)
+{
+	if (auto_scale.disabled || auto_scale.pending || pause_req || state_req || state_parked || filter_tests() ||
+	    !pacer.enabled) {
+		auto_scale.t0 = 0;
+		scale_policy.overload_us = 0;
+		return;
+	}
+	rt_collect();
+	uint64_t rsx = rt.total_ns[RT_EMU] + rt.total_ns[RT_PRES];
+	if (!auto_scale.t0) {
+		auto_scale.t0 = now;
+		auto_scale.rsx0 = rsx;
+		auto_scale.skipped0 = pres.skipped_total;
+		auto_scale.fields0 = n64.bus.vi.fields;
+		auto_scale.presented0 = pres.frames_total;
+		return;
+	}
+	uint64_t dt = now - auto_scale.t0;
+	if (dt < 1000000u)
+		return;
+	struct scale_auto_sample s = {
+		.duration_us = dt,
+		.rsx_ns = rsx - auto_scale.rsx0,
+		.period_ns = (n64.bus.vi.field_cycles * 32u + 2u) / 3u,
+		.fields = n64.bus.vi.fields - auto_scale.fields0,
+		.presented = pres.frames_total - auto_scale.presented0,
+		.skipped = (uint32_t)(pres.skipped_total - auto_scale.skipped0),
+	};
+	auto_scale.t0 = now;
+	auto_scale.rsx0 = rsx;
+	auto_scale.skipped0 = pres.skipped_total;
+	auto_scale.fields0 = n64.bus.vi.fields;
+	auto_scale.presented0 = pres.frames_total;
+	int from = scale_policy.current;
+	struct scale_auto_result r = scale_auto_update(&scale_policy, &s);
+	if (r.action == SCALE_AUTO_DOWN) {
+		auto_scale.pending = true;
+		auto_scale.from = from;
+		auto_scale.to = scale_policy.current;
+		auto_scale.reason = r;
+		salsa64_log("escala automática: %d× → %d×, sin margen tras %.1f s (VI %.1f %%, RSX %.1f %% del período, "
+			    "%u presentados, %u saltados); techo vigente %u×", from, scale_policy.current,
+			    r.sustained_us / 1e6, r.emu_pm / 10.0, r.rsx_pm / 10.0, s.presented, s.skipped,
+			    scale_auto_ceiling(&scale_policy));
+	} else if (r.action == SCALE_AUTO_WARN) {
+		salsa64_log("escala fija %d×: el RSX no alcanza tras %.1f s (VI %.1f %%, RSX %.1f %% del período, "
+			    "%u presentados, %u saltados); se conserva la elección", scale_wanted(),
+			    r.sustained_us / 1e6, r.emu_pm / 10.0, r.rsx_pm / 10.0, s.presented, s.skipped);
+		osd_notice(now, "%s", tr("El RSX no alcanza; prueba una escala menor"));
+	}
+}
+
+static void scale_control_apply(void)
+{
+	if (!auto_scale.pending || !emu_paused)
+		return;
+	rdp_scale_set(auto_scale.to, "escala automática, RSX sin margen");
+	img.game.stable_scale = auto_scale.to;
+	if (img.source) {
+		bool saved = game_cfg_write(img.source, &img.game);
+		salsa64_log("escala automática: estable %d× %s para este juego; techo vigente %u×", auto_scale.to,
+			    saved ? "guardada" : "NO guardada", scale_auto_ceiling(&scale_policy));
+	}
+	char notice[64];
+	snprintf(notice, sizeof notice, tr("Escala automática: %d×"), auto_scale.to);
+	osd_notice(sysGetSystemTime(), "%s", notice);
+	auto_scale.pending = false;
+	auto_scale.t0 = 0;
+	pause_update();
 }
 
 /* La interpolación de img (o la de la prueba, INTERP_TEST_PATH) al RDP. La
@@ -3825,9 +3967,8 @@ static void view_apply(void)
 
 static void view_log(const char *what)
 {
-	char sc[16] = "automática";
-	if (img.scale)
-		snprintf(sc, sizeof sc, "%d×", img.scale);
+	char sc[64];
+	menu_scale_name(img.scale, video_cfg.resolution, sc, sizeof sc);
 	salsa64_log("imagen: %s, filtro %s%s%s, recorte %u %u %u %u, escala %s%s%s%s",
 		    img.aspect == MENU_ASPECT_16_9 ? "16:9 estirada" : "4:3", menu_filter_name(img.filter),
 		    menu_filter_has_density(img.filter) ? ", densidad " : "",
@@ -3882,6 +4023,17 @@ static void load_view(const char *source)
 			 : "");
 }
 
+static bool image_scale_save(void)
+{
+	if (!menu_game_scale_set(&img.game, img.scale) || !img.source)
+		return false;
+	bool ok = game_cfg_write(img.source, &img.game);
+	char name[32];
+	menu_scale_name(img.scale, video_cfg.resolution, name, sizeof name);
+	salsa64_log("imagen: escala %s %s para este juego", name, ok ? "guardada" : "NO guardada");
+	return ok;
+}
+
 /* «Guardar para este juego»: en juegos/<ROM>.cfg lo que se ve. Lo que
  * coincide con lo global y el juego no tenía propio queda «global» (sigue
  * a Opciones); un recorte personalizado de overscan.cfg, también. */
@@ -3934,7 +4086,10 @@ static void image_events(void)
 							  : (img.crop + k + 3) % 3;
 		break;
 	case IM_SCALE:
-		img.scale = (img.scale + k + MENU_SCALE_MAX + 1) % (MENU_SCALE_MAX + 1);
+		img.scale = menu_scale_step(img.scale, video_cfg.resolution, k);
+		if (!image_scale_save() && img.source)
+			osd_notice(sysGetSystemTime(), "No se pudo guardar la escala");
+		scale_control_configure(false);
 		return;  /* al seguir */
 	case IM_INTERP:
 		img.interp = (img.interp + k + MENU_INTERPS) % MENU_INTERPS;
@@ -3946,6 +4101,7 @@ static void image_events(void)
 		return;
 	}
 	view_apply();
+	scale_control_configure(false);
 	view_log(" (menú de pausa)");
 }
 
@@ -3957,13 +4113,12 @@ static void image_scale_apply(void)
 		sysUsleep(2000);  /* una pausa cortísima: que termine su campo */
 	if (!emu_paused) {
 		salsa64_log("escala interna: la emulación no se detuvo; queda %d", rdp_scale_req);
-		if (!scale_capped())
-			img.scale = rdp_scale_req;
 		return;
 	}
 	rdp_scale_set(scale_wanted(), scale_capped() ? "menú de pausa, tope de 3× con un CRT" : "menú de pausa");
-	char sbuf[24];
-	osd_notice(sysGetSystemTime(), "Escala interna: %s", tr(scale_label(sbuf, sizeof sbuf)));
+	char sbuf[64], notice[96];
+	snprintf(notice, sizeof notice, tr("Escala interna: %s"), scale_label(sbuf, sizeof sbuf));
+	osd_notice(sysGetSystemTime(), "%s", notice);
 }
 
 /* INTERP_ALT_PATH: lo mismo que hace el autor desde «Imagen» en el menú de
@@ -3986,6 +4141,7 @@ static void interp_alt_step(void)
 		if (interp_alt.scale[0] > 0)
 			img.scale = img.scale == interp_alt.scale[0] ? interp_alt.scale[1] : interp_alt.scale[0];
 		view_apply();
+		scale_control_configure(false);
 		view_log(" (prueba, interp-alternar)");
 		interp_alt.toggles++;
 		interp_alt.t = now + INTERP_ALT_HOLD_US;
@@ -4048,11 +4204,16 @@ static void game_reset(void)
 	pres.shots = 0;
 	pres.us_present = pres.us_flip = 0;
 	pres.presented = pres.blank = pres.rsx_frames = pres.skipped = 0;
+	pres.skipped_total = 0;
 	pres.behind_sum = pres.behind_max = 0;
 	pres.last_origin = pres.game_frames = pres.frames_total = 0;
 	pres.still = STILL_NONE;
 	pres.t_flip = 0;
 	pres.still_frames = 0;
+	memset(&rt, 0, sizeof rt);
+	rt.open = -1;
+	memset(&scale_policy, 0, sizeof scale_policy);
+	memset(&auto_scale, 0, sizeof auto_scale);
 	pause_req = 0;
 	emu_paused = 0;
 	pausectl_game_end(&pause_ctl);
@@ -4837,6 +4998,15 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	load_overscan();
 	load_view(source);
 	filter_setup(view_crt);  /* antes de la escala: el CRT la limita */
+	auto_scale.disabled = file_exists(SCALE_AUTO_OFF_PATH);
+	scale_control_configure(true);
+	const char *scale_origin = img.game.scale >= 0 ? "por juego" : video_scale_configured ? "global" : "por omisión";
+	const char *scale_mode = menu_scale_is_auto(img.scale) ? "automática" : "fija";
+	salsa64_log("escala interna: %s, modo %s%s, arranca en %d×, máximo %d×, techo vigente %u×; "
+		    "baja tras 3 s con VI ≥ 92 %% y RSX ≥ 100 %%; no sube automáticamente",
+		    scale_origin, scale_mode, auto_scale.disabled && menu_scale_is_auto(img.scale)
+					       ? " (control apagado por sin-escala-auto)" : "",
+		    scale_policy.current, scale_policy.maximum, scale_auto_ceiling(&scale_policy));
 	rdp_scale_set(scale_wanted(), scale_capped() ? "al abrir el juego, tope de 3× con un CRT" : "al abrir el juego");
 	load_cheats(source);
 	if (selftest_on)
@@ -5024,7 +5194,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		snprintf(err, err_size, "No se pudo crear el hilo de emulación");
 		emu_done = 1;
 		game_close();
-		rdp_scale_set(video_cfg.scale, "vuelve la global");
+		rdp_scale_set(menu_scale_limit(video_cfg.scale, video_cfg.resolution), "vuelve la global");
 		return GAME_FAILED;
 	}
 	cuelgue_reset(&cuelgue);
@@ -5092,6 +5262,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 				beat.pres_at = "barrera";
 				state_barrier();
 			}
+			scale_control_apply();
 		} else {
 			beat.pres_at = "sistema encima";
 		}
@@ -5107,6 +5278,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		cajanegra_pump(now);
 		if (fps.on)
 			osd_fps_sample(&fps, now, n64.bus.vi.fields, n64.cpu.cycles, pres.game_frames, pres.frames_total);
+		scale_control_sample(now);
 		stats(now);
 	}
 	beat.pres_at = "cierre";
@@ -5132,7 +5304,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	emu_live = 0;
 	drain(sysGetSystemTime(), 0);
 	game_close();
-	rdp_scale_set(video_cfg.scale, "vuelve la global");  /* la de un juego o la del menú de pausa */
+	rdp_scale_set(menu_scale_limit(video_cfg.scale, video_cfg.resolution), "vuelve la global");
 	if (restart_cold && !app_quit)
 		return GAME_RESTART;
 	return app_quit || !in_menu ? GAME_QUIT : GAME_TO_MENU;
@@ -5169,7 +5341,7 @@ static const char *const rom_dirs[] = {
 };
 _Static_assert(sizeof rom_dirs / sizeof rom_dirs[0] == ROMLIST_SOURCES_MAX, "capacidad por cada ubicación de ROMs");
 
-static void video_load(struct menu_settings *set);
+static bool video_load(struct menu_settings *set);
 static void video_save(const struct menu_settings *set);
 
 static struct romlist *roms;
@@ -5350,8 +5522,9 @@ static void menu_apply_video(void)
 		snprintf(menu.note, sizeof menu.note, tr("No se pudo: sigue %ux%u"), old_w, old_h);
 		return;
 	}
-	salsa64_rdp_set_scale((uint32_t)want.scale);
-	rdp_scale_req = want.scale;
+	int requested_scale = menu_scale_limit(want.scale, want.resolution);
+	salsa64_rdp_set_scale((uint32_t)requested_scale);
+	rdp_scale_req = requested_scale;
 	bool cut;
 	uint32_t es = salsa64_rdp_scale(&cut);
 	video_cfg.resolution = want.resolution;
@@ -5364,7 +5537,8 @@ static void menu_apply_video(void)
 	menu.scale_run = want.scale;
 	snprintf(menu.note, sizeof menu.note, tr("Aplicado: %ux%u, escala %u×"), sc->width, sc->height, es);
 	salsa64_log("video: %ux%u, escala %u× (%s%s), aplicado sin reiniciar", sc->width, sc->height, es,
-		    want.scale ? "pedida" : "automática", cut ? ", reducida por memoria del RSX" : "");
+		    menu_scale_is_auto(want.scale) ? "máximo automático" : "pedida",
+		    cut ? ", reducida por memoria del RSX" : "");
 	if (want.resolution == MENU_RES_1080P && sc->height != 1080)
 		salsa64_log("video: se pidió 1080p y la tele dio %ux%u", sc->width, sc->height);
 }
@@ -6023,7 +6197,7 @@ static const int32_t modes_1080[] = {
 	VIDEO_RESOLUTION_1080, VIDEO_RESOLUTION_720, VIDEO_RESOLUTION_480, VIDEO_RESOLUTION_576,
 };
 
-static void video_load(struct menu_settings *set)
+static bool video_load(struct menu_settings *set)
 {
 	char text[256];
 	size_t n = 0;
@@ -6032,7 +6206,7 @@ static void video_load(struct menu_settings *set)
 		n = fread(text, 1, sizeof text - 1, f);
 		fclose(f);
 	}
-	menu_video_parse(set, text, n);
+	return menu_video_parse(set, text, n);
 }
 
 /* Opciones «Resolución» y «Escala interna» del menú: video.cfg con
@@ -6048,6 +6222,8 @@ static void video_save(const struct menu_settings *set)
 		ok = false;
 	if (!ok)
 		salsa64_log("menú: no se pudo escribir %s", VIDEO_CFG_PATH);
+	else
+		video_scale_configured = true;
 }
 
 static const rsxkit_config *video_config_for(int resolution, rsxkit_config *cfg)
@@ -6156,7 +6332,7 @@ int main(int argc, char **argv)
 	pausectl_init(&pause_ctl, true);
 
 	menu_settings_default(&video_cfg);
-	video_load(&video_cfg);
+	video_scale_configured = video_load(&video_cfg);
 	rsxkit_config vcfg;
 	const rsxkit_config *vc = video_config_for(video_cfg.resolution, &vcfg);
 	int rc = rsxkit_init(vc);
@@ -6171,8 +6347,8 @@ int main(int argc, char **argv)
 	const rsxkit_screen *sc = rsxkit_screen_info();
 	salsa64_log("RSX listo: %ux%u, tele %s%s", sc->width, sc->height, sc->aspect > 1.5f ? "16:9" : "4:3",
 		    vc ? " (video.cfg: 1080)" : "");
-	rdp_scale_req = video_cfg.scale;
-	if ((rc = salsa64_rdp_init((uint32_t)video_cfg.scale)) != RSXKIT_OK) {
+	rdp_scale_req = menu_scale_limit(video_cfg.scale, video_cfg.resolution);
+	if ((rc = salsa64_rdp_init((uint32_t)rdp_scale_req)) != RSXKIT_OK) {
 		salsa64_log("RESULTADO frontend: FALLO al preparar el RDP (%d)", rc);
 		rsxkit_shutdown();
 		salsa64_log_shutdown();
@@ -6182,7 +6358,8 @@ int main(int argc, char **argv)
 		bool cut;
 		uint32_t es = salsa64_rdp_scale(&cut);
 		salsa64_log("RDP listo: escala-objetivo %u× (%u líneas por imagen; cada destino, la entera que llega ahí), %s%s", es, 240 * es,
-			    video_cfg.scale ? "pedida" : "automática", cut ? ", reducida por memoria del RSX" : "");
+			    menu_scale_is_auto(video_cfg.scale) ? "máximo automático" : "pedida",
+			    cut ? ", reducida por memoria del RSX" : "");
 	}
 	rdp_sink = salsa64_rdp_sink();
 

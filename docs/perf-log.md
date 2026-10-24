@@ -1,5 +1,20 @@
 # Registro de rendimiento
 
+## 2026-10-23 — Pokémon Snap: límite estable de la escala automática (PS3 real)
+
+Revisión `18ea16f`, automática hasta 5×. En la escena de la introducción,
+5× perdió margen: la decisión de bajar llegó tras 3,0 s con VI al 92,7 %,
+RSX al 107,8 % del período, cero presentados y 56 saltados en la última
+ventana. Esos tres segundos de arranque fueron visibles como cortes.
+
+A 4×, las dos ventanas siguientes de cinco segundos presentaron 300/300 y
+299/299 campos, sin saltos. La presentación del RSX midió 5,2 y 7,4 ms por
+campo, aproximadamente 31–44 % del período. El paso 4×→5× no sigue el
+crecimiento de píxeles ni se puede predecir con el umbral anterior del 60 %:
+volver a subir habría repetido los cortes. Por ello la política nueva solo
+baja, recuerda 4× para ese juego y no vuelve a intentar una escala fallida
+mientras permanece abierto. Falta confirmar el nuevo arranque en la PS3.
+
 ## 2026-10-21 — Battle for Naboo: coste medido sin comparación A/B (PS3)
 
 Revisión `7c723d3`, imagen Factor 5 Indy, escala 1× sin filtro. El autor
