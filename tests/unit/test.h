@@ -145,7 +145,6 @@ void t_suite_cheats(void);
 void t_suite_cover(void);
 void t_suite_dlutil(void);
 void t_suite_i18n(void);
-void t_suite_lod(void);
 void t_suite_cuelgue(void);
 void t_suite_scale_auto(void);
 

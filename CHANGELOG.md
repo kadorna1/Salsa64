@@ -11,8 +11,6 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ### Fixed
 - Match the host graphics command buffers to the 1280 KiB capacity used by the application.
 - **Star Wars: Shadows of the Empire:** recognize its Fast3D quadrilateral variant so the intro and gameplay geometry is rendered instead of a black screen.
-- Added optional per-pixel N64 texture LOD with consecutive TMEM levels and `LOD_FRACTION` combiner input.
-- Added an optional N64 three-point texture filter; it disables presentation filters while active and restores them when returning to RSX bilinear filtering.
 
 ## [0.2.10] — 2026-10-22
 

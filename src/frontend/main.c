@@ -270,8 +270,6 @@ SYS_PROCESS_PARAM(1001, 0x100000);
 #define FILTER_SHOTS_PATH  SALSA64_DATA_DIR "/filtros-capturas"
 #define FILTER_REDUCE_PATH SALSA64_DATA_DIR "/filtros-reducir"
 #define FILTER_SPE_PATH    SALSA64_DATA_DIR "/filtros-spe"
-#define TEXTURE_N64_PATH   SALSA64_DATA_DIR "/texturas-n64"
-#define TEXTURE_LOD_PATH   SALSA64_DATA_DIR "/texturas-lod"
 #define FILTER_CYCLE_US    20000000u
 /* Preparar un filtro que tarde más que esto (ms) se avisa en pantalla. */
 #define FILTER_NOTICE_MS   33u
@@ -2585,8 +2583,7 @@ static struct salsa64_vi_frame still_f;  /* lo último presentado, para su recor
  * global de cada uno (Opciones) y los ajustes del juego como están en
  * juegos/<ROM>.cfg. Sin `source` (las pruebas) no se guardan. */
 static struct {
-	int aspect, filter, crop, scale, density, interp, texture;
-	bool lod;
+	int aspect, filter, crop, scale, density, interp;
 	int g_aspect, g_filter, g_crop, g_scale, g_density, g_interp;
 	struct menu_game game;
 	const char *source;
@@ -2642,14 +2639,13 @@ static void present_overlay(uint64_t now)
 		osd_pause_menu_draw(&pm, ui_lw, ui_lh);
 	} else if (pause_ctl.image) {
 		char sbuf[24];
-		struct osd_image_menu im = { .sel = pause_ctl.image_sel,
-			.value = { img.texture == MENU_TEXTURE_N64 ? "Deshabilitado" : menu_filter_name(img.filter),
-				   menu_texture_filter_name(img.texture), img.lod ? "Activado" : "Desactivado",
-				   menu_density_name(img.density), menu_aspect_name(img.aspect),
-				   menu_overscan_name(img.crop), scale_label(sbuf, sizeof sbuf), menu_interp_name(img.interp) },
-			.density = img.texture != MENU_TEXTURE_N64 && menu_filter_has_density(img.filter),
-			.scale_pending = scale_wanted() != rdp_scale_req, .can_save = img.source != NULL,
-			.credit = menu_filter_credit(img.filter), .filter_disabled = img.texture == MENU_TEXTURE_N64 };
+		struct osd_image_menu im = {
+			pause_ctl.image_sel,
+			{ menu_filter_name(img.filter), menu_density_name(img.density), menu_aspect_name(img.aspect),
+			  menu_overscan_name(img.crop), scale_label(sbuf, sizeof sbuf), menu_interp_name(img.interp) },
+			menu_filter_has_density(img.filter),
+			scale_wanted() != rdp_scale_req, img.source != NULL, menu_filter_credit(img.filter),
+		};
 		osd_image_menu_draw(&im, ui_lw, ui_lh);
 	} else if (pause_ctl.dialog)
 		osd_confirm_draw(pause_ctl.dialog_for == PAUSECTL_RESET ? "¿Seguro? Reiniciar (botón Reset)" :
@@ -3769,7 +3765,6 @@ static bool game_cfg_write(const char *rom, const struct menu_game *g)
 
 /* El CRT de view_apply (filter_setup lo pone al abrir el juego). */
 static int view_crt;
-static bool texture_filters_logged;
 
 /* El filtro CRT (enum salsa64_crt) de un filtro del menú y su densidad (la
  * máscara fina es otro filtro para frontend/filters); SALSA64_CRT_NONE para
@@ -3956,22 +3951,12 @@ static void interp_apply(void)
  * recorte e interpolación. La escala va aparte (rdp_scale_set). */
 static void view_apply(void)
 {
-	bool n64 = img.texture == MENU_TEXTURE_N64;
-	int filter = n64 ? MENU_FILTER_SMOOTH : img.filter;
 	pres.view.aspect = img.aspect == MENU_ASPECT_16_9 ? 16.0f / 9.0f : 4.0f / 3.0f;
-	pres.view.filter = filter == MENU_FILTER_SHARP ? RSXKIT_FILTER_NEAREST : RSXKIT_FILTER_LINEAR;
-	scan_level = filter == MENU_FILTER_SCAN_SOFT ? 1 : filter == MENU_FILTER_SCAN_STRONG ? 2 : 0;
-	view_crt = menu_filter_crt(filter, img.density);
-	pause_ctl.image_density = !n64 && menu_filter_has_density(img.filter);
+	pres.view.filter = img.filter == MENU_FILTER_SHARP ? RSXKIT_FILTER_NEAREST : RSXKIT_FILTER_LINEAR;
+	scan_level = img.filter == MENU_FILTER_SCAN_SOFT ? 1 : img.filter == MENU_FILTER_SCAN_STRONG ? 2 : 0;
+	view_crt = menu_filter_crt(img.filter, img.density);
+	pause_ctl.image_density = menu_filter_has_density(img.filter);
 	filter_select(view_crt);
-	salsa64_rdp_texture_3point(n64);
-	salsa64_rdp_texture_lod(img.lod);
-	if (n64 != texture_filters_logged) {
-		salsa64_log(n64 ? "texturas: N64 (3 puntos); filtro de pantalla «%s» desactivado"
-				 : "texturas: RSX (bilineal); filtro de pantalla «%s» restaurado",
-			    menu_filter_name(img.filter));
-		texture_filters_logged = n64;
-	}
 	if (img.crop >= MENU_OVERSCAN_OFF && img.crop <= MENU_OVERSCAN_WIDE) {
 		uint32_t h = img.crop == MENU_OVERSCAN_WIDE ? 16 : img.crop == MENU_OVERSCAN_NORMAL ? 8 : 0;
 		overscan.left = overscan.right = h;
@@ -3984,13 +3969,10 @@ static void view_log(const char *what)
 {
 	char sc[64];
 	menu_scale_name(img.scale, video_cfg.resolution, sc, sizeof sc);
-	salsa64_log("imagen: %s, filtro %s%s%s%s, texturas %s, LOD %s, recorte %u %u %u %u, escala %s%s%s%s",
+	salsa64_log("imagen: %s, filtro %s%s%s, recorte %u %u %u %u, escala %s%s%s%s",
 		    img.aspect == MENU_ASPECT_16_9 ? "16:9 estirada" : "4:3", menu_filter_name(img.filter),
 		    menu_filter_has_density(img.filter) ? ", densidad " : "",
 		    menu_filter_has_density(img.filter) ? (img.density == MENU_DENSITY_FINE ? "fina" : "normal") : "",
-		    img.texture == MENU_TEXTURE_N64 ? " (deshabilitado)" : "",
-		    img.texture == MENU_TEXTURE_N64 ? "N64 (3 puntos)" : "RSX (bilineal)",
-		    img.lod ? "activo" : "apagado",
 		    overscan.left, overscan.right, overscan.top, overscan.bottom, sc,
 		    scale_capped() ? " (con el CRT, 3×)" : "",
 		    img.interp == MENU_INTERP_GEOMETRY ? ", interpolación por geometría" : "", what);
@@ -4033,14 +4015,10 @@ static void load_view(const char *source)
 	menu_game_effective(&s, &g, &img.aspect, &img.filter, &img.crop, &img.scale);
 	img.density = menu_game_density(&s, &g);
 	img.interp = menu_game_interp(&s, &g);
-	img.texture = g.texture == MENU_TEXTURE_N64 || (source && file_exists(TEXTURE_N64_PATH))
-			      ? MENU_TEXTURE_N64 : MENU_TEXTURE_RSX;
-	img.lod = g.lod || (source && file_exists(TEXTURE_LOD_PATH));
 	view_apply();
 	scan_r.w = 0;
 	scan_lines = 0;
-	view_log(g.aspect >= 0 || g.filter >= 0 || g.overscan >= 0 || g.scale >= 0 || g.interp >= 0 ||
-			 g.texture == MENU_TEXTURE_N64 || g.lod
+	view_log(g.aspect >= 0 || g.filter >= 0 || g.overscan >= 0 || g.scale >= 0 || g.interp >= 0
 			 ? " (con ajustes de este juego)"
 			 : "");
 }
@@ -4073,14 +4051,12 @@ static void image_save(void)
 	g.scale = img.scale == img.g_scale && img.game.scale < 0 ? -1 : img.scale;
 	g.density = img.density == img.g_density && img.game.density < 0 ? -1 : img.density;
 	g.interp = img.interp == img.g_interp && img.game.interp < 0 ? -1 : img.interp;
-	g.texture = img.texture;
-	g.lod = img.lod;
 	bool ok = game_cfg_write(img.source, &g);
 	if (ok)
 		img.game = g;
 	salsa64_log("imagen: ajustes de este juego %s (aspecto %d, filtro %d, densidad %d, recorte %d, escala %d, "
-		    "interpolación %d, texturas %d, LOD %d)", ok ? "guardados" : "NO guardados", g.aspect, g.filter, g.density,
-		    g.overscan, g.scale, g.interp, g.texture, g.lod);
+		    "interpolación %d)", ok ? "guardados" : "NO guardados", g.aspect, g.filter, g.density, g.overscan,
+		    g.scale, g.interp);
 	osd_notice(now, ok ? "Ajustes guardados para este juego" : "No se pudieron guardar los ajustes");
 }
 
@@ -4096,17 +4072,7 @@ static void image_events(void)
 	pause_ctl.image_do = -1;
 	switch (d) {
 	case IM_FILTER:
-		if (img.texture == MENU_TEXTURE_N64) {
-			osd_notice(sysGetSystemTime(), "Filtro de pantalla desactivado con texturas N64");
-			return;
-		}
 		img.filter = (img.filter + k + MENU_FILTERS) % MENU_FILTERS;
-		break;
-	case IM_TEXTURE:
-		img.texture = img.texture == MENU_TEXTURE_N64 ? MENU_TEXTURE_RSX : MENU_TEXTURE_N64;
-		break;
-	case IM_LOD:
-		img.lod = !img.lod;
 		break;
 	case IM_DENSITY:
 		img.density = (img.density + k + MENU_DENSITIES) % MENU_DENSITIES;

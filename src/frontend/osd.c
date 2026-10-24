@@ -215,8 +215,8 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 
 void osd_image_menu_draw(const struct osd_image_menu *m, float lw, float lh)
 {
-	static const char *const labels[IM_ROWS] = { "Filtro", "Texturas", "LOD de texturas", "Densidad", "Aspecto", "Recorte del borde",
-						     "Escala interna", "Interpolación", "Guardar para este juego", "Volver" };
+	static const char *const labels[IM_ROWS] = { "Filtro", "Densidad", "Aspecto", "Recorte del borde", "Escala interna",
+						     "Interpolación", "Guardar para este juego", "Volver" };
 	const float sc = 1.75f, row_h = 38.0f, pad = 20.0f, w = 560.0f;
 	int rows = IM_ROWS - !m->density;  /* sin máscara no hay fila «Densidad» */
 	float h = 46.0f + rows * row_h + 26.0f + 34.0f + 2 * pad;
@@ -237,14 +237,12 @@ void osd_image_menu_draw(const struct osd_image_menu *m, float lw, float lh)
 		rsxkit_ui_text(x + pad, ry, tr(labels[i]), sc, cur ? 0xFFFFFFFF : dim ? 0x808080FF : 0xD8D8D8FF, 0);
 		if (i > IM_INTERP)
 			continue;
-		bool locked = i == IM_FILTER && m->filter_disabled;
-		snprintf(val, sizeof val, cur && !locked ? "◀ %s ▶" : "%s", tr(m->value[i]));
+		snprintf(val, sizeof val, cur ? "◀ %s ▶" : "%s", tr(m->value[i]));
 		rsxkit_ui_text(x + w - pad - cells(val) * RSXKIT_FONT_W * sc, ry, val, sc, cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
 	}
 	/* Una nota: de quién es el filtro, o que la escala espera a seguir. */
 	float fy = y + pad + 46.0f + rows * row_h;
-	const char *note = m->sel == IM_FILTER && m->filter_disabled ? "El filtro de pantalla está desactivado con texturas N64."
-			   : m->sel == IM_FILTER && m->credit ? m->credit
+	const char *note = m->sel == IM_FILTER && m->credit ? m->credit
 			   : m->scale_pending ? "La escala nueva se pone al seguir jugando." : NULL;
 	if (note)
 		rsxkit_ui_text(x + pad, fy, tr(note), 1.35f, m->sel == IM_FILTER ? 0xA0A0A0FF : 0x9CC8FFFF, 0);

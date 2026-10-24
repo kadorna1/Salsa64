@@ -292,7 +292,6 @@ escala = 2          # auto-N | 1 … 5 | global
 escala-estable = ninguna # 1 … 5 | ninguna (techo aprendido de la automática)
 densidad = fina     # normal | fina | global (la de «CRT máscara»)
 interpolacion = geometria  # no | geometria | global
-texturas = n64             # rsx | n64
 accesorio = controller-pak # controller-pak | ninguno
 ```
 
@@ -383,7 +382,7 @@ usan):
 | Guardar estado / Cargar estado | En la ranura actual, como SELECT + R1 / L1 |
 | Ranura ◀ n ▶ | Cambia la ranura (cruceta izquierda/derecha o ×) |
 | Trucos | La lista de trucos del juego (si tiene) |
-| Imagen | Filtro de pantalla, texturas, aspecto, recorte, escala interna e interpolación (abajo) |
+| Imagen | Filtro, aspecto, recorte del borde, escala interna e interpolación del juego en curso (abajo) |
 | Mostrar FPS | Enciende o apaga el contador de velocidad |
 | Reiniciar (botón Reset) | El reinicio en caliente de la consola. Pregunta siempre «¿Seguro?» (× sí, ○ no). El juego sigue ~0,5 s emulados: primero recibe la interrupción de PRE_NMI (es la que libultra usa para guardar y callar el audio) y después el NMI: el CPU y el RCP se reinician, la RDRAM se conserva salvo el primer megabyte, que se vuelve a copiar de la ROM, y el juego ve `osResetType` = 1 (reset suave). Vuelve al logo o al título con lo que el juego dejó en la RDRAM, como el botón Reset de una N64 |
 | Reiniciar desde cero | Arranque en frío del mismo juego sin pasar por la lista: cierra el juego entero (escribe la partida, el Controller Pak y la EEPROM/SRAM/Flash, suelta los SPEs y vacía la caché del recompilador) y lo abre otra vez con los mismos ajustes. Pregunta siempre «¿Seguro?»; lo que el juego no haya guardado se pierde |
@@ -396,7 +395,7 @@ juego, y el botón con que se cierran tampoco (el ○ no cuenta como B al
 volver; hay que soltarlo). Los atajos de SELECT siguen funcionando igual.
 
 **Imagen** abre un cuadro abajo a la izquierda, sin oscurecer el juego,
-con **Filtro**, **Texturas**, **Aspecto**, **Recorte del borde**, **Escala interna** e
+con **Filtro**, **Aspecto**, **Recorte del borde**, **Escala interna** e
 **Interpolación**: cruceta izquierda/derecha (o ×) cambia el valor. La
 interpolación se nota al seguir jugando. El filtro, el aspecto y el
 recorte se ven al momento sobre el cuadro en pausa (el recorte de una imagen
@@ -408,12 +407,6 @@ de inmediato para ese juego, incluida «Automática (hasta N×)» y su techo
 aprendido. Los demás valores duran esta partida; **Guardar para este juego**
 los deja en `juegos/<ROM>.cfg` (lo que coincide con Opciones queda
 «global»). ○ o «Volver» regresan al menú de
-cuadro raro en los juegos que reusan el anterior). **Texturas** alterna entre
-el bilineal del RSX (predeterminado) y el filtro triangular de tres puntos de
-la N64. Con N64, el filtro de pantalla queda deshabilitado; su elección se
-conserva y vuelve al elegir RSX. El archivo `texturas-n64` fuerza N64. Lo elegido vale para esta
-partida; **Guardar para este juego** lo deja en `juegos/<ROM>.cfg` (lo que
-coincide con Opciones queda «global»). ○ o «Volver» regresan al menú de
 pausa; START cierra todo y el juego sigue.
 
 El **botón PS** abre el menú del sistema encima del juego: Salsa64 pausa la
@@ -697,7 +690,6 @@ se crean por FTP.
 |---|---|---|
 | `menu.cfg` | Líneas `fondo = si\|no`, `fps = si\|no`, `confirmar = si\|no`, `aspecto = 4:3\|16:9`, `filtro = suave\|nitido\|lineas\|lineas+\|crt-mascara\|crt-rgb\|crt-svideo\|crt-compuesto` , `densidad = normal\|fina`, `idioma = es\|en\|fr\|de\|it\|pt` e `interpolacion = no\|geometria` | Fondo animado del menú, contador de velocidad en el juego, si «Salir» del menú de pausa pregunta antes (sí sin la línea), aspecto, filtro, idioma e interpolación. Lo escriben el menú (Opciones) y SELECT + △ |
 | `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `escala-estable` = `1` a `5` o `ninguna`; `accesorio` = `controller-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM), «Imagen» del menú de pausa y la escala automática cuando aprende un límite estable |
-| `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `texturas` = `rsx` o `n64`; `accesorio` = `controller-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM) y «Imagen» del menú de pausa |
 | `descargas.cfg` | `activar = si` y direcciones | Enciende las descargas experimentales (sección «Descargas») |
 | `overscan.cfg` | Uno, dos o cuatro números: `8`, `8 6` o `izq der arr abajo` | Recorte de la imagen en píxeles de la N64 (a 320 × 240) por lado. Por omisión `8 6`; `0` lo apaga; máximo 64. Lo escribe el menú (`0`, `8 6` o `16 12`) |
 | `video.cfg` | `salida = 720` o `1080`; `escala = auto-N`, `auto` o `1` a `5` | Salida de video y escala interna del render de la N64 (se leen al arrancar). `auto-N` ajusta la escala sin pasar N; `auto` conserva la compatibilidad anterior (3× a 720p, 4× a 1080p). Sin archivo: 720p y `auto`. Si la tele o el XMB no aceptan 1080, usa el siguiente modo. Acepta el formato viejo de una línea (`1080` o `720`). Lo escribe el menú con «Resolución» y «Escala interna» |

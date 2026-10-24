@@ -33,10 +33,8 @@ struct gfx_dump_src {
 	uint32_t rdram_size;
 };
 
-/* Dos por dibujo; un registro LOD puede añadir ocho niveles. */
-#define GFX_DUMP_MAX_TEX(cmd_bytes) \
-	(2u * ((cmd_bytes) / (uint32_t)sizeof(struct gfx_draw)) + \
-	 8u * ((cmd_bytes) / (uint32_t)sizeof(struct gfx_lod)) + 8u)
+/* Cada dibujo usa a lo más 2 texturas distintas. */
+#define GFX_DUMP_MAX_TEX(cmd_bytes) (2u * ((cmd_bytes) / (uint32_t)sizeof(struct gfx_draw)) + 1u)
 
 /* Espacio de trabajo: GFX_DUMP_MAX_TEX(cmd_bytes) entradas de cada arreglo
  * (con cmd_bytes ≤ el mayor búfer de comandos de la HLE). Lo pone quien

@@ -60,7 +60,6 @@ static struct gfx_state st;
 static struct gfx_vertex out_vtx[1u << 16] __attribute__((aligned(128)));
 static uint8_t out_cmd[512u << 10] __attribute__((aligned(128)));
 static uint8_t out_tex[4u << 20] __attribute__((aligned(128)));
-static bool texlod;
 
 #ifdef SALSA64_GFX_TRACE
 extern int salsa64_gfx_trace_now;
@@ -224,8 +223,6 @@ static void run_task(const struct salsa64_task *t, enum salsa64_gbi gbi, struct 
 	job->done_task = 0;
 	if (raster_fbfx >= 1)
 		job->flags |= GFX_JOB_FBTEX;  /* como salsa64-run y la PS3 */
-	if (texlod)
-		job->flags |= GFX_JOB_TEXLOD;
 	gfx_init(&st);
 	gfx_run(&st, job, res);
 }
@@ -354,7 +351,7 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 		printf("  %06x: fuera del volcado\n", t->addr);
 		return;
 	}
-	double se = 0.0, se_box = 0.0, ae = 0.0, ae_box = 0.0, bias[3] = { 0.0, 0.0, 0.0 };
+	double se = 0.0, se_box = 0.0, bias[3] = { 0.0, 0.0, 0.0 };
 	for (uint32_t y = 0; y < h; y++)
 		for (uint32_t x = 0; x < w; x++) {
 			uint32_t p = salsa64_rd16(rdram_orig + t->addr + 2 * (y * width + x));
@@ -368,7 +365,6 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 				int d = (int)(o >> (16 - 8 * k) & 0xFF) - (int)(c >> (16 - 8 * k) & 0xFF);
 				dpix[y][x][k] = d;
 				se += (double)d * d;
-				ae += abs(d);
 				bias[k] += d;
 			}
 		}
@@ -386,7 +382,6 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 				int d = (sum[k] + (sum[k] < 0 ? -n / 2 : n / 2)) / n;
 				dbox[y][x][k] = d;
 				se_box += (double)d * d;
-				ae_box += abs(d);
 				dmax = (uint32_t)abs(d) > dmax ? (uint32_t)abs(d) : dmax;
 			}
 			unsigned cy = y * MAP_ROWS / h, cx = x * MAP_COLS / w;
@@ -408,9 +403,8 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 	char p1[32], p2[32];
 	psnr_of(se, 3 * w * h, p1, sizeof p1);
 	psnr_of(se_box, 3 * w * h, p2, sizeof p2);
-	printf("  %06x (%u×%u): PSNR %s por píxel, %s en 4×4; MAE %.2f/255, %.2f/255 en 4×4; "
-	       "HLE − consola en promedio %+.1f %+.1f %+.1f (RGB, de 255)\n", t->addr, w, h, p1, p2,
-	       ae / (3 * w * h), ae_box / (3 * w * h), bias[0] / (w * h), bias[1] / (w * h), bias[2] / (w * h));
+	printf("  %06x (%u×%u): PSNR %s por píxel, %s en 4×4; HLE − consola en promedio %+.1f %+.1f %+.1f (RGB, de "
+	       "255)\n", t->addr, w, h, p1, p2, bias[0] / (w * h), bias[1] / (w * h), bias[2] / (w * h));
 	printf("    %u píxeles (%.2f %%) difieren en más de %u/255 en 4×4", bad, 100.0 * bad / (w * h), limit);
 	if (bad)
 		printf("; caja %u..%u × %u..%u", bx0, bx1 + 1, by0, by1 + 1);
@@ -513,17 +507,6 @@ static void cmds_to_be(uint8_t *cmd, uint32_t bytes)
 				SW16(x, struct gfx_tex, src_pitch, 1);
 			}
 			SW32(r, struct gfx_draw, k, sizeof(((struct gfx_draw *)0)->k) / 4);
-		} else if (op == GFX_OP_LOD && size >= sizeof(struct gfx_lod)) {
-			for (int t = 0; t < GFX_LOD_LEVELS; t++) {
-				uint8_t *x = r + offsetof(struct gfx_lod, tex) + t * sizeof(struct gfx_tex);
-				SW32(x, struct gfx_tex, offset, 1);
-				SW16(x, struct gfx_tex, width, 3);
-				SW32(x, struct gfx_tex, key, 1);
-				SW32(x, struct gfx_tex, xf, 4);
-				SW32(x, struct gfx_tex, src_addr, 1);
-				SW16(x, struct gfx_tex, src_pitch, 1);
-			}
-			SW32(r, struct gfx_lod, pad, 3);
 		}
 		SW16(r, struct gfx_cmd, op, 2);  /* op y size */
 		SW32(r, struct gfx_cmd, a, 3);
@@ -795,8 +778,7 @@ static void usage(FILE *out)
 	      "                      rasterizador copió a la RDRAM, como en la PS3, no de la consola\n"
 	      "      --gfxdump       también la salida de la HLE de cada lista, como el gfxdump de\n"
 	      "                      la PS3 (big-endian): <volcado>-<lista>.gfxdump.bin, para\n"
-	      "                      tools/gfxdump.py, --raster-dump o \"dump:\" en el RSX\n"
-	      "      --lod           habilitar TEXTLOD y los niveles cargados en tiles consecutivas\n",
+	      "                      tools/gfxdump.py, --raster-dump o \"dump:\" en el RSX\n",
 	      out);
 }
 
@@ -811,7 +793,6 @@ int ares_main(int argc, char **argv)
 		{ "no-png", no_argument, NULL, 'n' },
 		{ "q5", no_argument, NULL, 'q' },
 		{ "gfxdump", no_argument, NULL, 'g' },
-		{ "lod", no_argument, NULL, 'l' },
 		{ "pasadas", required_argument, NULL, 'p' },
 		{ "help", no_argument, NULL, 'h' },
 		{ NULL, 0, NULL, 0 },
@@ -830,7 +811,6 @@ int ares_main(int argc, char **argv)
 		case 'n': o.png = false; break;
 		case 'q': q5 = true; break;
 		case 'g': o.gfxdump = true; break;
-		case 'l': texlod = true; break;
 		case 'p': o.passes = (unsigned)strtoul(optarg, NULL, 0); break;
 		case 'h': usage(stdout); return 0;
 		default: usage(stderr); return 3;
@@ -846,8 +826,6 @@ int ares_main(int argc, char **argv)
 		raster_fbfx = atoi(getenv("SALSA64_FBFX"));
 	if (getenv("SALSA64_AA_EDGES"))
 		raster_aa_edges = atoi(getenv("SALSA64_AA_EDGES")) != 0;
-	if (getenv("SALSA64_TEX3P"))
-		raster_tex3point = atoi(getenv("SALSA64_TEX3P")) != 0;
 	if (getenv("SALSA64_AA_EDGE_OFFSET"))
 		sscanf(getenv("SALSA64_AA_EDGE_OFFSET"), "%f,%f", &raster_edge_factor, &raster_edge_units);
 	if (getenv("SALSA64_AA_EDGE_WIDTH"))

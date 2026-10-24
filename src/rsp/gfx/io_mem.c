@@ -120,21 +120,6 @@ bool gfx_io_cmd(struct gfx_state *g, const void *rec, uint32_t size)
 	return true;
 }
 
-void *gfx_io_cmd_begin(struct gfx_state *g, uint32_t size, uint16_t op)
-{
-	struct io_mem *io = g->io;
-	if (size + sizeof(struct gfx_cmd) > g->job->cmd_cap - io->cmd_used) {
-		g->res->flags |= op == GFX_OP_VGROUP ? GFX_RES_VGROUP_FULL : GFX_RES_CMD_FULL;
-		return NULL;
-	}
-	return PTR(g->job->cmd_ea) + io->cmd_used;
-}
-
-void gfx_io_cmd_commit(struct gfx_state *g, uint32_t size)
-{
-	((struct io_mem *)g->io)->cmd_used += size;
-}
-
 uint8_t *gfx_io_tex_begin(struct gfx_state *g, uint32_t size)
 {
 	struct io_mem *io = g->io;

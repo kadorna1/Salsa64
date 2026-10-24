@@ -181,7 +181,6 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
  * cargados dentro de una tarea S2DEX. No escala G_MODIFYVTX. */
 #define GFX_JOB_AFFINE_CHAIN 0x1000u
 #define GFX_JOB_S2DEX_OLD_MODES 0x2000u
-#define GFX_JOB_TEXLOD 0x4000u  /* niveles y LOD por píxel del RDP */
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 
@@ -263,7 +262,6 @@ enum gfx_op {
 	                   (G_IM_SIZ_*) << 16 | su ancho; gfx_zclear */
 	GFX_OP_DRAW,    /* gfx_draw */
 	GFX_OP_VGROUP,  /* gfx_vgroup (solo con GFX_JOB_INTERP) */
-	GFX_OP_LOD,     /* gfx_lod; se aplica al GFX_OP_DRAW inmediato siguiente */
 };
 
 struct gfx_cmd {
@@ -315,17 +313,6 @@ struct gfx_tex {
 	uint8_t src_siz, src_fmt;
 };
 
-#define GFX_LOD_LEVELS 8
-struct gfx_lod {
-	struct gfx_cmd h;
-	uint8_t levels;     /* tiles consecutivas válidas en tex[] */
-	uint8_t max_level;  /* máximo pedido por G_TEXTURE */
-	uint8_t min_level;  /* G_SETPRIMCOLOR, fracción 0.8 */
-	uint8_t mode;       /* RDP_LOD_* */
-	struct gfx_tex tex[GFX_LOD_LEVELS];
-	uint32_t pad[3];
-};
-
 /* GFX_WRAP_* por eje. Al salir de gfx_tile_texture (antes de que rdp.c
  * ponga los de la tile), un eje con clamp decodificado en un periodo de su
  * máscara (tmem.c, tex_size) trae el que debe usar. */
@@ -363,7 +350,7 @@ enum { GFX_WRAP_CLAMP = 0, GFX_WRAP_REPEAT = 1, GFX_WRAP_MIRROR = 2, GFX_WRAP_MI
 enum { GFX_K_T0, GFX_K_T0A, GFX_K_T1, GFX_K_T1A, GFX_K_ONE, GFX_K_LINCOMB };
 #define GFX_K_TERMS   7  /* términos como máximo (y de la combinación lineal: los 5 primeros) */
 #define GFX_K_FACTORS 4  /* factores por término */
-enum { GFX_F_NONE = 0, GFX_F_T0, GFX_F_T0A, GFX_F_T1, GFX_F_T1A, GFX_F_C, GFX_F_CA, GFX_F_LOD };
+enum { GFX_F_NONE = 0, GFX_F_T0, GFX_F_T0A, GFX_F_T1, GFX_F_T1A, GFX_F_C, GFX_F_CA };
 
 /* Modo de mezcla con el framebuffer. */
 enum gfx_blend {

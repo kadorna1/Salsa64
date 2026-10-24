@@ -63,12 +63,12 @@
 
 /* Entradas de la caché de texturas de cada imagen (hle.h, GFX_TC_ENTRIES):
  * lo que deja el local store con la holgura de pila de 1,5 KB. */
-#define GFX_SPE0_TC_0 928
-#define GFX_SPE0_TC_1 928
-#define GFX_SPE0_TC_2 928
-#define GFX_SPE0_TC_3 960
-#define GFX_SPE0_TC_4 132
-#define GFX_SPE0_TC_5 448
+#define GFX_SPE0_TC_0 1024
+#define GFX_SPE0_TC_1 1024
+#define GFX_SPE0_TC_2 1024
+#define GFX_SPE0_TC_3 1024
+#define GFX_SPE0_TC_4 220
+#define GFX_SPE0_TC_5 512
 
 #define GFX_SPE0_CAT_(a, b) a##b
 #define GFX_SPE0_CAT(a, b) GFX_SPE0_CAT_(a, b)

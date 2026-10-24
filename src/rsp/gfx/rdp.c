@@ -16,7 +16,6 @@
 
 #include "core/rcp.h"
 #include "rsp/gfx/hle.h"
-#include "rdp/lod.h"
 
 /* Estas rutas son rectángulos y triángulos crudos del RDP, no la emisión de
  * G_TRI de la imagen 1. Compactarlas deja el local store para los lotes de
@@ -45,7 +44,6 @@ enum {
 
 _Static_assert(sizeof(struct gfx_vertex) == 32, "gfx_vertex: 32 bytes");
 _Static_assert(sizeof(struct gfx_draw) % 16 == 0, "gfx_draw: múltiplo de 16");
-_Static_assert(sizeof(struct gfx_lod) % 16 == 0, "gfx_lod: múltiplo de 16");
 _Static_assert(sizeof(struct gfx_zclear) % 16 == 0, "gfx_zclear: múltiplo de 16");
 _Static_assert(sizeof(struct gfx_job) <= 112, "gfx_job cabe en un trabajo de spukit");
 _Static_assert(sizeof(struct gfx_result) == 112, "gfx_result conserva los 112 bytes del resultado de spukit");
@@ -430,17 +428,16 @@ static __attribute__((noinline)) void cc_copy(void *dst, const void *src, uint32
 		db[i] = sb[i];
 }
 
-static uint32_t combine_key5(const struct gfx_state *g, const struct gfx_draw *d, bool lod)
+static uint32_t combine_key5(const struct gfx_state *g, const struct gfx_draw *d)
 {
-	return g->prim_lod | ((g->oh >> G_MDSFT_CYCLETYPE) & 3) << 8 | (uint32_t)(d->fog != 0) << 10 |
-	       (uint32_t)lod << 11 | 1u << 12;
+	return g->prim_lod | ((g->oh >> G_MDSFT_CYCLETYPE) & 3) << 8 | (uint32_t)(d->fog != 0) << 10 | 1u << 11;
 }
 
-static __attribute__((noinline)) bool combine_cached(const struct gfx_state *g, struct gfx_draw *d, bool lod, bool *approx)
+static __attribute__((noinline)) bool combine_cached(const struct gfx_state *g, struct gfx_draw *d, bool *approx)
 {
 	const struct gfx_ccmemo *m = &g->ccmemo;
 	if (m->key[0] != g->cc_hi || m->key[1] != g->cc_lo || m->key[2] != g->prim || m->key[3] != g->env ||
-	    m->key[4] != ((uint32_t)g->k4 | (uint32_t)g->k5 << 16) || m->key[5] != combine_key5(g, d, lod))
+	    m->key[4] != ((uint32_t)g->k4 | (uint32_t)g->k5 << 16) || m->key[5] != combine_key5(g, d))
 		return false;
 	cc_copy(d->k, m->k, sizeof d->k / 4, 0);
 	cc_copy(d->factors, m->factors, 0, sizeof d->factors);
@@ -453,7 +450,7 @@ static __attribute__((noinline)) bool combine_cached(const struct gfx_state *g, 
 	return true;
 }
 
-static __attribute__((noinline)) void combine_keep(struct gfx_state *g, const struct gfx_draw *d, bool lod, bool approx)
+static __attribute__((noinline)) void combine_keep(struct gfx_state *g, const struct gfx_draw *d, bool approx)
 {
 	struct gfx_ccmemo *m = &g->ccmemo;
 	m->key[0] = g->cc_hi;
@@ -461,53 +458,13 @@ static __attribute__((noinline)) void combine_keep(struct gfx_state *g, const st
 	m->key[2] = g->prim;
 	m->key[3] = g->env;
 	m->key[4] = (uint32_t)g->k4 | (uint32_t)g->k5 << 16;
-	m->key[5] = combine_key5(g, d, lod);
+	m->key[5] = combine_key5(g, d);
 	cc_copy(m->k, d->k, sizeof m->k / 4, 0);
 	cc_copy(m->factors, d->factors, 0, sizeof m->factors);
 	m->nterms = d->nterms;
 	m->ntex = d->ntex;
 	m->premul = (d->tex[0].flags & GFX_TEX_PREMUL ? 1u : 0u) | (d->tex[1].flags & GFX_TEX_PREMUL ? 2u : 0u);
 	m->approx = approx;
-}
-
-static bool lod_wanted(const struct gfx_state *g, enum prim_kind kind, bool textured, unsigned cycle)
-{
-	return (g->job->flags & GFX_JOB_TEXLOD) && textured && kind == PRIM_TRI && cycle == G_CYC_2CYCLE &&
-	       ((g->oh >> G_MDSFT_TEXTLOD) & 1u) && !((g->oh >> G_MDSFT_TEXTDETAIL) & 3u) && g->tex_level;
-}
-
-static __attribute__((noinline)) bool build_lod(struct gfx_state *g, const struct gfx_draw *d, int tile, bool affine)
-{
-	struct gfx_lod *l = gfx_io_cmd_begin(g, sizeof *l, GFX_OP_LOD);
-	if (!l)
-		return false;
-	memset(l, 0, sizeof *l);
-	l->h.op = GFX_OP_LOD;
-	l->h.size = sizeof *l;
-	l->max_level = g->tex_level > 7 ? 7 : g->tex_level;
-	l->min_level = g->prim_min;
-	unsigned detail = (g->oh >> G_MDSFT_TEXTDETAIL) & 3u;
-	l->mode = detail == 1 ? RDP_LOD_SHARPEN : detail == 2 ? RDP_LOD_DETAIL : RDP_LOD_LOD;
-	unsigned want = l->max_level + 1u + (l->mode == RDP_LOD_DETAIL);
-	if (want > GFX_LOD_LEVELS)
-		want = GFX_LOD_LEVELS;
-	for (unsigned i = 0; i < want; i++) {
-		struct gfx_draw tmp;
-		memset(&tmp, 0, sizeof tmp);
-		tmp.tex[0].flags = d->tex[0].flags & GFX_TEX_PREMUL;
-		if (!texture_state(g, &tmp, tile + (int)i, 0, false, 0, NULL))
-			break;
-		l->tex[l->levels++] = tmp.tex[0];
-	}
-	if (l->levels <= l->max_level)
-		return false;
-	if (affine)
-		for (unsigned i = 0; i < l->levels; i++) {
-			l->tex[i].xf[0] *= 0.5f;
-			l->tex[i].xf[1] *= 0.5f;
-		}
-	gfx_io_cmd_commit(g, sizeof *l);
-	return true;
 }
 
 /* Resume el estado vigente en `d` (sin el tramo de vértices). */
@@ -580,16 +537,15 @@ static void build_state(struct gfx_state *g, struct gfx_draw *d, enum prim_kind 
 
 	/* La niebla ya está decidida: con ella, gfx_combine deja el término al
 	 * que el vertex program suma el color de niebla. */
-	bool textured = kind == PRIM_RECT || (kind < PRIM_RAW ? g->tex_on != 0 : (kind & 1) != 0);
-	bool lod = lod_wanted(g, kind, textured, d->cycle);
 	bool approx;
-	if (!combine_cached(g, d, lod, &approx)) {
-		approx = gfx_combine(g, d, lod);
-		combine_keep(g, d, lod, approx);
+	if (!combine_cached(g, d, &approx)) {
+		approx = gfx_combine(g, d);
+		combine_keep(g, d, approx);
 	}
 	if (approx)
 		g->res->approx_cc++;
 	d->approx = approx;
+	bool textured = kind == PRIM_RECT || (kind < PRIM_RAW ? g->tex_on != 0 : (kind & 1) != 0);
 	if (!textured && d->ntex) {
 		d->ntex = 0;
 		gfx_combine_untextured(d);
@@ -602,16 +558,6 @@ static void build_state(struct gfx_state *g, struct gfx_draw *d, enum prim_kind 
 			d->ntex = (uint8_t)i;
 			break;
 		}
-	bool affine = kind == PRIM_TRI && !((g->oh >> G_MDSFT_TEXTPERSP) & 1) &&
-		      (g->job->gbi == SALSA64_GBI_F3DEX2 || g->job->gbi == SALSA64_GBI_F3DZEX2 ||
-		       g->job->gbi == SALSA64_GBI_F3DEXBG || g->job->gbi == SALSA64_GBI_F3DEX);
-	bool lod_valid = lod && d->ntex == 2 &&
-			 (d->tex[0].flags & GFX_TEX_PREMUL) == (d->tex[1].flags & GFX_TEX_PREMUL) &&
-			 build_lod(g, d, tile, affine);
-	if (lod && !lod_valid) {
-		approx = gfx_combine(g, d, false);
-		d->approx = approx;
-	}
 	/* Sin corrección de perspectiva (G_TP_NONE) el RDP no divide los
 	 * coeficientes de textura por el término 1/W que manda el RSP: usa
 	 * S·(1/W) tal cual. Los microcódigos de la segunda generación (F3DEX2,
@@ -680,10 +626,6 @@ static struct gfx_vertex *begin_prim(struct gfx_state *g, enum prim_kind kind, i
 	send_target(g);
 	if (g->dirty || !g->have_draw || g->draw.prim_kind != (uint32_t)kind ||
 	    ((kind == PRIM_RECT || kind >= PRIM_RAW) && g->draw.prim_tile != (uint32_t)tile)) {
-		/* build_lod escribe su registro directamente: el dibujo anterior debe
-		 * quedar cerrado antes de construir el estado siguiente. */
-		if (g->job->flags & GFX_JOB_TEXLOD)
-			gfx_flush_draw(g);
 		struct gfx_draw d;
 		uint32_t t0 = gfx_io_clock();
 		build_state(g, &d, kind, tile);

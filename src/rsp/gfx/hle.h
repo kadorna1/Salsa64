@@ -353,8 +353,6 @@ struct gfx_vertex *gfx_io_vtx(struct gfx_state *g, uint32_t n);
  * la tarea se corta (GFX_RES_CMD_FULL), salvo un GFX_OP_VGROUP, que solo
  * falta (GFX_RES_VGROUP_FULL). */
 bool gfx_io_cmd(struct gfx_state *g, const void *rec, uint32_t size);
-void *gfx_io_cmd_begin(struct gfx_state *g, uint32_t size, uint16_t op);
-void gfx_io_cmd_commit(struct gfx_state *g, uint32_t size);
 /* Área para decodificar una textura de `size` bytes (≤ GFX_TEX_MAX, gfx.h)
  * y su entrega al arena: devuelve el offset o -1 si no cabe. */
 uint8_t *gfx_io_tex_begin(struct gfx_state *g, uint32_t size);
@@ -588,7 +586,7 @@ bool gfx_state_load(struct gfx_state *g, const uint8_t *in);
 /* combine.c: combiner → combinación lineal fija o términos del generador
  * (gfx.h). Lee d->fog (con niebla deja un término sin factores). Devuelve
  * true si tuvo que aproximar. */
-bool gfx_combine(const struct gfx_state *g, struct gfx_draw *d, bool lod);
+bool gfx_combine(const struct gfx_state *g, struct gfx_draw *d);
 /* Deja el dibujo con solo `ntex` texturas: anula (combinación lineal) o
  * quita (términos) lo que leía las que faltan. */
 void gfx_combine_textures(struct gfx_draw *d, unsigned ntex);
@@ -620,7 +618,6 @@ static inline uint32_t gfx_addr(const struct gfx_state *g, uint32_t seg)
 #define G_MDSFT_CYCLETYPE  20
 #define G_MDSFT_TEXTPERSP  19
 #define G_MDSFT_TEXTLOD    16
-#define G_MDSFT_TEXTDETAIL 17
 #define G_MDSFT_TEXTLUT    14
 #define G_MDSFT_TEXTFILT   12
 #define G_CYC_1CYCLE 0
