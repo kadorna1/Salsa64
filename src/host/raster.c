@@ -31,6 +31,7 @@
 #include "core/endian.h"
 #include "core/rcp.h"
 #include "rdp/targets.h"
+#include "rdp/lod.h"
 
 #define MAX_DEPTHS 4
 /* G_IM_SIZ_16b (gbi): color images y texturas de 16 bits. */
@@ -275,6 +276,18 @@ struct tri {
 	float area;
 };
 
+static const struct gfx_lod *active_lod;
+static const struct texsrc *active_lod_src;
+
+static void perspective_st(const struct gfx_vertex *v, const struct tri *t3, float b0, float b1, float b2,
+			   float *s, float *t)
+{
+	float p0 = b0 * t3->iw[0], p1 = b1 * t3->iw[1], p2 = b2 * t3->iw[2], w = p0 + p1 + p2;
+	p0 /= w; p1 /= w; p2 /= w;
+	*s = p0 * v[0].s + p1 * v[1].s + p2 * v[2].s;
+	*t = p0 * v[0].t + p1 * v[1].t + p2 * v[2].t;
+}
+
 /* false si no se dibuja: detrás de la cámara, degenerado o eliminado por
  * su cara (como el RSX, también en la pasada de aristas). */
 static bool tri_setup(const struct gfx_draw *d, const struct gfx_vertex *v, float prim_z, struct tri *t3)
@@ -318,7 +331,27 @@ static void shade(const struct gfx_draw *d, const struct gfx_vertex *v, const st
 		c[k] = (p0 * c0[k] + p1 * c1[k] + p2 * c2[k]) / 255.0f;
 
 	float tx[2][4] = { { 1, 1, 1, 1 }, { 1, 1, 1, 1 } };
-	for (int i = 0; i < d->ntex && i < 2; i++) {
+	float lod_fraction = 0.0f;
+	if (active_lod && active_lod_src) {
+		float bx0 = edge(t3->sx[1], t3->sy[1], t3->sx[2], t3->sy[2], x + 1.5f, y + .5f) / t3->area;
+		float bx1 = edge(t3->sx[2], t3->sy[2], t3->sx[0], t3->sy[0], x + 1.5f, y + .5f) / t3->area;
+		float by0 = edge(t3->sx[1], t3->sy[1], t3->sx[2], t3->sy[2], x + .5f, y + 1.5f) / t3->area;
+		float by1 = edge(t3->sx[2], t3->sy[2], t3->sx[0], t3->sy[0], x + .5f, y + 1.5f) / t3->area;
+		float sx, txc, sy, ty;
+		perspective_st(v, t3, bx0, bx1, 1.0f - bx0 - bx1, &sx, &txc);
+		perspective_st(v, t3, by0, by1, 1.0f - by0 - by1, &sy, &ty);
+		struct rdp_lod_result lr = rdp_lod_select((int32_t)((sx - s) * 32.0f), (int32_t)((txc - t) * 32.0f),
+							 (int32_t)((sy - s) * 32.0f), (int32_t)((ty - t) * 32.0f),
+							 active_lod->max_level, active_lod->min_level,
+							 (enum rdp_lod_mode)active_lod->mode);
+		unsigned li[2] = { lr.tile0, lr.tile1 };
+		for (int i = 0; i < 2; i++) {
+			if (li[i] >= active_lod->levels) li[i] = active_lod->levels - 1;
+			const struct gfx_tex *te = &active_lod->tex[li[i]];
+			sample(te, &active_lod_src[li[i]], s * te->xf[0] + te->xf[2], t * te->xf[1] + te->xf[3], tx[i]);
+		}
+		lod_fraction = lr.fraction / 255.0f;
+	} else for (int i = 0; i < d->ntex && i < 2; i++) {
 		const struct gfx_tex *te = &d->tex[i];
 		sample(te, &src[i], s * te->xf[0] + te->xf[2], t * te->xf[1] + te->xf[3], tx[i]);
 	}
@@ -358,6 +391,7 @@ static void shade(const struct gfx_draw *d, const struct gfx_vertex *v, const st
 					case GFX_F_T1: p *= tx[1][l]; break;
 					case GFX_F_T1A: p *= tx[1][3]; break;
 					case GFX_F_C: p *= c[l]; break;
+					case GFX_F_LOD: p *= lod_fraction; break;
 					default: p *= c[3]; break;
 					}
 				sum += p;
@@ -804,6 +838,7 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 	uint32_t reads[RDP_TARGETS_MAX][RDP_TARGETS_MAX] = { { 0 } }, read_stale[RDP_TARGETS_MAX][RDP_TARGETS_MAX] = { { 0 } };
 	uint32_t read_age[RDP_TARGETS_MAX] = { 0 };
 	uint32_t suspect[RDP_TARGETS_MAX] = { 0 };
+	const struct gfx_lod *pending_lod = NULL;
 	struct { uint32_t addr, width, bpp, rows; } tall = { 0, 0, 0, 0 };  /* color image más alta que 480 */
 	++task_no;  /* tg.field lo lleva el VI (raster_vi), como en la PS3 */
 	if (!(job->flags & GFX_JOB_DPC_CONT))
@@ -821,6 +856,9 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 		if (c->op == GFX_OP_END || c->size == 0)
 			break;
 		switch (c->op) {
+		case GFX_OP_LOD:
+			pending_lod = c->size >= sizeof(struct gfx_lod) ? (const struct gfx_lod *)c : NULL;
+			break;
 		case GFX_OP_TARGET: {
 			uint32_t lh = scissor_bottom(cmd, off + c->size, res->cmd_bytes), siz = c->c & 0xFF;
 			if (getenv("SALSA64_PS3_RB")) {
@@ -891,6 +929,8 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 		}
 		case GFX_OP_DRAW: {
 			const struct gfx_draw *d = (const struct gfx_draw *)c;
+			const struct gfx_lod *draw_lod = pending_lod;
+			pending_lod = NULL;
 #ifdef SALSA64_GFX_TRACE
 			{
 				ndraw++;
@@ -976,6 +1016,19 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 					}
 				}
 			}
+			struct texsrc lodsrc[GFX_LOD_LEVELS];
+			active_lod = draw_lod;
+			active_lod_src = draw_lod ? lodsrc : NULL;
+			for (unsigned i = 0; draw_lod && i < draw_lod->levels; i++) {
+				lodsrc[i].slot = -1;
+				lodsrc[i].intensity = false;
+				if (draw_lod->tex[i].where == GFX_TEX_TARGET) {
+					active_lod = NULL;
+					active_lod_src = NULL;
+					break;
+				}
+				lodsrc[i].data = m.base[draw_lod->tex[i].where & 1] + draw_lod->tex[i].offset;
+			}
 			struct depth *zb = d->depth ? get_depth(d->zimg) : NULL;
 			/* Como rdp.c (zauto): en una tarea que empieza un cuadro (otra
 			 * primera color image que la tarea anterior), la z image que no
@@ -1003,6 +1056,8 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 			draws8 += tg.t[cur].bpp == 1;
 			for (uint32_t i = 0; i + 3 <= d->h.b; i += 3)
 				draw_clipped(d, vtx + d->h.a + i, src, rgb[cur], q5, zb, prim_z, false);
+			active_lod = NULL;
+			active_lod_src = NULL;
 			if (!drawn[cur])
 				rdp_targets_drawn(&tg, cur);
 			drawn[cur] = true;

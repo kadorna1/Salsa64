@@ -129,6 +129,7 @@ struct menu_game {
 	int density;   /* -1 o enum menu_density (solo con la máscara) */
 	int interp;    /* -1 o enum menu_interp */
 	int texture;   /* enum menu_texture_filter (por omisión, RSX) */
+	bool lod;      /* LOD de texturas de la N64, apagado por omisión */
 	struct salsa64_padmap controls; /* asignaciones propias; INHERIT usa el global */
 	int accessory; /* enum menu_accessory (nunca -1: sin valor global) */
 };

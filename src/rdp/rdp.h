@@ -249,6 +249,8 @@ void salsa64_rdp_aa_edges(bool on);
 /* El filtro de G_TF_BILERP y G_TF_AVERAGE: false, lineal de cuatro puntos
  * del RSX; true, triángulo de tres puntos de la N64. Point/copy no cambian. */
 void salsa64_rdp_texture_3point(bool on);
+/* Interruptor del LOD por píxel y los niveles consecutivos de TMEM. */
+void salsa64_rdp_texture_lod(bool on);
 /* Interruptor: los destinos de 16 bits que no son un framebuffer del VI
  * (render a textura) se crean con canal alfa (A8R8G8B8) y llevan el alfa de
  * la N64: 0 al borrarse con 0x0000, 1 en cada píxel dibujado (el alfa del

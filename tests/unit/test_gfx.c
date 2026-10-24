@@ -343,16 +343,16 @@ static void gfx_setconvert_k5(void)
 	/* Ciclo 0 en cero; ciclo 1: rgb (SHADE − ENV)·K5 + PRIM, alfa SHADE. */
 	gs.cc_hi = 15u << 20 | 31u << 15 | 7u << 12 | 7u << 9 | 4u << 5 | 15u;
 	gs.cc_lo = 15u << 28 | 5u << 24 | 7u << 21 | 7u << 18 | 7u << 15 | 7u << 12 | 4u << 9 | 3u << 6 | 7u << 3 | 4u;
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.ntex, 0);
 	for (int lane = 0; lane < 3; lane++)
 		CHECK(fabsf(d.k[GFX_K_ONE][1][lane] - 1.0f) < 1e-6f);
 
 	gs.k5 = 0x80;  /* 128/255 */
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK(fabsf(d.k[GFX_K_ONE][1][0] - 128.0f / 255.0f) < 1e-6f);
 	gs.k5 = 0x1FF;  /* 9 bits con signo: −1 */
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK(fabsf(d.k[GFX_K_ONE][1][0] + 1.0f / 255.0f) < 1e-6f);
 
 	/* Estado guardado: K4 y K5 van y vuelven; un estado sin ellos (bytes
@@ -385,7 +385,7 @@ static void gfx_combiner_forms(void)
 	/* Se evalúa directo sobre el estado. */
 	gs.cc_hi = (15u << 20 | 31u << 15 | 7u << 12 | 7u << 9 | 15u << 5 | 31u);
 	gs.cc_lo = (7u << 28 | 7u << 24 | 7u << 21 | 7u << 18 | 4u << 15 | 7u << 12 | 4u << 9 | 4u << 6 | 7u << 3 | 4u);
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.ntex, 0);
 	for (int lane = 0; lane < 3; lane++)
 		CHECK(d.k[GFX_K_ONE][1][lane] == 1.0f);
@@ -394,7 +394,7 @@ static void gfx_combiner_forms(void)
 	/* TEXEL0 × SHADE (G_CC_MODULATERGBA): T0·S en X_0 con coeficiente S. */
 	gs.cc_hi = (1u << 20 | 4u << 15 | 1u << 12 | 4u << 9 | 1u << 5 | 4u);
 	gs.cc_lo = (15u << 28 | 15u << 24 | 1u << 21 | 4u << 18 | 7u << 15 | 7u << 12 | 7u << 9 | 7u << 6 | 7u << 3 | 7u);
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.ntex, 1);
 	CHECK(d.k[GFX_K_T0][1][0] == 1.0f && d.k[GFX_K_T0][0][0] == 0.0f);
 	CHECK(d.k[GFX_K_T0A][2][3] == 1.0f);  /* alfa: T0a · Sa */
@@ -405,7 +405,7 @@ static void gfx_combiner_forms(void)
 	gs.env = 0x00000000;
 	gs.cc_hi = (3u << 20 | 1u << 15 | 7u << 12 | 7u << 9 | 3u << 5 | 1u);
 	gs.cc_lo = (5u << 28 | 5u << 24 | 7u << 21 | 7u << 18 | 5u << 15 | 7u << 12 | 1u << 9 | 5u << 6 | 7u << 3 | 1u);
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK(fabsf(d.k[GFX_K_T0][0][1] - 1.0f) < 1e-6f);
 	CHECK(fabsf(d.k[GFX_K_ONE][0][1]) < 1e-6f);
 	CHECK(fabsf(d.k[GFX_K_T0A][0][3] - 1.0f) < 1e-6f);
@@ -416,7 +416,7 @@ static void gfx_combiner_forms(void)
 	gs.prim_lod = 0x80;
 	gs.cc_hi = (2u << 20 | 14u << 15 | 7u << 12 | 7u << 9 | 0u << 5 | 4u);
 	gs.cc_lo = (1u << 28 | 15u << 24 | 7u << 21 | 7u << 18 | 1u << 15 | 7u << 12 | 6u << 9 | 7u << 6 | 7u << 3 | 6u);
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.ntex, 2);
 	float k = 0x80 / 255.0f;
 	CHECK(fabsf(d.k[GFX_K_T0][1][0] - (1.0f - k)) < 1e-5f);
@@ -428,7 +428,7 @@ static void gfx_combiner_forms(void)
 	gs.oh = 0;
 	gs.cc_hi = (1u << 20 | 2u << 15 | 7u << 12 | 7u << 9 | 1u << 5 | 2u);
 	gs.cc_lo = (15u << 28 | 15u << 24 | 7u << 21 | 7u << 18 | 7u << 15 | 7u << 12 | 6u << 9 | 7u << 6 | 7u << 3 | 6u);
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.nterms, 2);
 	CHECK_EQ(d.ntex, 2);
 	CHECK_EQ(d.factors[0][0], GFX_F_NONE);
@@ -456,7 +456,7 @@ static void gfx_combiner_shade_squared(void)
 	gs.env = 0x40800040;  /* E = (0,25, 0,5, 0, 0,25) */
 	gs.cc_hi = 0x159804;
 	gs.cc_lo = 0x5ffedbf8;
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.ntex, 1);
 	CHECK_EQ(d.nterms, 3);
 	/* Orden canónico: {} < {T0, C} < {C}. */
@@ -497,14 +497,14 @@ static void gfx_combiner_shade_squared(void)
 	d.fog = 1;
 	gs.cc_hi = 0x159804;
 	gs.cc_lo = 0xfffffff8;  /* b = 0 y d = 0 en los dos ciclos; alfa del segundo = COMBINED */
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.nterms, 2);
 	CHECK_EQ(d.factors[0][0], GFX_F_NONE);
 	CHECK_EQ(d.factors[1][0], GFX_F_T0);
 	CHECK_EQ(d.factors[1][1], GFX_F_C);
 	CHECK(d.k[0][0][0] == 0.0f && d.k[0][0][3] == 0.0f);
 	d.fog = 0;
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK_EQ(d.nterms, 1);
 	CHECK_EQ(d.factors[0][0], GFX_F_T0);
 }
@@ -850,7 +850,7 @@ static void gfx_combiner_premul(void)
 	gs.env = 0x000000C0;
 	gs.cc_hi = CC_EYES_HI;
 	gs.cc_lo = CC_EYES_LO;
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK(d.tex[0].flags & GFX_TEX_PREMUL);
 	CHECK_EQ(d.ntex, 1);
 	for (int lane = 0; lane < 3; lane++) {
@@ -863,7 +863,7 @@ static void gfx_combiner_premul(void)
 	/* (TEXEL0 − 0)·TEXEL0_ALPHA + TEXEL0: T0·T0a + T0. Ninguna textura
 	 * sirve para los dos: va al generador, exacto, sin premultiplicar. */
 	gs.cc_lo = 15u << 28 | 15u << 24 | 7u << 21 | 7u << 18 | 1u << 15 | 7u << 12 | 5u << 9 | 1u << 6 | 7u << 3 | 5u;
-	CHECK(!gfx_combine(&gs, &d));
+	CHECK(!gfx_combine(&gs, &d, false));
 	CHECK(!(d.tex[0].flags & GFX_TEX_PREMUL));
 	CHECK_EQ(d.nterms, 3);
 	CHECK_EQ(d.factors[0][0], GFX_F_NONE);

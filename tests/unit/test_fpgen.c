@@ -542,6 +542,32 @@ static void fpgen_three_point(void)
 	CHECK_EQ(rsxkit_fpgen_emit(&bad, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
 }
 
+static void fpgen_lod_explicit(void)
+{
+	rsxkit_fp_desc d = { .ntex = 2, .nterms = 1, .lod_levels = 4,
+		.lod_scale = { 128.0f, 64.0f }, .lod_ratio = 64.0f / 120.0f,
+		.factors = { { RSXKIT_FP_T0, RSXKIT_FP_T1, RSXKIT_FP_LOD } } };
+	uint32_t words[RSXKIT_FP_MAX_WORDS];
+	rsxkit_fp_info info;
+	int n = rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, &info);
+	CHECK(n > 0);
+	CHECK(info.ninsn >= 25);
+	CHECK(info.num_regs >= 15);
+	unsigned ddx = 0, ddy = 0, tex = 0;
+	for (int i = 0; i + 4 <= n;) {
+		unsigned opc = words[i] >> 24 & 0x3F;
+		ddx += opc == 0x15; ddy += opc == 0x16; tex += opc == 0x17;
+		bool konst = (words[i + 1] & 3) == 2 || (words[i + 2] & 3) == 2 || (words[i + 3] & 3) == 2;
+		i += konst ? 8 : 4;
+	}
+	CHECK_EQ(ddx, 1); CHECK_EQ(ddy, 1); CHECK(tex >= 2);
+	for (d.lod_wrap = 1; d.lod_wrap <= 3; d.lod_wrap++)
+		CHECK(rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, NULL) > 0);
+	d.lod_wrap = 0;
+	d.lod_levels = 1;
+	CHECK_EQ(rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
+}
+
 void t_suite_fpgen(void)
 {
 	RUN(fpgen_refs_lincomb);
@@ -549,4 +575,5 @@ void t_suite_fpgen(void)
 	RUN(fpgen_emit_forms);
 	RUN(fpgen_desc_rules);
 	RUN(fpgen_three_point);
+	RUN(fpgen_lod_explicit);
 }

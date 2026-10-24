@@ -905,11 +905,15 @@ static void menu_game_page(void)
 	CHECK_EQ(back.scale, 2);
 	CHECK_EQ(back.interp, -1);
 	CHECK_EQ(back.texture, MENU_TEXTURE_RSX);
+	CHECK(!back.lod);
 	m.game.texture = MENU_TEXTURE_N64;
+	m.game.lod = true;
 	n = menu_game_format(&m.game, buf, sizeof buf);
 	CHECK(strstr(buf, "texturas = n64") != NULL);
+	CHECK(strstr(buf, "lod = si") != NULL);
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.texture, MENU_TEXTURE_N64);
+	CHECK(back.lod);
 	CHECK(!strcmp(menu_texture_filter_name(back.texture), "N64 (3 puntos)"));
 	m.game.scale = 0;
 	m.game.interp = MENU_INTERP_GEOMETRY;

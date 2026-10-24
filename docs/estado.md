@@ -1,5 +1,15 @@
 # Estado
 
+## 2026-10-23 — LOD de texturas de N64
+- Opción por juego `texturas-lod`, apagada por omisión; calcula derivadas por píxel,
+  selecciona tiles consecutivas y entrega `LOD_FRACTION` al combiner de dos ciclos.
+- rsxkit apila la cadena en un atlas y muestrea dos niveles explícitos; clamp,
+  repeat y mirror se resuelven dentro de cada nivel. Detail/sharpen quedan pendientes.
+- GoldenEye presa: PSNR 19,20→19,32 dB y MAE 5,90→5,86/255; MK64 quedó idéntico.
+- El muestreo del FP pasa de 2 a 30 instrucciones (+28); falta medir sus ms en PS3.
+- Host 686/887478, build y `test-phase2.sh` correctos; holgura SPE mínima 1552.
+- Apagado: `gfxdump` e imagen HLE idénticos byte a byte al commit anterior.
+
 ## 2026-10-23 — Filtro de texturas de tres puntos
 - Opción por juego RSX/N64, RSX por omisión; N64 apaga los filtros de
   presentación y conserva su elección para restaurarla al volver a RSX.

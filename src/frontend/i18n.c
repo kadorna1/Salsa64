@@ -266,6 +266,8 @@ static const struct entry table[] = {
 	{ "Juegos",
 	  { "Games", "Jeux", "Spiele", "Giochi", "Jogos" } },
 	{ "L", { "L", "L", "L", "L", "L" } },
+	{ "LOD de texturas",
+	  { "Texture LOD", "LOD des textures", "Textur-LOD", "LOD texture", "LOD de texturas" } },
 	{ "La escala nueva se pone al seguir jugando.",
 	  { "The new scale applies when you resume.", "La nouvelle échelle s'applique à la reprise.", "Die neue Skalierung gilt beim Weiterspielen.", "La nuova scala vale alla ripresa del gioco.", "A nova escala vale ao continuar jogando." } },
 	{ "Los puntos de fósforo del",

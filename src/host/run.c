@@ -3003,6 +3003,16 @@ static int raster_dump_buf(uint8_t *buf, size_t size, const char *path, const ch
 				x->height = salsa64_rd16((uint8_t *)&x->height);
 				x->pitch = salsa64_rd16((uint8_t *)&x->pitch);
 			}
+		} else if (op == GFX_OP_LOD && sz >= sizeof(struct gfx_lod)) {
+			struct gfx_lod *l = (struct gfx_lod *)c;
+			swap32s(&l->levels, 4);
+			for (int t = 0; t < GFX_LOD_LEVELS; t++) {
+				struct gfx_tex *x = &l->tex[t];
+				swap32s(&x->width, 8);
+				x->width = salsa64_rd16((uint8_t *)&x->width);
+				x->height = salsa64_rd16((uint8_t *)&x->height);
+				x->pitch = salsa64_rd16((uint8_t *)&x->pitch);
+			}
 		}
 		if (op == GFX_OP_END || !sz)
 			break;

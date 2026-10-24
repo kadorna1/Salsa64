@@ -215,7 +215,7 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 
 void osd_image_menu_draw(const struct osd_image_menu *m, float lw, float lh)
 {
-	static const char *const labels[IM_ROWS] = { "Filtro", "Texturas", "Densidad", "Aspecto", "Recorte del borde",
+	static const char *const labels[IM_ROWS] = { "Filtro", "Texturas", "LOD de texturas", "Densidad", "Aspecto", "Recorte del borde",
 						     "Escala interna", "Interpolación", "Guardar para este juego", "Volver" };
 	const float sc = 1.75f, row_h = 38.0f, pad = 20.0f, w = 560.0f;
 	int rows = IM_ROWS - !m->density;  /* sin máscara no hay fila «Densidad» */

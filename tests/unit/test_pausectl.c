@@ -238,6 +238,12 @@ static void menu_image_page(void)
 	CHECK_EQ(pc.image_do, IM_TEXTURE);
 	CHECK_EQ(pc.image_arg, 1);
 	pc.image_do = -1;
+	/* El LOD es independiente del filtro de texturas. */
+	tap(B(DOWN));
+	CHECK_EQ(pc.image_sel, IM_LOD);
+	tap(B(RIGHT));
+	CHECK_EQ(pc.image_do, IM_LOD);
+	pc.image_do = -1;
 	/* Con la máscara hay fila «Densidad», con su valor. */
 	pc.image_density = true;
 	tap(B(DOWN));
@@ -255,6 +261,8 @@ static void menu_image_page(void)
 	CHECK_EQ(pc.image_arg, -1);
 	pc.image_do = -1;
 	tap(B(UP));
+	CHECK_EQ(pc.image_sel, IM_LOD);
+	tap(B(UP));
 	CHECK_EQ(pc.image_sel, IM_TEXTURE);
 	tap(B(UP));
 	CHECK_EQ(pc.image_sel, IM_FILTER);
@@ -263,11 +271,16 @@ static void menu_image_page(void)
 	tap(B(DOWN));
 	CHECK_EQ(pc.image_sel, IM_TEXTURE);
 	tap(B(DOWN));
+	CHECK_EQ(pc.image_sel, IM_LOD);
+	tap(B(DOWN));
 	CHECK_EQ(pc.image_sel, IM_ASPECT);
+	tap(B(UP));
+	CHECK_EQ(pc.image_sel, IM_LOD);
 	tap(B(UP));
 	CHECK_EQ(pc.image_sel, IM_TEXTURE);
 	tap(B(UP));
 	CHECK_EQ(pc.image_sel, IM_FILTER);
+	tap(B(DOWN));
 	tap(B(DOWN));
 	for (int i = IM_ASPECT; i <= IM_SCALE; i++)
 		tap(B(DOWN));

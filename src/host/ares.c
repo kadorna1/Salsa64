@@ -60,6 +60,7 @@ static struct gfx_state st;
 static struct gfx_vertex out_vtx[1u << 16] __attribute__((aligned(128)));
 static uint8_t out_cmd[512u << 10] __attribute__((aligned(128)));
 static uint8_t out_tex[4u << 20] __attribute__((aligned(128)));
+static bool texlod;
 
 #ifdef SALSA64_GFX_TRACE
 extern int salsa64_gfx_trace_now;
@@ -223,6 +224,8 @@ static void run_task(const struct salsa64_task *t, enum salsa64_gbi gbi, struct 
 	job->done_task = 0;
 	if (raster_fbfx >= 1)
 		job->flags |= GFX_JOB_FBTEX;  /* como salsa64-run y la PS3 */
+	if (texlod)
+		job->flags |= GFX_JOB_TEXLOD;
 	gfx_init(&st);
 	gfx_run(&st, job, res);
 }
@@ -510,6 +513,17 @@ static void cmds_to_be(uint8_t *cmd, uint32_t bytes)
 				SW16(x, struct gfx_tex, src_pitch, 1);
 			}
 			SW32(r, struct gfx_draw, k, sizeof(((struct gfx_draw *)0)->k) / 4);
+		} else if (op == GFX_OP_LOD && size >= sizeof(struct gfx_lod)) {
+			for (int t = 0; t < GFX_LOD_LEVELS; t++) {
+				uint8_t *x = r + offsetof(struct gfx_lod, tex) + t * sizeof(struct gfx_tex);
+				SW32(x, struct gfx_tex, offset, 1);
+				SW16(x, struct gfx_tex, width, 3);
+				SW32(x, struct gfx_tex, key, 1);
+				SW32(x, struct gfx_tex, xf, 4);
+				SW32(x, struct gfx_tex, src_addr, 1);
+				SW16(x, struct gfx_tex, src_pitch, 1);
+			}
+			SW32(r, struct gfx_lod, pad, 3);
 		}
 		SW16(r, struct gfx_cmd, op, 2);  /* op y size */
 		SW32(r, struct gfx_cmd, a, 3);
@@ -781,7 +795,8 @@ static void usage(FILE *out)
 	      "                      rasterizador copió a la RDRAM, como en la PS3, no de la consola\n"
 	      "      --gfxdump       también la salida de la HLE de cada lista, como el gfxdump de\n"
 	      "                      la PS3 (big-endian): <volcado>-<lista>.gfxdump.bin, para\n"
-	      "                      tools/gfxdump.py, --raster-dump o \"dump:\" en el RSX\n",
+	      "                      tools/gfxdump.py, --raster-dump o \"dump:\" en el RSX\n"
+	      "      --lod           habilitar TEXTLOD y los niveles cargados en tiles consecutivas\n",
 	      out);
 }
 
@@ -796,6 +811,7 @@ int ares_main(int argc, char **argv)
 		{ "no-png", no_argument, NULL, 'n' },
 		{ "q5", no_argument, NULL, 'q' },
 		{ "gfxdump", no_argument, NULL, 'g' },
+		{ "lod", no_argument, NULL, 'l' },
 		{ "pasadas", required_argument, NULL, 'p' },
 		{ "help", no_argument, NULL, 'h' },
 		{ NULL, 0, NULL, 0 },
@@ -814,6 +830,7 @@ int ares_main(int argc, char **argv)
 		case 'n': o.png = false; break;
 		case 'q': q5 = true; break;
 		case 'g': o.gfxdump = true; break;
+		case 'l': texlod = true; break;
 		case 'p': o.passes = (unsigned)strtoul(optarg, NULL, 0); break;
 		case 'h': usage(stdout); return 0;
 		default: usage(stderr); return 3;

@@ -173,6 +173,7 @@ static int run_suites(void (*print)(const char *line), struct salsa64_rec *rec, 
 		{ "cover", t_suite_cover },
 		{ "dlutil", t_suite_dlutil },
 		{ "i18n", t_suite_i18n },
+		{ "lod", t_suite_lod },
 		{ "cuelgue", t_suite_cuelgue },
 	};
 	char line[256];
