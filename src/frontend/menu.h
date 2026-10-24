@@ -123,6 +123,7 @@ struct menu_game {
 	int filter;    /* -1 o enum menu_filter */
 	int overscan;  /* -1 o MENU_OVERSCAN_OFF / NORMAL / WIDE */
 	int scale;     /* -1, 0 antigua, 1..5 fija o 6..10 automática hasta 1..5 */
+	int stable_scale; /* 0 desconocida o 1..5: última escala automática estable */
 	int density;   /* -1 o enum menu_density (solo con la máscara) */
 	int interp;    /* -1 o enum menu_interp */
 	struct salsa64_padmap controls; /* asignaciones propias; INHERIT usa el global */

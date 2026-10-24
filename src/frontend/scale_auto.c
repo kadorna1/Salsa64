@@ -14,7 +14,13 @@ void scale_auto_init(struct scale_auto *p, bool automatic, unsigned current, uns
 	memset(p, 0, sizeof *p);
 	p->automatic = automatic;
 	p->maximum = maximum < 1 ? 1 : maximum > 5 ? 5 : (uint8_t)maximum;
+	p->ceiling = p->maximum;
 	p->current = current < 1 ? 1 : current > p->maximum ? p->maximum : (uint8_t)current;
+}
+
+unsigned scale_auto_ceiling(const struct scale_auto *p)
+{
+	return p->ceiling < p->maximum ? p->ceiling : p->maximum;
 }
 
 struct scale_auto_result scale_auto_update(struct scale_auto *p, const struct scale_auto_sample *s)
@@ -28,30 +34,21 @@ struct scale_auto_result scale_auto_update(struct scale_auto *p, const struct sc
 	r.rsx_pm = s->fields ? (uint32_t)(s->rsx_ns * 1000ull / ((uint64_t)s->fields * s->period_ns)) : 0;
 	bool emulation_ready = r.emu_pm >= SCALE_AUTO_EMU_PM;
 	bool overloaded = emulation_ready && s->skipped && r.rsx_pm >= 1000;
-	bool margin = emulation_ready && !s->skipped && s->presented && r.rsx_pm < SCALE_AUTO_UP_RSX_PM;
 
 	p->cooldown_us = p->cooldown_us > s->duration_us ? p->cooldown_us - s->duration_us : 0;
 	if (overloaded) {
 		p->overload_us = sat_add(p->overload_us, s->duration_us, SCALE_AUTO_DOWN_US);
-		p->margin_us = 0;
-	} else if (margin) {
-		p->margin_us = sat_add(p->margin_us, s->duration_us, SCALE_AUTO_UP_US);
-		p->overload_us = 0;
 	} else {
-		p->overload_us = p->margin_us = 0;
+		p->overload_us = 0;
 	}
 
 	if (p->automatic && p->overload_us >= SCALE_AUTO_DOWN_US && !p->cooldown_us && p->current > 1) {
 		r.action = SCALE_AUTO_DOWN;
 		r.sustained_us = p->overload_us;
+		p->failed = true;
+		p->ceiling = p->current - 1;
 		p->current--;
-		p->overload_us = p->margin_us = 0;
-		p->cooldown_us = SCALE_AUTO_COOLDOWN_US;
-	} else if (p->automatic && p->margin_us >= SCALE_AUTO_UP_US && !p->cooldown_us && p->current < p->maximum) {
-		r.action = SCALE_AUTO_UP;
-		r.sustained_us = p->margin_us;
-		p->current++;
-		p->overload_us = p->margin_us = 0;
+		p->overload_us = 0;
 		p->cooldown_us = SCALE_AUTO_COOLDOWN_US;
 	} else if (!p->automatic && p->overload_us >= SCALE_AUTO_DOWN_US && !p->cooldown_us && p->current > 1) {
 		r.action = SCALE_AUTO_WARN;

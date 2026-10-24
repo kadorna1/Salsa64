@@ -2615,7 +2615,7 @@ static int rdp_scale_req;  /* escala interna explícita pedida al RDP ahora */
 static struct menu_settings video_cfg;  /* video y escala que corren (video.cfg al arrancar o lo último aplicado) */
 static int scale_wanted(void);
 static const char *scale_label(char *buf, size_t n);
-static void scale_control_configure(bool reset);
+static void scale_control_configure(bool new_game);
 static void scale_control_sample(uint64_t now);
 static void scale_control_apply(void);
 
@@ -3823,17 +3823,26 @@ static const char *scale_label(char *buf, size_t n)
 	return scale_capped() ? tr("3× (tope con CRT)") : menu_scale_name(img.scale, video_cfg.resolution, buf, n);
 }
 
-static void scale_control_configure(bool reset)
+static void scale_control_configure(bool new_game)
 {
 	unsigned maximum = (unsigned)scale_limit();
 	bool automatic = menu_scale_is_auto(img.scale) && !auto_scale.disabled;
-	if (reset || !scale_policy.maximum || scale_policy.automatic != automatic) {
-		scale_auto_init(&scale_policy, automatic, maximum, maximum);
+	if (new_game || !scale_policy.maximum) {
+		unsigned start = automatic && img.game.stable_scale >= 1 && img.game.stable_scale <= MENU_SCALE_MAX
+				       ? (unsigned)img.game.stable_scale : maximum;
+		scale_auto_init(&scale_policy, automatic, start, maximum);
 	} else {
+		scale_policy.automatic = automatic;
 		scale_policy.maximum = (uint8_t)maximum;
-		if (!automatic || scale_policy.current > maximum)
-			scale_policy.current = (uint8_t)maximum;
-		scale_policy.overload_us = scale_policy.margin_us = 0;
+		if (!scale_policy.failed)
+			scale_policy.ceiling = (uint8_t)maximum;
+		unsigned wanted = automatic && img.game.stable_scale >= 1 && img.game.stable_scale <= MENU_SCALE_MAX
+					  ? (unsigned)img.game.stable_scale : maximum;
+		unsigned ceiling = scale_auto_ceiling(&scale_policy);
+		if (wanted > ceiling)
+			wanted = ceiling;
+		scale_policy.current = (uint8_t)(!automatic || wanted > maximum ? maximum : wanted);
+		scale_policy.overload_us = 0;
 	}
 	auto_scale.pending = false;
 	auto_scale.t0 = 0;
@@ -3844,7 +3853,7 @@ static void scale_control_sample(uint64_t now)
 	if (auto_scale.disabled || auto_scale.pending || pause_req || state_req || state_parked || filter_tests() ||
 	    !pacer.enabled) {
 		auto_scale.t0 = 0;
-		scale_policy.overload_us = scale_policy.margin_us = 0;
+		scale_policy.overload_us = 0;
 		return;
 	}
 	rt_collect();
@@ -3875,15 +3884,15 @@ static void scale_control_sample(uint64_t now)
 	auto_scale.presented0 = pres.frames_total;
 	int from = scale_policy.current;
 	struct scale_auto_result r = scale_auto_update(&scale_policy, &s);
-	if (r.action == SCALE_AUTO_DOWN || r.action == SCALE_AUTO_UP) {
+	if (r.action == SCALE_AUTO_DOWN) {
 		auto_scale.pending = true;
 		auto_scale.from = from;
 		auto_scale.to = scale_policy.current;
 		auto_scale.reason = r;
-		salsa64_log("escala automática: %d× → %d×, %s tras %.1f s (VI %.1f %%, RSX %.1f %% del período, "
-			    "%u presentados, %u saltados)", from, scale_policy.current,
-			    r.action == SCALE_AUTO_DOWN ? "sin margen" : "margen sostenido", r.sustained_us / 1e6,
-			    r.emu_pm / 10.0, r.rsx_pm / 10.0, s.presented, s.skipped);
+		salsa64_log("escala automática: %d× → %d×, sin margen tras %.1f s (VI %.1f %%, RSX %.1f %% del período, "
+			    "%u presentados, %u saltados); techo vigente %u×", from, scale_policy.current,
+			    r.sustained_us / 1e6, r.emu_pm / 10.0, r.rsx_pm / 10.0, s.presented, s.skipped,
+			    scale_auto_ceiling(&scale_policy));
 	} else if (r.action == SCALE_AUTO_WARN) {
 		salsa64_log("escala fija %d×: el RSX no alcanza tras %.1f s (VI %.1f %%, RSX %.1f %% del período, "
 			    "%u presentados, %u saltados); se conserva la elección", scale_wanted(),
@@ -3896,9 +3905,13 @@ static void scale_control_apply(void)
 {
 	if (!auto_scale.pending || !emu_paused)
 		return;
-	rdp_scale_set(auto_scale.to, auto_scale.reason.action == SCALE_AUTO_DOWN
-					 ? "escala automática, RSX sin margen"
-					 : "escala automática, margen sostenido");
+	rdp_scale_set(auto_scale.to, "escala automática, RSX sin margen");
+	img.game.stable_scale = auto_scale.to;
+	if (img.source) {
+		bool saved = game_cfg_write(img.source, &img.game);
+		salsa64_log("escala automática: estable %d× %s para este juego; techo vigente %u×", auto_scale.to,
+			    saved ? "guardada" : "NO guardada", scale_auto_ceiling(&scale_policy));
+	}
 	char notice[64];
 	snprintf(notice, sizeof notice, tr("Escala automática: %d×"), auto_scale.to);
 	osd_notice(sysGetSystemTime(), "%s", notice);
@@ -4052,7 +4065,7 @@ static void image_events(void)
 		break;
 	case IM_SCALE:
 		img.scale = menu_scale_step(img.scale, video_cfg.resolution, k);
-		scale_control_configure(true);
+		scale_control_configure(false);
 		return;  /* al seguir */
 	case IM_INTERP:
 		img.interp = (img.interp + k + MENU_INTERPS) % MENU_INTERPS;
@@ -4104,7 +4117,7 @@ static void interp_alt_step(void)
 		if (interp_alt.scale[0] > 0)
 			img.scale = img.scale == interp_alt.scale[0] ? interp_alt.scale[1] : interp_alt.scale[0];
 		view_apply();
-		scale_control_configure(true);
+		scale_control_configure(false);
 		view_log(" (prueba, interp-alternar)");
 		interp_alt.toggles++;
 		interp_alt.t = now + INTERP_ALT_HOLD_US;
@@ -4963,9 +4976,10 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	filter_setup(view_crt);  /* antes de la escala: el CRT la limita */
 	auto_scale.disabled = file_exists(SCALE_AUTO_OFF_PATH);
 	scale_control_configure(true);
-	salsa64_log("escala automática: %s, máximo %d×; baja tras 3 s con VI ≥ 92 %% y RSX ≥ 100 %%; "
-		    "sube tras 10 s sin saltos y RSX < 60 %%", auto_scale.disabled ? "apagada por sin-escala-auto" :
-		    scale_policy.automatic ? "encendida" : "escala fija", scale_policy.maximum);
+	salsa64_log("escala automática: %s, arranca en %d×, máximo %d×, techo vigente %u×; "
+		    "baja tras 3 s con VI ≥ 92 %% y RSX ≥ 100 %%; no sube automáticamente",
+		    auto_scale.disabled ? "apagada por sin-escala-auto" : scale_policy.automatic ? "encendida" : "escala fija",
+		    scale_policy.current, scale_policy.maximum, scale_auto_ceiling(&scale_policy));
 	rdp_scale_set(scale_wanted(), scale_capped() ? "al abrir el juego, tope de 3× con un CRT" : "al abrir el juego");
 	load_cheats(source);
 	if (selftest_on)

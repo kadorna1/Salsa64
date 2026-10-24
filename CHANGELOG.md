@@ -7,7 +7,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Changed
-- Internal scale can now be automatic up to a chosen limit, stepping down only when the RSX cannot keep up and back up with sustained headroom; fixed scales are never changed.
+- Automatic internal scale now remembers the last stable value per game and never retries a scale that already failed while that game remains open. It only steps down: RSX headroom at one scale did not reliably predict the cost of the next one. Fixed scales are never changed.
 
 ## [0.2.10] — 2026-10-22
 

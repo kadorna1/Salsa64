@@ -12,16 +12,13 @@
 #include <stdint.h>
 
 #define SCALE_AUTO_DOWN_US       3000000ull
-#define SCALE_AUTO_UP_US        10000000ull
 #define SCALE_AUTO_COOLDOWN_US  10000000ull
 #define SCALE_AUTO_WARN_US      30000000ull
 #define SCALE_AUTO_EMU_PM             920u
-#define SCALE_AUTO_UP_RSX_PM           600u
 
 enum scale_auto_action {
 	SCALE_AUTO_NONE,
 	SCALE_AUTO_DOWN,
-	SCALE_AUTO_UP,
 	SCALE_AUTO_WARN,
 };
 
@@ -43,11 +40,13 @@ struct scale_auto_result {
 
 struct scale_auto {
 	bool automatic;
-	uint8_t current, maximum;
-	uint64_t overload_us, margin_us, cooldown_us;
+	bool failed;
+	uint8_t current, maximum, ceiling;
+	uint64_t overload_us, cooldown_us;
 };
 
 void scale_auto_init(struct scale_auto *p, bool automatic, unsigned current, unsigned maximum);
+unsigned scale_auto_ceiling(const struct scale_auto *p);
 struct scale_auto_result scale_auto_update(struct scale_auto *p, const struct scale_auto_sample *s);
 
 #endif

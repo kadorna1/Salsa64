@@ -19,14 +19,28 @@ static void snap_5x_baja_y_se_queda(void)
 {
 	struct scale_auto p;
 	scale_auto_init(&p, true, 5, 5);
-	CHECK_EQ(second(&p, 60, 37, 23, 1120).action, SCALE_AUTO_NONE);
-	CHECK_EQ(second(&p, 59, 36, 23, 1100).action, SCALE_AUTO_NONE);
-	struct scale_auto_result r = second(&p, 60, 36, 24, 1080);
+	/* Serie de la decisión en la PS3: VI 92,7 %, RSX 107,8 %, sin
+	 * presentaciones y 56 saltos en la última ventana. */
+	CHECK_EQ(second(&p, 56, 0, 56, 1078).action, SCALE_AUTO_NONE);
+	CHECK_EQ(second(&p, 56, 0, 56, 1078).action, SCALE_AUTO_NONE);
+	struct scale_auto_result r = second(&p, 56, 0, 56, 1078);
 	CHECK_EQ(r.action, SCALE_AUTO_DOWN);
 	CHECK_EQ(p.current, 4);
-	for (int i = 0; i < 20; i++)
-		CHECK_EQ(second(&p, 60, 60, 0, 720).action, SCALE_AUTO_NONE);
+	CHECK_EQ(scale_auto_ceiling(&p), 4);
+	for (int i = 0; i < 120; i++)
+		CHECK_EQ(second(&p, 60, 60, 0, i & 1 ? 312 : 444).action, SCALE_AUTO_NONE);
 	CHECK_EQ(p.current, 4);
+}
+
+static void snap_reabre_en_la_estable(void)
+{
+	struct scale_auto p;
+	scale_auto_init(&p, true, 4, 5);
+	CHECK_EQ(p.current, 4);
+	for (int i = 0; i < 120; i++)
+		CHECK_EQ(second(&p, 60, 60, 0, 400).action, SCALE_AUTO_NONE);
+	CHECK_EQ(p.current, 4);
+	CHECK_EQ(scale_auto_ceiling(&p), 5);
 }
 
 static void shadows_lento_por_cpu_no_baja(void)
@@ -48,35 +62,25 @@ static void tiron_de_carga_no_baja(void)
 	CHECK_EQ(p.current, 5);
 }
 
-static void margen_sostenido_sube(void)
+static void margen_sostenido_no_sube(void)
 {
 	struct scale_auto p;
 	scale_auto_init(&p, true, 4, 5);
-	for (int i = 0; i < 9; i++)
+	for (int i = 0; i < 120; i++)
 		CHECK_EQ(second(&p, 60, 60, 0, 500).action, SCALE_AUTO_NONE);
-	CHECK_EQ(second(&p, 60, 60, 0, 500).action, SCALE_AUTO_UP);
-	CHECK_EQ(p.current, 5);
+	CHECK_EQ(p.current, 4);
 }
 
-static void oscilacion_respeta_histéresis(void)
+static void escala_fallida_no_se_reintenta(void)
 {
 	struct scale_auto p;
 	scale_auto_init(&p, true, 5, 5);
 	for (int i = 0; i < 3; i++)
 		second(&p, 60, 35, 25, 1200);
 	CHECK_EQ(p.current, 4);
-	for (int i = 0; i < 9; i++) {
-		second(&p, 60, 60, 0, 500);
-		second(&p, 60, 40, 20, 1200);
-	}
-	CHECK_EQ(p.current, 4);
-	for (int i = 0; i < 10; i++)
-		second(&p, 60, 60, 0, 500);
-	CHECK_EQ(p.current, 5);
-	for (int i = 0; i < 9; i++)
-		second(&p, 60, 35, 25, 1200);
-	CHECK_EQ(p.current, 5);
-	second(&p, 60, 35, 25, 1200);
+	CHECK_EQ(scale_auto_ceiling(&p), 4);
+	for (int i = 0; i < 120; i++)
+		second(&p, 60, 60, 0, 200);
 	CHECK_EQ(p.current, 4);
 }
 
@@ -93,9 +97,10 @@ static void escala_fija_avisa_sin_cambiar(void)
 void t_suite_scale_auto(void)
 {
 	RUN(snap_5x_baja_y_se_queda);
+	RUN(snap_reabre_en_la_estable);
 	RUN(shadows_lento_por_cpu_no_baja);
 	RUN(tiron_de_carga_no_baja);
-	RUN(margen_sostenido_sube);
-	RUN(oscilacion_respeta_histéresis);
+	RUN(margen_sostenido_no_sube);
+	RUN(escala_fallida_no_se_reintenta);
 	RUN(escala_fija_avisa_sin_cambiar);
 }

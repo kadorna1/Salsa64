@@ -904,12 +904,15 @@ static void menu_game_page(void)
 	CHECK_EQ(back.filter, -1);
 	CHECK_EQ(back.overscan, MENU_OVERSCAN_OFF);
 	CHECK_EQ(back.scale, 2);
+	CHECK_EQ(back.stable_scale, 0);
 	CHECK_EQ(back.interp, -1);
+	m.game.stable_scale = 4;
 	m.game.scale = 0;
 	m.game.interp = MENU_INTERP_GEOMETRY;
 	n = menu_game_format(&m.game, buf, sizeof buf);
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.scale, 0);
+	CHECK_EQ(back.stable_scale, 4);
 	CHECK_EQ(back.interp, MENU_INTERP_GEOMETRY);
 	m.game.scale = menu_scale_auto_value(5);
 	n = menu_game_format(&m.game, buf, sizeof buf);
@@ -930,12 +933,13 @@ static void menu_game_page(void)
 	CHECK(strstr(buf, "accesorio = controller-pak") != NULL);
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.accessory, MENU_ACC_PAK);
-	const char *junk = "aspecto = 5:4\nfiltro = raro\nrecorte = x\nescala = 9\n";
+	const char *junk = "aspecto = 5:4\nfiltro = raro\nrecorte = x\nescala = 9\nescala-estable = 9\n";
 	menu_game_parse(&back, junk, strlen(junk));
 	CHECK_EQ(back.aspect, -1);
 	CHECK_EQ(back.filter, -1);
 	CHECK_EQ(back.overscan, -1);
 	CHECK_EQ(back.scale, -1);
+	CHECK_EQ(back.stable_scale, 0);
 	/* ○ vuelve a la lista. */
 	menu_input(&m, 0, 180);
 	CHECK_EQ(menu_input(&m, BIT(SALSA64_DS3_CIRCLE), 190), MENU_NONE);

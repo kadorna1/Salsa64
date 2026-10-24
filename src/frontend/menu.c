@@ -250,6 +250,7 @@ void menu_settings_parse(struct menu_settings *s, const char *text, size_t len)
 void menu_game_default(struct menu_game *g)
 {
 	g->aspect = g->filter = g->overscan = g->scale = g->density = g->interp = -1;
+	g->stable_scale = 0;
 	g->accessory = MENU_ACC_PAK;
 	salsa64_padmap_inherit(&g->controls);
 }
@@ -289,6 +290,8 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 				   : !strncmp(val, "auto-", 5) && val[5] >= '1' && val[5] <= '0' + MENU_SCALE_MAX && !val[6]
 					     ? menu_scale_auto_value(val[5] - '0')
 				   : val[0] >= '1' && val[0] <= '0' + MENU_SCALE_MAX && !val[1] ? val[0] - '0' : -1;
+		} else if (!strcmp(key, "escala-estable")) {
+			g->stable_scale = val[0] >= '1' && val[0] <= '0' + MENU_SCALE_MAX && !val[1] ? val[0] - '0' : 0;
 		} else if (!strcmp(key, "densidad")) {
 			g->density = -1;
 			for (int d = 0; d < MENU_DENSITIES; d++)
@@ -313,11 +316,12 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 	_Static_assert(sizeof scale / sizeof scale[0] == MENU_SCALE_VALUE_MAX + 1, "una clave por escala");
 	int n = snprintf(buf, size,
 			"# Ajustes de este juego (global = los de Opciones)\naspecto = %s\nfiltro = %s\nrecorte = %s\nescala = %s\n"
-			"densidad = %s\ninterpolacion = %s\naccesorio = %s\n",
+			"escala-estable = %s\ndensidad = %s\ninterpolacion = %s\naccesorio = %s\n",
 			g->aspect == MENU_ASPECT_16_9 ? "16:9" : g->aspect == MENU_ASPECT_4_3 ? "4:3" : "global",
 			g->filter >= 0 && g->filter < MENU_FILTERS ? filter_key(g->filter) : "global",
 			g->overscan >= MENU_OVERSCAN_OFF && g->overscan <= MENU_OVERSCAN_WIDE ? crop[g->overscan] : "global",
 			g->scale >= 0 && g->scale <= MENU_SCALE_VALUE_MAX ? scale[g->scale] : "global",
+			g->stable_scale >= 1 && g->stable_scale <= MENU_SCALE_MAX ? scale[g->stable_scale] : "ninguna",
 			g->density >= 0 && g->density < MENU_DENSITIES ? density_key[g->density] : "global",
 			g->interp >= 0 && g->interp < MENU_INTERPS ? interp_key[g->interp] : "global",
 			g->accessory == MENU_ACC_NONE ? "ninguno" : "controller-pak");

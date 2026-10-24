@@ -173,8 +173,11 @@ Opciones:
   baja un paso cuando durante 3 s la emulación conserva al menos 92 % del
   ritmo del VI, aumentan los cuadros saltados y el trabajo medido del RSX
   ocupa un período de la tele; una carga aislada o un juego lento por CPU no
-  la baja. Sube solo tras 10 s sin saltos y con el RSX por debajo del 60 %,
-  nunca por encima de N, y deja al menos 10 s entre cambios. Una escala fija
+  la baja. Una escala que ya falló no se vuelve a probar mientras ese juego
+  siga abierto; la inferior se guarda en `juegos/<ROM>.cfg` y es la escala
+  inicial la próxima vez. No sube automáticamente: el coste del paso
+  siguiente no se puede predecir de forma fiable por el margen del actual.
+  Deja al menos 10 s entre bajadas. Una escala fija
   no cambia: si el RSX no alcanza, un aviso propone bajarla. El límite elegido fija un objetivo
   de líneas (5× = 1200) y cada imagen usa la entera que llega ahí sin
   pasarse: una de 640 × 480 usa 2× a 5×. Una escala mayor que la
@@ -682,7 +685,7 @@ se crean por FTP.
 | Archivo | Formato | Qué hace |
 |---|---|---|
 | `menu.cfg` | Líneas `fondo = si\|no`, `fps = si\|no`, `confirmar = si\|no`, `aspecto = 4:3\|16:9`, `filtro = suave\|nitido\|lineas\|lineas+\|crt-mascara\|crt-rgb\|crt-svideo\|crt-compuesto` , `densidad = normal\|fina`, `idioma = es\|en\|fr\|de\|it\|pt` e `interpolacion = no\|geometria` | Fondo animado del menú, contador de velocidad en el juego, si «Salir» del menú de pausa pregunta antes (sí sin la línea), aspecto, filtro, idioma e interpolación. Lo escriben el menú (Opciones) y SELECT + △ |
-| `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `accesorio` = `controller-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM) y «Imagen» del menú de pausa |
+| `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `escala-estable` = `1` a `5` o `ninguna`; `accesorio` = `controller-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM), «Imagen» del menú de pausa y la escala automática cuando aprende un límite estable |
 | `descargas.cfg` | `activar = si` y direcciones | Enciende las descargas experimentales (sección «Descargas») |
 | `overscan.cfg` | Uno, dos o cuatro números: `8`, `8 6` o `izq der arr abajo` | Recorte de la imagen en píxeles de la N64 (a 320 × 240) por lado. Por omisión `8 6`; `0` lo apaga; máximo 64. Lo escribe el menú (`0`, `8 6` o `16 12`) |
 | `video.cfg` | `salida = 720` o `1080`; `escala = auto-N`, `auto` o `1` a `5` | Salida de video y escala interna del render de la N64 (se leen al arrancar). `auto-N` ajusta la escala sin pasar N; `auto` conserva la compatibilidad anterior (3× a 720p, 4× a 1080p). Sin archivo: 720p y `auto`. Si la tele o el XMB no aceptan 1080, usa el siguiente modo. Acepta el formato viejo de una línea (`1080` o `720`). Lo escribe el menú con «Resolución» y «Escala interna» |
