@@ -5,6 +5,7 @@ APPID := DCKS00001
 CFLAGS := -I$(CURDIR)/include
 LIBS := -lio -lsysutil -llv2 -lm
 LDFLAGS := -T $(CURDIR)/linker/duckstation-jit-cache.ld -T lv2.ld
+ICON0 := $(CURDIR)/../assets/ICON0.PNG
 SRCS := src/main.c src/ps3_jit_probe.c src/ppc64_emit.c
 
 # Reuse Salsa64's common PSL1GHT build, ELF/SELF, and GNPDRM PKG targets.

@@ -27,3 +27,11 @@ The package is **not a PS1 emulator** and is not expected to boot a game. It is 
 The GitHub Actions workflow on this branch obtains the latest available `ps3dev/ps3dev` nightly bundle, runs host tests, compiles the PPU ELF, and creates raw/finalized PKG files. Output is uploaded as the workflow artifact `duckstation-ps3-phase0-packages`.
 
 For later phases, the intended direction is to integrate the DuckStation core in interpreter mode first, retain the current PPC64 instruction emitter as a low-level utility, then implement a complete backend against DuckStation's architecture-neutral CPU recompiler interface. RSXKit/SPUKit integration is subsequent work, not claimed by this checkpoint.
+
+
+## Package icon
+
+`assets/ICON0.PNG` is the PS3 XMB package icon (320×176 PNG). The build
+uses this icon via the shared Salsa64 `mk/ps3.mk` rules, so both the raw PKG
+and finalized GNPDRM PKG carry the DuckStation PS3 artwork instead of Salsa64's
+default icon.

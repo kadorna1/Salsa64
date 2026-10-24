@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           make -C ports/duckstation-ps3/ps3 clean
-          make -C ports/duckstation-ps3/ps3 pkg ICON0="$GITHUB_WORKSPACE/assets/ps3/ICON0.PNG"
+          make -C ports/duckstation-ps3/ps3 pkg
 
       - name: Upload packages and diagnostics
         uses: actions/upload-artifact@v7
