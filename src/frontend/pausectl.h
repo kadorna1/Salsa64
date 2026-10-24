@@ -18,7 +18,7 @@
  *     en el cuadro de abajo si `confirm`, y si no sale; los dos «Reiniciar»
  *     preguntan siempre («¿Seguro?», dialog_for dice cuál) y devuelven
  *     PAUSECTL_RESET o PAUSECTL_RESTART con ×.
- *   - «Imagen» abre su página (IM_*): Filtro, Densidad (solo con
+ *   - «Imagen» abre su página (IM_*): Filtro, Texturas, Densidad (solo con
  *     `image_density`: el CRT de máscara), Aspecto, Recorte, Escala
  *     interna e Interpolación (←→ o × cambian el valor: image_do con
  *     image_arg ±1),
@@ -53,7 +53,7 @@
 
 /* Filas del menú de pausa y de su página «Imagen». */
 enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_SLOT, PM_CHEATS, PM_IMAGE, PM_FPS, PM_RESET, PM_RESTART, PM_EXIT, PM_ROWS };
-enum { IM_FILTER, IM_DENSITY, IM_ASPECT, IM_CROP, IM_SCALE, IM_INTERP, IM_SAVE, IM_BACK, IM_ROWS };
+enum { IM_FILTER, IM_TEXTURE, IM_DENSITY, IM_ASPECT, IM_CROP, IM_SCALE, IM_INTERP, IM_SAVE, IM_BACK, IM_ROWS };
 
 enum pausectl_action {
 	PAUSECTL_NONE,

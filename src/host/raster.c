@@ -66,6 +66,7 @@ bool raster_trace_fb;
 uint32_t raster_field;
 int raster_fbfx = 2;
 bool raster_q5 = true;
+bool raster_tex3point = false;
 bool raster_aa_edges = false;
 float raster_edge_width = 1.5f;  /* como rdp.c: 1,5 píxeles de la N64 */
 float raster_edge_factor = 8.0f, raster_edge_units = 64.0f;  /* su desplazamiento de polígono (rsxkit) */
@@ -230,6 +231,17 @@ static void sample(const struct gfx_tex *t, const struct texsrc *s, float u, flo
 	fetch(t, s, x0, y0, a);
 	fetch(t, s, x0 + 1, y0, b);
 	fetch(t, s, x0, y0 + 1, c);
+	if (raster_tex3point) {
+		if (fx + fy <= 1.0f)
+			for (int k = 0; k < 4; k++)
+				out[k] = a[k] + fx * (b[k] - a[k]) + fy * (c[k] - a[k]);
+		else {
+			fetch(t, s, x0 + 1, y0 + 1, d);
+			for (int k = 0; k < 4; k++)
+				out[k] = d[k] + (1.0f - fx) * (c[k] - d[k]) + (1.0f - fy) * (b[k] - d[k]);
+		}
+		return;
+	}
 	fetch(t, s, x0 + 1, y0 + 1, d);
 	for (int k = 0; k < 4; k++)
 		out[k] = (a[k] * (1 - fx) + b[k] * fx) * (1 - fy) + (c[k] * (1 - fx) + d[k] * fx) * fy;

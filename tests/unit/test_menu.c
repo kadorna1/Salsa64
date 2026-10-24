@@ -830,6 +830,7 @@ static void menu_game_page(void)
 	struct menu_game g;
 	menu_game_default(&g);
 	CHECK_EQ(g.aspect, -1);
+	CHECK_EQ(g.texture, MENU_TEXTURE_RSX);
 	menu_game_open(&m, &g, "Juego");
 	CHECK_EQ(m.page, MENU_PAGE_GAME);
 	menu_input(&m, 0, 20);
@@ -903,6 +904,13 @@ static void menu_game_page(void)
 	CHECK_EQ(back.overscan, MENU_OVERSCAN_OFF);
 	CHECK_EQ(back.scale, 2);
 	CHECK_EQ(back.interp, -1);
+	CHECK_EQ(back.texture, MENU_TEXTURE_RSX);
+	m.game.texture = MENU_TEXTURE_N64;
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	CHECK(strstr(buf, "texturas = n64") != NULL);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.texture, MENU_TEXTURE_N64);
+	CHECK(!strcmp(menu_texture_filter_name(back.texture), "N64 (3 puntos)"));
 	m.game.scale = 0;
 	m.game.interp = MENU_INTERP_GEOMETRY;
 	n = menu_game_format(&m.game, buf, sizeof buf);

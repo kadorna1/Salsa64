@@ -351,7 +351,7 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 		printf("  %06x: fuera del volcado\n", t->addr);
 		return;
 	}
-	double se = 0.0, se_box = 0.0, bias[3] = { 0.0, 0.0, 0.0 };
+	double se = 0.0, se_box = 0.0, ae = 0.0, ae_box = 0.0, bias[3] = { 0.0, 0.0, 0.0 };
 	for (uint32_t y = 0; y < h; y++)
 		for (uint32_t x = 0; x < w; x++) {
 			uint32_t p = salsa64_rd16(rdram_orig + t->addr + 2 * (y * width + x));
@@ -365,6 +365,7 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 				int d = (int)(o >> (16 - 8 * k) & 0xFF) - (int)(c >> (16 - 8 * k) & 0xFF);
 				dpix[y][x][k] = d;
 				se += (double)d * d;
+				ae += abs(d);
 				bias[k] += d;
 			}
 		}
@@ -382,6 +383,7 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 				int d = (sum[k] + (sum[k] < 0 ? -n / 2 : n / 2)) / n;
 				dbox[y][x][k] = d;
 				se_box += (double)d * d;
+				ae_box += abs(d);
 				dmax = (uint32_t)abs(d) > dmax ? (uint32_t)abs(d) : dmax;
 			}
 			unsigned cy = y * MAP_ROWS / h, cx = x * MAP_COLS / w;
@@ -403,8 +405,9 @@ static void compare(const char *prefix, uint32_t dl, const struct target *t, uns
 	char p1[32], p2[32];
 	psnr_of(se, 3 * w * h, p1, sizeof p1);
 	psnr_of(se_box, 3 * w * h, p2, sizeof p2);
-	printf("  %06x (%u×%u): PSNR %s por píxel, %s en 4×4; HLE − consola en promedio %+.1f %+.1f %+.1f (RGB, de "
-	       "255)\n", t->addr, w, h, p1, p2, bias[0] / (w * h), bias[1] / (w * h), bias[2] / (w * h));
+	printf("  %06x (%u×%u): PSNR %s por píxel, %s en 4×4; MAE %.2f/255, %.2f/255 en 4×4; "
+	       "HLE − consola en promedio %+.1f %+.1f %+.1f (RGB, de 255)\n", t->addr, w, h, p1, p2,
+	       ae / (3 * w * h), ae_box / (3 * w * h), bias[0] / (w * h), bias[1] / (w * h), bias[2] / (w * h));
 	printf("    %u píxeles (%.2f %%) difieren en más de %u/255 en 4×4", bad, 100.0 * bad / (w * h), limit);
 	if (bad)
 		printf("; caja %u..%u × %u..%u", bx0, bx1 + 1, by0, by1 + 1);
@@ -826,6 +829,8 @@ int ares_main(int argc, char **argv)
 		raster_fbfx = atoi(getenv("SALSA64_FBFX"));
 	if (getenv("SALSA64_AA_EDGES"))
 		raster_aa_edges = atoi(getenv("SALSA64_AA_EDGES")) != 0;
+	if (getenv("SALSA64_TEX3P"))
+		raster_tex3point = atoi(getenv("SALSA64_TEX3P")) != 0;
 	if (getenv("SALSA64_AA_EDGE_OFFSET"))
 		sscanf(getenv("SALSA64_AA_EDGE_OFFSET"), "%f,%f", &raster_edge_factor, &raster_edge_units);
 	if (getenv("SALSA64_AA_EDGE_WIDTH"))

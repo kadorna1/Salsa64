@@ -1,5 +1,15 @@
 # Estado
 
+## 2026-10-23 — Filtro de texturas de tres puntos
+- Opción por juego RSX/N64, RSX por omisión; N64 apaga los filtros de
+  presentación y conserva su elección para restaurarla al volver a RSX.
+- El muestreador genérico de rsxkit usa 3 TEX + 16 ALU por textura; el
+  programa fijo pasa de 4 a 22 instrucciones (dos texturas: 7 a 43).
+- Contra ares: OoT 25,57 dB/MAE 3,98 → 25,57/3,93 en 4×4; GoldenEye
+  21,91→21,95 y 28,37→28,55 dB por píxel; MK64, 34,66 dB/3,31 idéntico.
+- Host: 683/887432; `gfxtest` RSX idéntico a main; build y `test-phase2.sh`
+  correctos; holgura SPE mínima 1568. Cota sin medir: +0,3–2 ms a 3×, +1–4 ms a 5×.
+
 ## 2026-10-22 — HLE de F3DEX2ACCLAIM
 
 - Encendida por omisión (`sin-acclaim` la apaga; host `SALSA64_GFX_ACCLAIM=0`).

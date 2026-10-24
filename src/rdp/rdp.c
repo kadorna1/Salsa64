@@ -326,6 +326,7 @@ static struct {
 	/* Efectos de framebuffer (docs/framebuffer.md). */
 	int fbfx;                    /* 0 apagado, 1 render a textura, 2 también copias */
 	bool aa_edges;               /* salsa64_rdp_aa_edges */
+	bool tex3point;              /* G_TF_BILERP/AVERAGE con triángulo de 3 puntos */
 	bool target_alpha;           /* salsa64_rdp_target_alpha */
 	uint8_t *rdram;              /* la RDRAM emulada (NULL: sin copias ni cebado) */
 	uint32_t rdram_size;
@@ -577,6 +578,11 @@ size_t salsa64_rdp_interp_bytes(void)
 void salsa64_rdp_aa_edges(bool on)
 {
 	rdp.aa_edges = on;
+}
+
+void salsa64_rdp_texture_3point(bool on)
+{
+	rdp.tex3point = on;
 }
 
 bool salsa64_rdp_last_present(struct salsa64_rdp_present_info *out)
@@ -2190,7 +2196,9 @@ static bool to_rsxkit(const struct gfx_draw *g, struct set *s, int cur, rsxkit_d
 		t->format = RSXKIT_RGBA8888;
 		t->wrap_s = wrap[GFX_TEX_WRAP_S(gt->flags)];
 		t->wrap_t = wrap[GFX_TEX_WRAP_T(gt->flags)];
-		t->filter = (gt->flags & GFX_TEX_BILINEAR) ? RSXKIT_FILTER_LINEAR : RSXKIT_FILTER_NEAREST;
+		t->filter = (gt->flags & GFX_TEX_BILINEAR)
+				? (rdp.tex3point ? RSXKIT_FILTER_3POINT : RSXKIT_FILTER_LINEAR)
+				: RSXKIT_FILTER_NEAREST;
 		/* En una capa de 8 bits (big8) el color es un índice de paleta: el
 		 * RDP la dibuja 1:1 y su filtro cae en el centro del texel, pero el
 		 * del RSX mezcla una fracción de los vecinos (pocos bits de peso) y
@@ -2207,6 +2215,18 @@ static bool to_rsxkit(const struct gfx_draw *g, struct set *s, int cur, rsxkit_d
 			to_rsxkit_fb = true;
 		if (gt->where == GFX_TEX_TARGET && !from_target && !texture_from_rdram(gt, s, t))
 			return false;
+		if (t->filter == RSXKIT_FILTER_3POINT) {
+			/* La diagonal se elige en la rejilla lógica de la N64, aunque
+			 * la textura física sea un destino a escala interna alta. */
+			t->qf[0] = gt->xf[0] * gt->width;
+			t->qf[1] = gt->xf[1] * gt->height;
+			t->qf[2] = gt->xf[2] * gt->width - 0.5f;
+			t->qf[3] = gt->xf[3] * gt->height - 0.5f;
+			t->sf[0] = t->xf[0] / t->qf[0];
+			t->sf[1] = t->xf[1] / t->qf[1];
+			t->sf[2] = t->xf[2] - (t->qf[2] + 0.5f) * t->sf[0];
+			t->sf[3] = t->xf[3] - (t->qf[3] + 0.5f) * t->sf[1];
+		}
 	}
 	memcpy(d->k, g->k, sizeof d->k);
 	/* Destino con alfa: el alfa de la N64 en lo que se escribe. Un dibujo

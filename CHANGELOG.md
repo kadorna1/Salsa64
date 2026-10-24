@@ -4,6 +4,10 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
+## [Unreleased]
+
+- Added an optional N64 three-point texture filter; it disables presentation filters while active and restores them when returning to RSX bilinear filtering.
+
 ## [0.2.10] — 2026-10-22
 
 ### Added
