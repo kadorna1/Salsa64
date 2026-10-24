@@ -251,6 +251,8 @@ void menu_game_default(struct menu_game *g)
 {
 	g->aspect = g->filter = g->overscan = g->scale = g->density = g->interp = -1;
 	g->stable_scale = 0;
+	g->texture = MENU_TEXTURE_RSX;
+	g->lod = false;
 	g->accessory = MENU_ACC_PAK;
 	salsa64_padmap_inherit(&g->controls);
 }
@@ -302,6 +304,10 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 			for (int v = 0; v < MENU_INTERPS; v++)
 				if (!strcmp(val, interp_key[v]))
 					g->interp = v;
+		} else if (!strcmp(key, "texturas")) {
+			g->texture = !strcmp(val, "n64") ? MENU_TEXTURE_N64 : MENU_TEXTURE_RSX;
+		} else if (!strcmp(key, "lod")) {
+			g->lod = !strcmp(val, "si");
 		} else if (!strcmp(key, "accesorio")) {
 			g->accessory = !strcmp(val, "ninguno") ? MENU_ACC_NONE : MENU_ACC_PAK;
 		}
@@ -316,7 +322,7 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 	_Static_assert(sizeof scale / sizeof scale[0] == MENU_SCALE_VALUE_MAX + 1, "una clave por escala");
 	int n = snprintf(buf, size,
 			"# Ajustes de este juego (global = los de Opciones)\naspecto = %s\nfiltro = %s\nrecorte = %s\nescala = %s\n"
-			"escala-estable = %s\ndensidad = %s\ninterpolacion = %s\naccesorio = %s\n",
+			"escala-estable = %s\ndensidad = %s\ninterpolacion = %s\ntexturas = %s\nlod = %s\naccesorio = %s\n",
 			g->aspect == MENU_ASPECT_16_9 ? "16:9" : g->aspect == MENU_ASPECT_4_3 ? "4:3" : "global",
 			g->filter >= 0 && g->filter < MENU_FILTERS ? filter_key(g->filter) : "global",
 			g->overscan >= MENU_OVERSCAN_OFF && g->overscan <= MENU_OVERSCAN_WIDE ? crop[g->overscan] : "global",
@@ -324,6 +330,8 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 			g->stable_scale >= 1 && g->stable_scale <= MENU_SCALE_MAX ? scale[g->stable_scale] : "ninguna",
 			g->density >= 0 && g->density < MENU_DENSITIES ? density_key[g->density] : "global",
 			g->interp >= 0 && g->interp < MENU_INTERPS ? interp_key[g->interp] : "global",
+			g->texture == MENU_TEXTURE_N64 ? "n64" : "rsx",
+			g->lod ? "si" : "no",
 			g->accessory == MENU_ACC_NONE ? "ninguno" : "controller-pak");
 	if (n < 0 || (size_t)n >= size)
 		return -1;
@@ -368,6 +376,11 @@ const char *menu_accessory_name(int accessory)
 const char *menu_interp_name(int interp)
 {
 	return interp == MENU_INTERP_GEOMETRY ? "Por geometría (exp.)" : "Apagado";
+}
+
+const char *menu_texture_filter_name(int filter)
+{
+	return filter == MENU_TEXTURE_N64 ? "N64 (3 puntos)" : "RSX (bilineal)";
 }
 
 void menu_game_effective(const struct menu_settings *s, const struct menu_game *g, int *aspect, int *filter,

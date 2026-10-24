@@ -20,7 +20,7 @@ import struct
 import sys
 
 MAGIC = 0x53344744
-OPS = {0: "END", 1: "TARGET", 2: "ZCLEAR", 3: "DRAW"}
+OPS = {0: "END", 1: "TARGET", 2: "ZCLEAR", 3: "DRAW", 4: "VGROUP", 5: "LOD"}
 U8_FIELDS = ["cycle", "cull", "depth", "blend", "atest", "aref", "fog", "ntex"]
 BLEND = ["OFF", "ALPHA", "ADD", "KEEP"]
 # struct gfx_draw (gfx.h): desplazamientos desde el inicio del dibujo.
@@ -28,7 +28,7 @@ OFF_NTERMS, OFF_FACTORS, OFF_VISCVG, OFF_AA = 48, 49, 77, 78
 OFF_TEX, TEX_SIZE = 80, 40            # struct gfx_tex tex[2]
 OFF_K, K_TERMS = 160, 7               # float k[7][3][4]
 TERM_NAMES = ["T0", "T0a", "T1", "T1a", "1", "t5", "t6"]
-FACTOR_NAMES = {1: "T0", 2: "T0a", 3: "T1", 4: "T1a", 5: "C", 6: "Ca"}
+FACTOR_NAMES = {1: "T0", 2: "T0a", 3: "T1", 4: "T1a", 5: "C", 6: "Ca", 7: "LOD"}
 VTX_SIZE = 32                          # struct gfx_vertex: x y z w s t, rgba, relleno
 
 
@@ -75,6 +75,12 @@ class Dump:
         src, spitch, ssiz, sfmt = struct.unpack_from(self.e + "IHBB", self.cmd, base + 32)
         return base, dict(offset=o, width=w, height=h, pitch=pitch, flags=flags, where=where, key=key, xf=xf,
                           src_addr=src, src_pitch=spitch, src_siz=ssiz, src_fmt=sfmt)
+
+    def lod_tex_at(self, off, i):
+        base = off + 20 + TEX_SIZE * i
+        o, w, h, pitch, flags, where, key = struct.unpack_from(self.e + "IHHHBBI", self.cmd, base)
+        xf = struct.unpack_from(self.e + "4f", self.cmd, base + 16)
+        return dict(offset=o, width=w, height=h, pitch=pitch, flags=flags, where=where, key=key, xf=xf)
 
     def vertex(self, i):
         x, y, z, w, s, t = struct.unpack_from(self.e + "6f", self.vtx, i * VTX_SIZE)
@@ -129,7 +135,15 @@ def cmd_list(args):
         if op == 3:
             continue
         a, b, c = struct.unpack_from(d.e + "3I", d.cmd, off + 4)
-        print(f"     off {off:6d} {OPS.get(op, op)} a {a:#x} b {b:#x} c {c:#x}")
+        if op == 5 and size >= 20:
+            levels, max_level, min_level, mode = d.cmd[off + 16:off + 20]
+            print(f"     off {off:6d} LOD niveles {levels} máximo {max_level} mínimo {min_level}/255 modo {mode}")
+            for i in range(levels):
+                t = d.lod_tex_at(off, i)
+                print(f"          L{i} off {t['offset']} {t['width']}x{t['height']} pitch {t['pitch']} "
+                      f"flags {t['flags']:#x} key {t['key']:08x} xf {[round(x, 5) for x in t['xf']]}")
+        else:
+            print(f"     off {off:6d} {OPS.get(op, op)} a {a:#x} b {b:#x} c {c:#x}")
     for n, off in d.draws():
         if args.draw is None or n in args.draw:
             print(d.describe(n, off))

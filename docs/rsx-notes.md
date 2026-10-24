@@ -77,6 +77,10 @@ compila; `lib/rsxkit/src/fpgen.c`):
   generado por `tools/fpgen-ref.sh`) dan la fórmula de su shader y luego
   que los programas generados dan la misma. Los de referencia leen las
   mismas entradas que los generados equivalentes (`texcoords` igual).
+- El filtro triangular usa SGE, no códigos de condición: tres TEX nearest y
+  16 ALU por textura. Las coordenadas se calculan en fp32; el color y el
+  combiner siguen en fp16. La rejilla lógica y el mapa a la textura física
+  son transformaciones separadas para los destinos a escala interna alta.
 - Orientación: con la y hacia arriba en el espacio de recorte, el frente de
   la N64 es antihorario (`rsxSetFrontFace(ctx, GCM_FRONTFACE_CCW)`). Con CW
   el culling sale al revés (faltaban el cielo y la luna en Zelda).

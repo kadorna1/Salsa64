@@ -50,9 +50,9 @@
 
 #include "rsp/gfx/hle.h"
 
-/* Monomio: exponentes de T0, T0a, T1, T1a, S y Sa, dos bits cada uno. */
+/* Monomio: exponentes de T0, T0a, T1, T1a, S, Sa y LOD, dos bits cada uno. */
 typedef uint16_t mono;
-enum { F_T0, F_T0A, F_T1, F_T1A, F_S, F_SA, F_N };
+enum { F_T0, F_T0A, F_T1, F_T1A, F_S, F_SA, F_LOD, F_N };
 #define M_SHIFT(f)  (2 * (f))
 #define M_EXP(m, f) (((m) >> M_SHIFT(f)) & 3u)
 #define M_ONE(f)    ((mono)(1u << M_SHIFT(f)))
@@ -66,7 +66,8 @@ typedef struct {
 
 struct cc_ctx {
 	float prim[4], env[4];
-	float prim_lod, lod, noise, k4, k5;
+	float prim_lod, noise, k4, k5;
+	bool lod;
 	bool approx;
 	bool swap;  /* segundo ciclo de 2CYCLE: TEXEL0 lee el texel de la tile+1 */
 };
@@ -118,7 +119,7 @@ static poly p_mono(int f, struct cc_ctx *x)
 
 static poly p_tex(int f, struct cc_ctx *x)
 {
-	static const int swapped[F_N] = { F_T1, F_T1A, F_T0, F_T0A, F_S, F_SA };
+	static const int swapped[F_N] = { F_T1, F_T1A, F_T0, F_T0A, F_S, F_SA, F_LOD };
 	return p_mono(x->swap ? swapped[f] : f, x);
 }
 
@@ -198,7 +199,7 @@ static poly in_rgb(int slot, unsigned v, int lane, const poly *comb, const poly 
 		case 10: return p_const(x->prim[3], x);
 		case 11: return p_mono(F_SA, x);
 		case 12: return p_const(x->env[3], x);
-		case 13: return p_const(x->lod, x);           /* LOD_FRACTION */
+		case 13: return x->lod ? p_mono(F_LOD, x) : p_const(0.0f, x); /* LOD_FRACTION */
 		case 14: return p_const(x->prim_lod, x);      /* PRIM_LOD_FRAC */
 		case 15: return p_const(x->k5, x);
 		default: return p_const(0.0f, x);
@@ -212,7 +213,7 @@ static poly in_alpha(int slot, unsigned v, const poly *comb_a, struct cc_ctx *x)
 {
 	if (slot == 'c') {
 		switch (v) {
-		case 0: return p_const(x->lod, x);
+		case 0: return x->lod ? p_mono(F_LOD, x) : p_const(0.0f, x);
 		case 6: return p_const(x->prim_lod, x);
 		case 7: return p_const(0.0f, x);
 		default: break;
@@ -292,6 +293,8 @@ static void rgba(uint32_t c, float out[4])
  * (textura premultiplicada). */
 static bool lincomb_slot(mono m, int *term, int *slot)
 {
+	if (M_EXP(m, F_LOD))
+		return false;
 	unsigned s = M_EXP(m, F_S), sa = M_EXP(m, F_SA);
 	if (s + sa > 1)
 		return false;
@@ -355,13 +358,15 @@ static mono canon(mono m)
 {
 	unsigned t0 = M_EXP(m, F_T0) + M_EXP(m, F_T0A), t1 = M_EXP(m, F_T1) + M_EXP(m, F_T1A);
 	unsigned s = M_EXP(m, F_S) + M_EXP(m, F_SA);
-	return (mono)(t0 << M_SHIFT(F_T0) | t1 << M_SHIFT(F_T1) | s << M_SHIFT(F_S));
+	unsigned lod = M_EXP(m, F_LOD);
+	return (mono)(t0 << M_SHIFT(F_T0) | t1 << M_SHIFT(F_T1) | s << M_SHIFT(F_S) |
+		      lod << M_SHIFT(F_LOD));
 }
 
 /* Monomio que calcula una lista de factores en los canales de color. */
 static mono factors_mono(const uint8_t f[GFX_K_FACTORS])
 {
-	static const mono of[] = { 0, M_ONE(F_T0), M_ONE(F_T0A), M_ONE(F_T1), M_ONE(F_T1A), M_ONE(F_S), M_ONE(F_SA) };
+	static const mono of[] = { 0, M_ONE(F_T0), M_ONE(F_T0A), M_ONE(F_T1), M_ONE(F_T1A), M_ONE(F_S), M_ONE(F_SA), M_ONE(F_LOD) };
 	mono m = 0;
 	for (int k = 0; k < GFX_K_FACTORS && f[k]; k++)
 		m = (mono)(m + of[f[k]]);
@@ -373,9 +378,9 @@ static mono factors_mono(const uint8_t f[GFX_K_FACTORS])
  * = C, Ca, C). */
 static void mono_factors(mono m, bool alpha, uint8_t f[GFX_K_FACTORS])
 {
-	static const uint8_t color[F_N] = { GFX_F_T0, GFX_F_T0A, GFX_F_T1, GFX_F_T1A, GFX_F_C, GFX_F_CA };
+	static const uint8_t color[F_N] = { GFX_F_T0, GFX_F_T0A, GFX_F_T1, GFX_F_T1A, GFX_F_C, GFX_F_CA, GFX_F_LOD };
 	static const uint8_t pair[F_N][2] = { { GFX_F_T0, GFX_F_T0A }, { 0, 0 }, { GFX_F_T1, GFX_F_T1A },
-					      { 0, 0 }, { GFX_F_C, GFX_F_CA }, { 0, 0 } };
+					      { 0, 0 }, { GFX_F_C, GFX_F_CA }, { 0, 0 }, { GFX_F_LOD, GFX_F_LOD } };
 	int n = 0;
 	memset(f, 0, GFX_K_FACTORS);
 	for (int k = 0; k < F_N; k++)
@@ -514,13 +519,14 @@ static void build_terms(const poly out[4], struct gfx_draw *d, struct cc_ctx *x)
 		d->nterms = 0;  /* todo era cero: la combinación lineal vacía */
 }
 
-bool gfx_combine(const struct gfx_state *g, struct gfx_draw *d)
+bool gfx_combine(const struct gfx_state *g, struct gfx_draw *d, bool lod)
 {
 	struct cc_ctx x;
 	memset(&x, 0, sizeof x);
 	rgba(g->prim, x.prim);
 	rgba(g->env, x.env);
 	x.prim_lod = g->prim_lod / 255.0f;
+	x.lod = lod;
 	x.noise = 0.5f;
 	/* K4 y K5 tienen 9 bits con signo, en la escala de los colores (255 = 1). */
 	x.k4 = (float)((int32_t)((uint32_t)g->k4 << 23) >> 23) / 255.0f;

@@ -21,7 +21,7 @@ CORE_SRCS := $(wildcard $(ROOT)/src/core/*.c $(ROOT)/src/cpu/*.c $(ROOT)/src/rsp
              $(ROOT)/src/frontend/version.c $(ROOT)/src/frontend/perfilado.c $(ROOT)/src/frontend/savefile.c $(ROOT)/src/frontend/mempakfile.c \
              $(ROOT)/src/frontend/filters/crt_params.c $(ROOT)/src/frontend/cuelgue.c \
 	     $(ROOT)/src/frontend/scale_auto.c \
-             $(ROOT)/src/rdp/targets.c $(ROOT)/src/rdp/vmatch.c $(ROOT)/src/rdp/gfxdump.c $(ROOT)/src/rdp/blackbox.c $(ROOT)/src/host/raster.c $(ROOT)/src/host/gfxcheck.c $(ROOT)/lib/rsxkit/src/fpgen.c $(ROOT)/lib/rsxkit/src/text.c \
+             $(ROOT)/src/rdp/targets.c $(ROOT)/src/rdp/vmatch.c $(ROOT)/src/rdp/gfxdump.c $(ROOT)/src/rdp/blackbox.c $(ROOT)/src/rdp/lod.c $(ROOT)/src/host/raster.c $(ROOT)/src/host/gfxcheck.c $(ROOT)/lib/rsxkit/src/fpgen.c $(ROOT)/lib/rsxkit/src/text.c \
              $(ROOT)/lib/rsxkit/src/ui_geom.c
 TEST_SRCS := $(wildcard $(CURDIR)/*.c)
 OBJS      := $(patsubst $(ROOT)/%.c,$(OUT)/obj/%.o,$(CORE_SRCS) $(TEST_SRCS))

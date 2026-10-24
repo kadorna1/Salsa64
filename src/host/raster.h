@@ -53,6 +53,8 @@ extern int raster_fbfx;
  * por canal, truncado como la copia a la RDRAM); false: a 8 bits, como lo
  * muestra el RSX (salsa64-run --ares, para comparar con el tramado del RDP). */
 extern bool raster_q5;
+/* G_TF_BILERP/AVERAGE con el triángulo de tres puntos (SALSA64_TEX3P=1). */
+extern bool raster_tex3point;
 /* Como la PS3 (salsa64_rdp_aa_edges): en los dibujos opacos con AA_EN, las
  * aristas como líneas antes de los triángulos (experimental, apagadas por
  * omisión; SALSA64_AA_EDGES=1 las pone). */

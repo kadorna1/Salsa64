@@ -3003,6 +3003,16 @@ static int raster_dump_buf(uint8_t *buf, size_t size, const char *path, const ch
 				x->height = salsa64_rd16((uint8_t *)&x->height);
 				x->pitch = salsa64_rd16((uint8_t *)&x->pitch);
 			}
+		} else if (op == GFX_OP_LOD && sz >= sizeof(struct gfx_lod)) {
+			struct gfx_lod *l = (struct gfx_lod *)c;
+			swap32s(&l->levels, 4);
+			for (int t = 0; t < GFX_LOD_LEVELS; t++) {
+				struct gfx_tex *x = &l->tex[t];
+				swap32s(&x->width, 8);
+				x->width = salsa64_rd16((uint8_t *)&x->width);
+				x->height = salsa64_rd16((uint8_t *)&x->height);
+				x->pitch = salsa64_rd16((uint8_t *)&x->pitch);
+			}
 		}
 		if (op == GFX_OP_END || !sz)
 			break;
@@ -3805,6 +3815,8 @@ int main(int argc, char **argv)
 		raster_fbfx = atoi(getenv("SALSA64_FBFX"));
 	if (getenv("SALSA64_AA_EDGES"))
 		raster_aa_edges = atoi(getenv("SALSA64_AA_EDGES")) != 0;
+	if (getenv("SALSA64_TEX3P"))
+		raster_tex3point = atoi(getenv("SALSA64_TEX3P")) != 0;
 	if (getenv("SALSA64_AA_EDGE_OFFSET"))
 		sscanf(getenv("SALSA64_AA_EDGE_OFFSET"), "%f,%f", &raster_edge_factor, &raster_edge_units);
 	const struct salsa64_gfx_sink sink = { NULL, gfx_acquire, gfx_done };

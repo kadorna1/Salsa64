@@ -123,7 +123,8 @@ _Static_assert((int)GFX_K_T0 == (int)RSXKIT_K_T0 && (int)GFX_K_T1A == (int)RSXKI
 		       (int)GFX_K_ONE == (int)RSXKIT_K_ONE, "orden de k");
 _Static_assert((int)GFX_F_T0 == (int)RSXKIT_FP_T0 && (int)GFX_F_T0A == (int)RSXKIT_FP_T0A &&
 		       (int)GFX_F_T1 == (int)RSXKIT_FP_T1 && (int)GFX_F_T1A == (int)RSXKIT_FP_T1A &&
-		       (int)GFX_F_C == (int)RSXKIT_FP_C && (int)GFX_F_CA == (int)RSXKIT_FP_CA, "factores");
+		       (int)GFX_F_C == (int)RSXKIT_FP_C && (int)GFX_F_CA == (int)RSXKIT_FP_CA &&
+		       (int)GFX_F_LOD == (int)RSXKIT_FP_LOD, "factores");
 _Static_assert((int)GFX_CULL_BACK == (int)RSXKIT_CULL_BACK && (int)GFX_CULL_FRONT == (int)RSXKIT_CULL_FRONT,
 	       "cull");
 _Static_assert(GFX_DEPTH_TEST == RSXKIT_DEPTH_TEST && GFX_DEPTH_WRITE == RSXKIT_DEPTH_WRITE &&
@@ -158,6 +159,12 @@ struct set {
 	bool interp_ok;
 	uint32_t tg_task;
 	uint32_t ppe_tex_end;
+	struct {
+		uint32_t hash, offset;
+		uint16_t height;
+		uint8_t levels, pad;
+	} lod_chain[32];
+	uint8_t lod_chains;
 };
 
 /* Perfilado (salsa64_rdp_set_perf_hook): lo de la tarea que se traduce. */
@@ -326,6 +333,8 @@ static struct {
 	/* Efectos de framebuffer (docs/framebuffer.md). */
 	int fbfx;                    /* 0 apagado, 1 render a textura, 2 también copias */
 	bool aa_edges;               /* salsa64_rdp_aa_edges */
+	bool tex3point;              /* G_TF_BILERP/AVERAGE con triángulo de 3 puntos */
+	bool texlod;                 /* TEXTLOD con niveles consecutivos */
 	bool target_alpha;           /* salsa64_rdp_target_alpha */
 	uint8_t *rdram;              /* la RDRAM emulada (NULL: sin copias ni cebado) */
 	uint32_t rdram_size;
@@ -577,6 +586,16 @@ size_t salsa64_rdp_interp_bytes(void)
 void salsa64_rdp_aa_edges(bool on)
 {
 	rdp.aa_edges = on;
+}
+
+void salsa64_rdp_texture_3point(bool on)
+{
+	rdp.tex3point = on;
+}
+
+void salsa64_rdp_texture_lod(bool on)
+{
+	rdp.texlod = on;
 }
 
 bool salsa64_rdp_last_present(struct salsa64_rdp_present_info *out)
@@ -909,6 +928,8 @@ static void acquire(void *ctx, struct gfx_job *job)
 	 * decodificación en el PPE). */
 	if (rdp.fbfx >= 1)
 		job->flags |= GFX_JOB_FBTEX;
+	if (rdp.texlod)
+		job->flags |= GFX_JOB_TEXLOD;
 	s->interp = interp_wanted(n);
 	if (s->interp) {
 		job->flags |= GFX_JOB_INTERP;
@@ -2137,9 +2158,124 @@ static bool texture_from_rdram(const struct gfx_tex *gt, struct set *s, rsxkit_t
  * que el destino tenga entonces). Lo baja translate. */
 static bool to_rsxkit_fb;
 
+static uint32_t lod_hash(const struct gfx_lod *l)
+{
+	uint32_t h = 2166136261u;
+	for (unsigned i = 0; i < l->levels; i++)
+		h = (h ^ l->tex[i].key) * 16777619u;
+	return h ? h : 1;
+}
+
+static bool same_xf(float a, float b)
+{
+	float d = a - b;
+	return d > -.000001f && d < .000001f;
+}
+
+/* Apila los niveles decodificados por la HLE. Cada fila conserva el pitch
+ * del nivel base; así el FP puede direccionar L y L+1 con una escala y un
+ * desplazamiento explícitos. */
+static bool lod_atlas(const struct gfx_lod *l, struct set *s, rsxkit_draw *d)
+{
+	if (!l || l->levels < 2 || l->levels > GFX_LOD_LEVELS)
+		return false;
+	const struct gfx_tex *base = &l->tex[0];
+	unsigned wrap = GFX_TEX_WRAP_S(base->flags);
+	if (GFX_TEX_WRAP_T(base->flags) != wrap)
+		return false;
+	uint32_t ah = 0;
+	for (unsigned i = 0; i < l->levels; i++) {
+		const struct gfx_tex *t = &l->tex[i];
+		uint32_t w = base->width >> i, h = base->height >> i;
+		if (!w) w = 1;
+		if (!h) h = 1;
+		if (t->where == GFX_TEX_TARGET || t->width != w || t->height != h || t->pitch < w * 4u ||
+		    GFX_TEX_WRAP_S(t->flags) != wrap || GFX_TEX_WRAP_T(t->flags) != wrap ||
+		    ((t->flags ^ base->flags) & GFX_TEX_BILINEAR) || !same_xf(t->xf[0], base->xf[0]) ||
+		    !same_xf(t->xf[1], base->xf[1]) || !same_xf(t->xf[2], base->xf[2]) ||
+		    !same_xf(t->xf[3], base->xf[3]))
+			return false;
+		ah += h;
+	}
+	uint32_t hash = lod_hash(l), off = 0;
+	for (unsigned i = 0; i < s->lod_chains; i++)
+		if (s->lod_chain[i].hash == hash && s->lod_chain[i].levels == l->levels && s->lod_chain[i].height == ah) {
+			off = s->lod_chain[i].offset;
+			goto ready;
+		}
+	off = (rdp.ppe_tex_off + 127u) & ~127u;
+	uint32_t bytes = (uint32_t)base->pitch * ah;
+	if (off + bytes > TEX_BYTES)
+		return false;
+	uint32_t row = 0;
+	for (unsigned i = 0; i < l->levels; i++) {
+		const struct gfx_tex *t = &l->tex[i];
+		const uint8_t *src = (t->where == GFX_TEX_CACHE ? rdp.cache : s->tex) + t->offset;
+		for (unsigned y = 0; y < t->height; y++) {
+			uint8_t *dst = s->tex + off + (row + y) * base->pitch;
+			memset(dst, 0, base->pitch);
+			memcpy(dst, src + y * t->pitch, (uint32_t)t->width * 4u);
+		}
+		row += t->height;
+	}
+	rdp.ppe_tex_off = off + bytes;
+	if (s->lod_chains < sizeof s->lod_chain / sizeof s->lod_chain[0]) {
+		unsigned i = s->lod_chains++;
+		s->lod_chain[i].hash = hash;
+		s->lod_chain[i].offset = off;
+		s->lod_chain[i].height = (uint16_t)ah;
+		s->lod_chain[i].levels = l->levels;
+	}
+ready:
+	d->tex[0].offset = s->tex_off + off;
+	d->tex[0].pitch = base->pitch;
+	d->tex[0].width = base->width;
+	d->tex[0].height = (uint16_t)ah;
+	d->tex[0].location = RSXKIT_MEM_MAIN;
+	d->tex[0].format = RSXKIT_RGBA8888;
+	d->tex[0].filter = base->flags & GFX_TEX_BILINEAR ? RSXKIT_FILTER_LINEAR : RSXKIT_FILTER_NEAREST;
+	d->tex[0].wrap_s = d->tex[0].wrap_t = RSXKIT_WRAP_CLAMP;
+	memcpy(d->tex[0].xf, base->xf, sizeof d->tex[0].xf);
+	d->tex[1] = d->tex[0];
+	d->ntex = 2;
+	d->lod_levels = l->levels;
+	d->lod_wrap = (uint8_t)wrap;
+	d->lod_base_height = base->height;
+	return true;
+}
+
+/* Si una cadena no cabe en el atlas o sus tiles no comparten la misma
+ * transformación, conserva exactamente el combiner anterior: LOD_FRACTION
+ * era cero, así que desaparecen los monomios que lo contienen. */
+static void lod_fallback(const struct gfx_draw *g, rsxkit_draw *d)
+{
+	if (!g->nterms)
+		return;
+	unsigned out = 0;
+	for (unsigned j = 0; j < g->nterms; j++) {
+		bool uses_lod = false;
+		for (unsigned k = 0; k < GFX_K_FACTORS && g->factors[j][k]; k++)
+			uses_lod |= g->factors[j][k] == GFX_F_LOD;
+		if (uses_lod)
+			continue;
+		if (out != j) {
+			memcpy(d->factors[out], g->factors[j], sizeof d->factors[out]);
+			memcpy(d->k[out], g->k[j], sizeof d->k[out]);
+		}
+		out++;
+	}
+	if (!out) {
+		memset(d->factors[0], 0, sizeof d->factors[0]);
+		memset(d->k[0], 0, sizeof d->k[0]);
+		out = 1;
+	}
+	d->nterms = (uint8_t)out;
+}
+
 /* false: el dibujo no se puede hacer (una textura que no hubo dónde
  * decodificar). */
-static bool to_rsxkit(const struct gfx_draw *g, struct set *s, int cur, rsxkit_draw *d, bool *sync)
+static bool to_rsxkit(const struct gfx_draw *g, const struct gfx_lod *lod, struct set *s, int cur, rsxkit_draw *d,
+		      bool *sync)
 {
 	*sync = false;
 	static const uint8_t blend[] = {
@@ -2190,7 +2326,9 @@ static bool to_rsxkit(const struct gfx_draw *g, struct set *s, int cur, rsxkit_d
 		t->format = RSXKIT_RGBA8888;
 		t->wrap_s = wrap[GFX_TEX_WRAP_S(gt->flags)];
 		t->wrap_t = wrap[GFX_TEX_WRAP_T(gt->flags)];
-		t->filter = (gt->flags & GFX_TEX_BILINEAR) ? RSXKIT_FILTER_LINEAR : RSXKIT_FILTER_NEAREST;
+		t->filter = (gt->flags & GFX_TEX_BILINEAR)
+				? (rdp.tex3point ? RSXKIT_FILTER_3POINT : RSXKIT_FILTER_LINEAR)
+				: RSXKIT_FILTER_NEAREST;
 		/* En una capa de 8 bits (big8) el color es un índice de paleta: el
 		 * RDP la dibuja 1:1 y su filtro cae en el centro del texel, pero el
 		 * del RSX mezcla una fracción de los vecinos (pocos bits de peso) y
@@ -2207,8 +2345,22 @@ static bool to_rsxkit(const struct gfx_draw *g, struct set *s, int cur, rsxkit_d
 			to_rsxkit_fb = true;
 		if (gt->where == GFX_TEX_TARGET && !from_target && !texture_from_rdram(gt, s, t))
 			return false;
+		if (t->filter == RSXKIT_FILTER_3POINT) {
+			/* La diagonal se elige en la rejilla lógica de la N64, aunque
+			 * la textura física sea un destino a escala interna alta. */
+			t->qf[0] = gt->xf[0] * gt->width;
+			t->qf[1] = gt->xf[1] * gt->height;
+			t->qf[2] = gt->xf[2] * gt->width - 0.5f;
+			t->qf[3] = gt->xf[3] * gt->height - 0.5f;
+			t->sf[0] = t->xf[0] / t->qf[0];
+			t->sf[1] = t->xf[1] / t->qf[1];
+			t->sf[2] = t->xf[2] - (t->qf[2] + 0.5f) * t->sf[0];
+			t->sf[3] = t->xf[3] - (t->qf[3] + 0.5f) * t->sf[1];
+		}
 	}
 	memcpy(d->k, g->k, sizeof d->k);
+	if (lod && !lod_atlas(lod, s, d))
+		lod_fallback(g, d);
 	/* Destino con alfa: el alfa de la N64 en lo que se escribe. Un dibujo
 	 * normal deja 1 en cada píxel (rsxkit_draw.dst_alpha por omisión); un
 	 * relleno, su bit de alfa (gfx_draw.aref); una copia sin mezcla, el
@@ -2564,6 +2716,7 @@ static void translate(uint32_t n)
 	s->tg_task = rdp.tg.task;
 	rdp.scratch_slot = -1;
 	rdp.ppe_tex_off = res->tex_bytes;
+	s->lod_chains = 0;
 	readbacks_finish(false);
 	rsxkit_fp_stats fp0 = { 0 };
 	if (perf_hook) {
@@ -2580,6 +2733,7 @@ static void translate(uint32_t n)
 
 	uint32_t off = 0;
 	rsxkit_draw rd;
+	const struct gfx_lod *pending_lod = NULL;
 	struct { uint32_t addr, width, bpp, rows; } tall = { 0, 0, 0, 0 };  /* color image más alta que 480 */
 	struct { bool on; uint32_t addr, width; } ppe_img = { false, 0, 0 };  /* la de ppe_copy */
 	while (off + sizeof(struct gfx_cmd) <= res->cmd_bytes) {
@@ -2587,6 +2741,9 @@ static void translate(uint32_t n)
 		if (c->op == GFX_OP_END || c->size < sizeof *c)
 			break;
 		switch (c->op) {
+		case GFX_OP_LOD:
+			pending_lod = c->size >= sizeof(struct gfx_lod) ? (const struct gfx_lod *)c : NULL;
+			break;
 		case GFX_OP_TARGET: {
 			uint32_t lh = scissor_bottom(s, off + c->size, res->cmd_bytes), siz = c->c & 0xFF;
 			bool is_tall = c->b && c->b <= 640 && rdp_targets_tall(c->b, lh) &&
@@ -2658,6 +2815,8 @@ static void translate(uint32_t n)
 			break;
 		case GFX_OP_DRAW: {
 			const struct gfx_draw *g = (const struct gfx_draw *)c;
+			const struct gfx_lod *draw_lod = pending_lod;
+			pending_lod = NULL;
 			if (g->approx && perf_hook)
 				perf_approx(g);
 			if (cur < 0 && tall.rows && g->cycle == G_CYC_FILL && g->h.b >= 3) {
@@ -2714,8 +2873,8 @@ static void translate(uint32_t n)
 				memset(w.k, 0, sizeof w.k);
 				for (int lane = 0; lane < 4; lane++)
 					w.k[GFX_K_ONE][0][lane] = 1.0f;
-				to_rsxkit(&w, s, cur, &rd, &sync);
-			} else if (!to_rsxkit(g, s, cur, &rd, &sync)) {
+				to_rsxkit(&w, NULL, s, cur, &rd, &sync);
+			} else if (!to_rsxkit(g, draw_lod, s, cur, &rd, &sync)) {
 				break;
 			}
 			if (sync) {
@@ -3156,12 +3315,15 @@ static void interp_draw(struct set *s, int slot, float t)
 	uint32_t zaddr = 0;
 	float zval = 1.0f, zrect[4];
 	rsxkit_draw rd;
+	const struct gfx_lod *pending_lod = NULL;
 	for (uint32_t off = 0; off + sizeof(struct gfx_cmd) <= res->cmd_bytes;) {
 		const struct gfx_cmd *c = (const struct gfx_cmd *)(s->cmd + off);
 		if (c->op == GFX_OP_END || c->size < sizeof *c)
 			break;
 		off += c->size;
-		if (c->op == GFX_OP_TARGET) {
+		if (c->op == GFX_OP_LOD) {
+			pending_lod = c->size >= sizeof(struct gfx_lod) ? (const struct gfx_lod *)c : NULL;
+		} else if (c->op == GFX_OP_TARGET) {
 			here = c->a == tg->addr && c->b == tg->width;
 		} else if (c->op == GFX_OP_ZCLEAR) {
 			const struct gfx_zclear *z = (const struct gfx_zclear *)c;
@@ -3172,8 +3334,10 @@ static void interp_draw(struct set *s, int slot, float t)
 			zpend = true;
 		} else if (c->op == GFX_OP_DRAW && here && c->size >= sizeof(struct gfx_draw)) {
 			const struct gfx_draw *g = (const struct gfx_draw *)c;
+			const struct gfx_lod *draw_lod = pending_lod;
+			pending_lod = NULL;
 			bool sync;
-			if (!g->h.b || g->viscvg || !to_rsxkit(g, s, slot, &rd, &sync))
+			if (!g->h.b || g->viscvg || !to_rsxkit(g, draw_lod, s, slot, &rd, &sync))
 				continue;
 			if (sync)
 				rsxkit_texture_sync();
@@ -3192,6 +3356,8 @@ static void interp_draw(struct set *s, int slot, float t)
 				zpend = false;
 			}
 			rsxkit_draw_triangles(&rd, g->h.a, g->h.b);
+		} else if (c->op == GFX_OP_DRAW) {
+			pending_lod = NULL;
 		}
 	}
 	s->ppe_tex_end = rdp.ppe_tex_off;

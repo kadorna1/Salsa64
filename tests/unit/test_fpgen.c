@@ -27,6 +27,7 @@ struct fp_sim {
 	float h[32][4];
 	float in[16][4];   /* 1 COL0, 4.. TEXCOORD0..7 */
 	float tex[2][4];   /* base del texel de cada unidad */
+	unsigned tex_w[2], tex_h[2]; /* si no son cero, TEX nearest sobre una rejilla */
 	int insns;         /* instrucciones ejecutadas */
 	int bad;           /* algo que el intérprete no entiende */
 };
@@ -37,6 +38,16 @@ struct fp_sim {
 /* El texel depende de la coordenada para comprobar qué lee cada TEX. */
 static void texel(const struct fp_sim *s, unsigned unit, float cx, float cy, float out[4])
 {
+	if (s->tex_w[unit] && s->tex_h[unit]) {
+		int x = (int)floorf(cx * s->tex_w[unit]), y = (int)floorf(cy * s->tex_h[unit]);
+		x = x < 0 ? 0 : x >= (int)s->tex_w[unit] ? (int)s->tex_w[unit] - 1 : x;
+		y = y < 0 ? 0 : y >= (int)s->tex_h[unit] ? (int)s->tex_h[unit] - 1 : y;
+		out[0] = (float)(x + 3 * y) / 16.0f;
+		out[1] = (float)(2 * x + y) / 16.0f;
+		out[2] = (float)(x ^ y) / 8.0f;
+		out[3] = 1.0f;
+		return;
+	}
 	for (int c = 0; c < 4; c++)
 		out[c] = s->tex[unit][c];
 	out[0] += 0.25f * cx;
@@ -90,6 +101,10 @@ static int fp_run(struct fp_sim *s, const uint32_t *w, unsigned nwords)
 		case 0x02: for (int k = 0; k < 4; k++) res[k] = a[k] * b[k]; break;
 		case 0x03: for (int k = 0; k < 4; k++) res[k] = a[k] + b[k]; break;
 		case 0x04: for (int k = 0; k < 4; k++) res[k] = a[k] * b[k] + c[k]; break;
+		case 0x09: for (int k = 0; k < 4; k++) res[k] = fmaxf(a[k], b[k]); break;
+		case 0x0B: for (int k = 0; k < 4; k++) res[k] = a[k] >= b[k] ? 1.0f : 0.0f; break;
+		case 0x10: for (int k = 0; k < 4; k++) res[k] = a[k] - floorf(a[k]); break;
+		case 0x11: for (int k = 0; k < 4; k++) res[k] = floorf(a[k]); break;
 		case 0x17: texel(s, unit, a[0], a[1], res); break;
 		default: s->bad = 1; return 0;
 		}
@@ -131,11 +146,30 @@ static void fill_inputs(struct fp_sim *s, uint32_t seed)
 /* Valor de cada factor en un canal (en el canal alfa cada textura y el
  * color del vértice aportan su alfa, que es justo lo que da el carril 3 de
  * los registros). */
-static float factor_value(const struct fp_sim *s, uint8_t f, int lane)
+static void sample3_expected(const struct fp_sim *s, unsigned unit, float x, float y, float out[4])
+{
+	int ix = (int)floorf(x), iy = (int)floorf(y);
+	float fx = x - ix, fy = y - iy, a[4], b[4], c[4], d[4];
+	texel(s, unit, ((float)ix + .5f) / s->tex_w[unit], ((float)iy + .5f) / s->tex_h[unit], a);
+	texel(s, unit, ((float)ix + 1.5f) / s->tex_w[unit], ((float)iy + .5f) / s->tex_h[unit], b);
+	texel(s, unit, ((float)ix + .5f) / s->tex_w[unit], ((float)iy + 1.5f) / s->tex_h[unit], c);
+	texel(s, unit, ((float)ix + 1.5f) / s->tex_w[unit], ((float)iy + 1.5f) / s->tex_h[unit], d);
+	for (int k = 0; k < 4; k++)
+		out[k] = fx + fy <= 1.0f ? a[k] + fx * (b[k] - a[k]) + fy * (c[k] - a[k])
+					       : d[k] + (1.0f - fx) * (c[k] - d[k]) + (1.0f - fy) * (b[k] - d[k]);
+}
+
+static float factor_value(const struct fp_sim *s, const rsxkit_fp_desc *d, uint8_t f, int lane)
 {
 	float t0[4], t1[4];
-	texel(s, 0, s->in[IN_TC(0)][0], s->in[IN_TC(0)][1], t0);
-	texel(s, 1, s->in[IN_TC(0)][2], s->in[IN_TC(0)][3], t1);
+	if (d->sample3 & 1)
+		sample3_expected(s, 0, s->in[IN_TC(0)][0], s->in[IN_TC(0)][1], t0);
+	else
+		texel(s, 0, s->in[IN_TC(0)][0], s->in[IN_TC(0)][1], t0);
+	if (d->sample3 & 2)
+		sample3_expected(s, 1, s->in[IN_TC(0)][2], s->in[IN_TC(0)][3], t1);
+	else
+		texel(s, 1, s->in[IN_TC(0)][2], s->in[IN_TC(0)][3], t1);
 	switch (f) {
 	case RSXKIT_FP_T0: return t0[lane];
 	case RSXKIT_FP_T0A: return t0[3];
@@ -152,9 +186,11 @@ static void expected(const struct fp_sim *s, const rsxkit_fp_desc *d, float out[
 	for (int lane = 0; lane < 4; lane++) {
 		float sum = 0.0f;
 		for (unsigned j = 0; j < d->nterms; j++) {
+			if (d->term_mask && !(d->term_mask & (1u << j)))
+				continue;
 			float p = s->in[IN_TC(j + 1)][lane];
 			for (int k = 0; k < RSXKIT_FP_MAX_FACTORS && d->factors[j][k]; k++)
-				p *= factor_value(s, d->factors[j][k], lane);
+				p *= factor_value(s, d, d->factors[j][k], lane);
 			sum += p;
 		}
 		out[lane] = fminf(fmaxf(sum, 0.0f), 1.0f);
@@ -211,14 +247,14 @@ static void load_ref(const uint8_t *fpo, size_t size, struct ref *r)
 
 /* Descripciones equivalentes a los shaders de referencia. */
 static const rsxkit_fp_desc desc_lincomb2 = {
-	2, 5, { 0, 0 },
-	{ { RSXKIT_FP_T0 }, { RSXKIT_FP_T0A }, { RSXKIT_FP_T1 }, { RSXKIT_FP_T1A }, { 0 } }
+	.ntex = 2, .nterms = 5,
+	.factors = { { RSXKIT_FP_T0 }, { RSXKIT_FP_T0A }, { RSXKIT_FP_T1 }, { RSXKIT_FP_T1A }, { 0 } }
 };
-static const rsxkit_fp_desc desc_t0t1 = { 2, 2, { 0, 0 }, { { RSXKIT_FP_T0, RSXKIT_FP_T1 }, { 0 } } };
+static const rsxkit_fp_desc desc_t0t1 = { .ntex = 2, .nterms = 2, .factors = { { RSXKIT_FP_T0, RSXKIT_FP_T1 }, { 0 } } };
 static const rsxkit_fp_desc desc_shade = {
-	1, 3, { 0, 0 }, { { RSXKIT_FP_T0, RSXKIT_FP_C, RSXKIT_FP_CA }, { RSXKIT_FP_C }, { 0 } }
+	.ntex = 1, .nterms = 3, .factors = { { RSXKIT_FP_T0, RSXKIT_FP_C, RSXKIT_FP_CA }, { RSXKIT_FP_C }, { 0 } }
 };
-static const rsxkit_fp_desc desc_t0a = { 1, 2, { 0, 0 }, { { RSXKIT_FP_T0, RSXKIT_FP_T0A }, { RSXKIT_FP_CA } } };
+static const rsxkit_fp_desc desc_t0a = { .ntex = 1, .nterms = 2, .factors = { { RSXKIT_FP_T0, RSXKIT_FP_T0A }, { RSXKIT_FP_CA } } };
 
 /* Los X_j del shader de referencia de la combinación lineal están en
  * TEXCOORD1, 2, 3, 4 y 5 como en la descripción: misma fórmula. */
@@ -240,7 +276,8 @@ static void fpgen_refs_lincomb(void)
 
 		/* lincomb1: T0·X0 + T0a·X1 + X4 (sin los términos de T1). */
 		LOAD_REF(rsxkit_lincomb1, &r);
-		rsxkit_fp_desc d1 = { 1, 5, { 0, 0 }, { { RSXKIT_FP_T0 }, { RSXKIT_FP_T0A }, { 0 }, { 0 }, { 0 } } };
+		rsxkit_fp_desc d1 = { .ntex = 1, .nterms = 5,
+			.factors = { { RSXKIT_FP_T0 }, { RSXKIT_FP_T0A }, { 0 }, { 0 }, { 0 } } };
 		fill_inputs(&s, seed);
 		s.in[IN_TC(3)][0] = s.in[IN_TC(3)][1] = s.in[IN_TC(3)][2] = s.in[IN_TC(3)][3] = 0.0f;
 		s.in[IN_TC(4)][0] = s.in[IN_TC(4)][1] = s.in[IN_TC(4)][2] = s.in[IN_TC(4)][3] = 0.0f;
@@ -365,21 +402,21 @@ static void fpgen_emit_forms(void)
 {
 	/* Un término de cada clase, al principio, en medio y al final. */
 	static const rsxkit_fp_desc descs[] = {
-		{ 0, 1, { 0, 0 }, { { 0 } } },                                    /* X0 */
-		{ 1, 1, { 0, 0 }, { { RSXKIT_FP_T0 } } },                         /* T0·X0 */
-		{ 0, 1, { 0, 0 }, { { RSXKIT_FP_C } } },                          /* C·X0: MOV + MUL */
-		{ 0, 1, { 0, 0 }, { { RSXKIT_FP_C, RSXKIT_FP_CA } } },            /* C·Ca·X0 */
-		{ 0, 2, { 0, 0 }, { { 0 }, { RSXKIT_FP_CA } } },
-		{ 2, 3, { 0, 0 }, { { RSXKIT_FP_T1A }, { 0 }, { RSXKIT_FP_T0A, RSXKIT_FP_T1 } } },
-		{ 2, 4, { 0, 0 },
+		{ .ntex = 0, .nterms = 1, .factors = { { 0 } } },                  /* X0 */
+		{ .ntex = 1, .nterms = 1, .factors = { { RSXKIT_FP_T0 } } },       /* T0·X0 */
+		{ .ntex = 0, .nterms = 1, .factors = { { RSXKIT_FP_C } } },        /* C·X0: MOV + MUL */
+		{ .ntex = 0, .nterms = 1, .factors = { { RSXKIT_FP_C, RSXKIT_FP_CA } } }, /* C·Ca·X0 */
+		{ .ntex = 0, .nterms = 2, .factors = { { 0 }, { RSXKIT_FP_CA } } },
+		{ .ntex = 2, .nterms = 3, .factors = { { RSXKIT_FP_T1A }, { 0 }, { RSXKIT_FP_T0A, RSXKIT_FP_T1 } } },
+		{ .ntex = 2, .nterms = 4, .factors =
 		  { { RSXKIT_FP_T0, RSXKIT_FP_T1, RSXKIT_FP_C, RSXKIT_FP_CA }, { RSXKIT_FP_T0A, RSXKIT_FP_T1A, RSXKIT_FP_C },
 		    { RSXKIT_FP_CA, RSXKIT_FP_CA }, { RSXKIT_FP_T0, RSXKIT_FP_T0 } } },
 		/* Siete términos (todos los varyings). */
-		{ 2, 7, { 0, 0 },
+		{ .ntex = 2, .nterms = 7, .factors =
 		  { { RSXKIT_FP_T0 }, { RSXKIT_FP_T0A }, { RSXKIT_FP_T1 }, { RSXKIT_FP_T1A }, { 0 },
 		    { RSXKIT_FP_T0, RSXKIT_FP_T1 }, { RSXKIT_FP_C, RSXKIT_FP_CA } } },
 		/* GoldenEye: (T0 − E)·Sa·S + E·S → T0·C·Ca·X0 + C·X1 (Ca en X1.k2). */
-		{ 1, 2, { 0, 0 }, { { RSXKIT_FP_T0, RSXKIT_FP_C, RSXKIT_FP_CA }, { RSXKIT_FP_C } } },
+		{ .ntex = 1, .nterms = 2, .factors = { { RSXKIT_FP_T0, RSXKIT_FP_C, RSXKIT_FP_CA }, { RSXKIT_FP_C } } },
 	};
 	for (unsigned i = 0; i < sizeof descs / sizeof descs[0]; i++)
 		check_desc(&descs[i]);
@@ -389,7 +426,7 @@ static void fpgen_emit_forms(void)
 	check_desc(&desc_t0a);
 
 	/* El programa más largo cabe en RSXKIT_FP_MAX_WORDS. */
-	rsxkit_fp_desc big = { 2, 7, { 0, 0 }, { { 0 } } };
+	rsxkit_fp_desc big = { .ntex = 2, .nterms = 7 };
 	for (unsigned j = 0; j < 7; j++)
 		for (int k = 0; k < 4; k++)
 			big.factors[j][k] = (uint8_t)(RSXKIT_FP_T0 + (j + (unsigned)k) % 6);
@@ -400,14 +437,16 @@ static void fpgen_emit_forms(void)
 
 static void fpgen_desc_rules(void)
 {
-	rsxkit_fp_desc d = { 1, 2, { 0, 0 }, { { RSXKIT_FP_C, RSXKIT_FP_T0A, RSXKIT_FP_T0 }, { RSXKIT_FP_CA } } };
+	rsxkit_fp_desc d = { .ntex = 1, .nterms = 2,
+		.factors = { { RSXKIT_FP_C, RSXKIT_FP_T0A, RSXKIT_FP_T0 }, { RSXKIT_FP_CA } } };
 	CHECK_EQ(rsxkit_fp_desc_canon(&d), 0);
 	CHECK_EQ(d.factors[0][0], RSXKIT_FP_T0);
 	CHECK_EQ(d.factors[0][1], RSXKIT_FP_T0A);
 	CHECK_EQ(d.factors[0][2], RSXKIT_FP_C);
 	CHECK_EQ(d.factors[0][3], 0);
 	uint32_t h = rsxkit_fp_desc_hash(&d);
-	rsxkit_fp_desc d2 = { 1, 2, { 0, 0 }, { { RSXKIT_FP_T0A, RSXKIT_FP_C, RSXKIT_FP_T0 }, { RSXKIT_FP_CA } } };
+	rsxkit_fp_desc d2 = { .ntex = 1, .nterms = 2,
+		.factors = { { RSXKIT_FP_T0A, RSXKIT_FP_C, RSXKIT_FP_T0 }, { RSXKIT_FP_CA } } };
 	CHECK_EQ(rsxkit_fp_desc_canon(&d2), 0);
 	CHECK(!memcmp(&d, &d2, sizeof d));
 	CHECK_EQ(rsxkit_fp_desc_hash(&d2), h);
@@ -416,21 +455,117 @@ static void fpgen_desc_rules(void)
 
 	uint32_t words[RSXKIT_FP_MAX_WORDS];
 	/* Sin términos. */
-	rsxkit_fp_desc bad = { 1, 0, { 0, 0 }, { { 0 } } };
+	rsxkit_fp_desc bad = { .ntex = 1, .nterms = 0 };
 	CHECK_EQ(rsxkit_fpgen_emit(&bad, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
 	/* Textura 1 sin ntex = 2. */
-	rsxkit_fp_desc bad2 = { 1, 1, { 0, 0 }, { { RSXKIT_FP_T1 } } };
+	rsxkit_fp_desc bad2 = { .ntex = 1, .nterms = 1, .factors = { { RSXKIT_FP_T1 } } };
 	CHECK_EQ(rsxkit_fpgen_emit(&bad2, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
 	/* Factor después del fin de la lista. */
-	rsxkit_fp_desc bad3 = { 1, 1, { 0, 0 }, { { RSXKIT_FP_T0, 0, RSXKIT_FP_C } } };
+	rsxkit_fp_desc bad3 = { .ntex = 1, .nterms = 1, .factors = { { RSXKIT_FP_T0, 0, RSXKIT_FP_C } } };
 	CHECK_EQ(rsxkit_fp_desc_canon(&bad3), (uint64_t)RSXKIT_FP_EDESC);
 	/* Factor desconocido y término más allá de nterms. */
-	rsxkit_fp_desc bad4 = { 1, 1, { 0, 0 }, { { RSXKIT_FP_FACTORS } } };
+	rsxkit_fp_desc bad4 = { .ntex = 1, .nterms = 1, .factors = { { RSXKIT_FP_FACTORS } } };
 	CHECK_EQ(rsxkit_fpgen_emit(&bad4, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
-	rsxkit_fp_desc bad5 = { 1, 1, { 0, 0 }, { { RSXKIT_FP_T0 }, { RSXKIT_FP_T0 } } };
+	rsxkit_fp_desc bad5 = { .ntex = 1, .nterms = 1, .factors = { { RSXKIT_FP_T0 }, { RSXKIT_FP_T0 } } };
 	CHECK_EQ(rsxkit_fpgen_emit(&bad5, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
-	rsxkit_fp_desc bad6 = { 3, 1, { 0, 0 }, { { 0 } } };
+	rsxkit_fp_desc bad6 = { .ntex = 3, .nterms = 1 };
 	CHECK_EQ(rsxkit_fpgen_emit(&bad6, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
+}
+
+static void fpgen_three_point(void)
+{
+	const rsxkit_fp_desc d = { .ntex = 1, .nterms = 1, .sample3 = 1,
+		.sample_xf = { { .25f, .25f, 0, 0 } }, .factors = { { RSXKIT_FP_T0 } } };
+	uint32_t words[RSXKIT_FP_MAX_WORDS];
+	rsxkit_fp_info info;
+	int n = rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, &info);
+	CHECK(n > 0);
+	CHECK_EQ(info.ninsn, 20);
+	CHECK_EQ(info.texcoords, 3);  /* coordenadas y X0 */
+	unsigned tex = 0, insn = 0;
+	for (int i = 0; i + 4 <= n;) {
+		uint32_t w0 = words[i];
+		tex += ((w0 >> 24) & 0x3F) == 0x17;
+		int has_const = 0;
+		for (int k = 1; k < 4; k++)
+			has_const |= (words[i + k] & 3) == 2;
+		i += has_const ? 8 : 4;
+		insn++;
+	}
+	CHECK_EQ(tex, 3);
+	CHECK_EQ(insn, info.ninsn);
+	/* La combinación fija que usa draw3d pasa de 4 a 22 instrucciones
+	 * con una textura, y de 7 a 43 con las dos filtradas. */
+	rsxkit_fp_desc fixed = { .ntex = 1, .nterms = 5, .sample3 = 1, .term_mask = 0x13,
+		.sample_xf = { { .25f, .25f, 0, 0 } },
+		.factors = { { RSXKIT_FP_T0 }, { RSXKIT_FP_T0A }, { 0 }, { 0 }, { 0 } } };
+	n = rsxkit_fpgen_emit(&fixed, words, RSXKIT_FP_MAX_WORDS, &info);
+	CHECK(n > 0);
+	CHECK_EQ(info.ninsn, 22);
+	fixed.ntex = 2;
+	fixed.sample3 = 3;
+	fixed.term_mask = 0x1F;
+	fixed.sample_xf[1][0] = fixed.sample_xf[1][1] = .25f;
+	fixed.factors[2][0] = RSXKIT_FP_T1;
+	fixed.factors[3][0] = RSXKIT_FP_T1A;
+	n = rsxkit_fpgen_emit(&fixed, words, RSXKIT_FP_MAX_WORDS, &info);
+	CHECK(n > 0);
+	CHECK_EQ(info.ninsn, 43);
+	n = rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, &info);
+	CHECK(n > 0);
+	static const float q[][2] = {
+		{ 0.0f, 0.0f }, { 0.25f, 0.50f }, { 0.80f, 0.45f },
+		{ 2.75f, 1.50f }, { -0.25f, 0.75f }, { 3.60f, 3.40f },
+	};
+	for (unsigned i = 0; i < sizeof q / sizeof q[0]; i++) {
+		struct fp_sim s;
+		float want[4];
+		fill_inputs(&s, 100 + i);
+		s.tex_w[0] = s.tex_h[0] = 4;
+		s.in[IN_TC(0)][0] = q[i][0];
+		s.in[IN_TC(0)][1] = q[i][1];
+		for (int c = 0; c < 4; c++)
+			s.in[IN_TC(1)][c] = 1.0f;
+		expected(&s, &d, want);
+		CHECK(fp_run(&s, words, (unsigned)n));
+		CHECK(!s.bad);
+		CHECK(close4(s.r[0], want));
+	}
+	/* Tamaño faltante y modo fuera del número de texturas. */
+	rsxkit_fp_desc bad = d;
+	bad.sample_xf[0][0] = 0;
+	CHECK_EQ(rsxkit_fpgen_emit(&bad, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
+	bad = d;
+	bad.sample3 = 2;
+	memset(bad.sample_xf[0], 0, sizeof bad.sample_xf[0]);
+	bad.sample_xf[1][0] = bad.sample_xf[1][1] = .25f;
+	CHECK_EQ(rsxkit_fpgen_emit(&bad, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
+}
+
+static void fpgen_lod_explicit(void)
+{
+	rsxkit_fp_desc d = { .ntex = 2, .nterms = 1, .lod_levels = 4,
+		.lod_scale = { 128.0f, 64.0f }, .lod_ratio = 64.0f / 120.0f,
+		.factors = { { RSXKIT_FP_T0, RSXKIT_FP_T1, RSXKIT_FP_LOD } } };
+	uint32_t words[RSXKIT_FP_MAX_WORDS];
+	rsxkit_fp_info info;
+	int n = rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, &info);
+	CHECK(n > 0);
+	CHECK(info.ninsn >= 25);
+	CHECK(info.num_regs >= 15);
+	unsigned ddx = 0, ddy = 0, tex = 0;
+	for (int i = 0; i + 4 <= n;) {
+		unsigned opc = words[i] >> 24 & 0x3F;
+		ddx += opc == 0x15; ddy += opc == 0x16; tex += opc == 0x17;
+		bool konst = (words[i + 1] & 3) == 2 || (words[i + 2] & 3) == 2 || (words[i + 3] & 3) == 2;
+		i += konst ? 8 : 4;
+	}
+	CHECK_EQ(ddx, 1); CHECK_EQ(ddy, 1); CHECK(tex >= 2);
+	for (d.lod_wrap = 1; d.lod_wrap <= 3; d.lod_wrap++)
+		CHECK(rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, NULL) > 0);
+	d.lod_wrap = 0;
+	d.lod_levels = 1;
+	CHECK_EQ(rsxkit_fpgen_emit(&d, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
 }
 
 void t_suite_fpgen(void)
@@ -439,4 +574,6 @@ void t_suite_fpgen(void)
 	RUN(fpgen_refs_products);
 	RUN(fpgen_emit_forms);
 	RUN(fpgen_desc_rules);
+	RUN(fpgen_three_point);
+	RUN(fpgen_lod_explicit);
 }

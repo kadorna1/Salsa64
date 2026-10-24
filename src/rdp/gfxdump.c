@@ -27,17 +27,31 @@ static uint32_t plan(const struct gfx_dump_src *s, const struct gfx_dump_work *w
 			break;
 		if (tmp.size > s->cmd_bytes - off)
 			return UINT32_MAX;
-		if (tmp.op == GFX_OP_DRAW) {
+		if (tmp.op == GFX_OP_DRAW || tmp.op == GFX_OP_LOD) {
+			union {
+				struct gfx_draw draw;
+				struct gfx_lod lod;
+			} copy;
+			struct gfx_tex *texv;
+			unsigned ntex;
 			if (tmp.size < sizeof(struct gfx_draw))
-				return UINT32_MAX;
-			struct gfx_draw *d = rw ? (struct gfx_draw *)(rw + off) : NULL;
-			struct gfx_draw dd;
-			if (!d) {
-				memcpy(&dd, at, sizeof dd);
-				d = &dd;
+				if (tmp.op == GFX_OP_DRAW)
+					return UINT32_MAX;
+			if (tmp.op == GFX_OP_DRAW) {
+				struct gfx_draw *d = rw ? (struct gfx_draw *)(rw + off) : NULL;
+				if (!d) memcpy(&copy.draw, at, sizeof copy.draw), d = &copy.draw;
+				texv = d->tex;
+				ntex = d->ntex < 2 ? d->ntex : 2;
+			} else {
+				if (tmp.size < sizeof(struct gfx_lod))
+					return UINT32_MAX;
+				struct gfx_lod *l = rw ? (struct gfx_lod *)(rw + off) : NULL;
+				if (!l) memcpy(&copy.lod, at, sizeof copy.lod), l = &copy.lod;
+				texv = l->tex;
+				ntex = l->levels < GFX_LOD_LEVELS ? l->levels : GFX_LOD_LEVELS;
 			}
-			for (int i = 0; i < d->ntex && i < 2; i++) {
-				struct gfx_tex *t = &d->tex[i];
+			for (unsigned i = 0; i < ntex; i++) {
+				struct gfx_tex *t = &texv[i];
 				if (t->where == GFX_TEX_ARENA)
 					continue;
 				bool target = t->where == GFX_TEX_TARGET;

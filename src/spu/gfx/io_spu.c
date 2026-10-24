@@ -329,6 +329,23 @@ bool gfx_io_cmd(struct gfx_state *g, const void *rec, uint32_t size)
 	return true;
 }
 
+void *gfx_io_cmd_begin(struct gfx_state *g, uint32_t size, uint16_t op)
+{
+	if (size + sizeof(struct gfx_cmd) > g->job->cmd_cap - io.cmd_flushed - io.cmd_fill || size > CMD_BUF) {
+		g->res->flags |= op == GFX_OP_VGROUP ? GFX_RES_VGROUP_FULL : GFX_RES_CMD_FULL;
+		return NULL;
+	}
+	if (io.cmd_fill + size > CMD_BUF)
+		flush_cmd(g);
+	return cmd_buf[io.cmd_cur] + io.cmd_fill;
+}
+
+void gfx_io_cmd_commit(struct gfx_state *g, uint32_t size)
+{
+	(void)g;
+	io.cmd_fill += size;
+}
+
 uint8_t *gfx_io_tex_begin(struct gfx_state *g, uint32_t size)
 {
 	(void)g;
