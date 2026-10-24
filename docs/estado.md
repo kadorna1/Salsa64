@@ -1,5 +1,14 @@
 # Estado
 
+## 2026-10-23 — Escala interna automática según la carga del RSX
+
+- «Automática (hasta N×)» baja un paso tras 3 s con saltos, VI ≥ 92 % y
+  trabajo del RSX ≥ un período; nunca actúa si la emulación es el cuello.
+- Sube tras 10 s sin saltos y RSX < 60 %, con 10 s entre cambios y sin pasar N.
+- La escala fija solo avisa; `sin-escala-auto` conserva el camino anterior.
+- El cambio pausa en el límite de campo y reutiliza la recreación en vivo de
+  destinos. Se añadieron series sintéticas de carga, margen y oscilación.
+
 ## 2026-10-22 — HLE de F3DEX2ACCLAIM
 
 - Encendida por omisión (`sin-acclaim` la apaga; host `SALSA64_GFX_ACCLAIM=0`).

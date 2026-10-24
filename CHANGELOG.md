@@ -4,6 +4,11 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
+## [Unreleased]
+
+### Changed
+- Internal scale can now be automatic up to a chosen limit, stepping down only when the RSX cannot keep up and back up with sustained headroom; fixed scales are never changed.
+
 ## [0.2.10] — 2026-10-22
 
 ### Added
