@@ -402,7 +402,9 @@ static double now_s(void)
 static struct gfx_state hle_state;
 static uint8_t state_buf[GFX_STATE_BYTES];
 static struct gfx_vertex hle_vtx[1u << 16] __attribute__((aligned(128)));
-static uint8_t hle_cmd[512u << 10] __attribute__((aligned(128)));
+/* La misma capacidad para dibujos que la PS3 y la HLE principal del host.
+ * Un tope menor convierte listas válidas en diferencias falsas contra el LLE. */
+static uint8_t hle_cmd[1280u << 10] __attribute__((aligned(128)));
 static uint8_t hle_tex[4u << 20] __attribute__((aligned(128)));
 static uint8_t hle_cache[8u << 20] __attribute__((aligned(128)));
 
