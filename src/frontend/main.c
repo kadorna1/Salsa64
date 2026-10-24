@@ -4578,6 +4578,28 @@ static void rsx_diag(const char *why, const rsxkit_wait_info *wi)
 		    wi->get != wi->get0 ? "el RSX avanzó" : wi->get == wi->put ? "el RSX está al día" : "el RSX no avanzó",
 		    beat.pres_at, tr, salsa64_rdp_translated(), salsa64_rdp_tasks_done(), n64.bus.vi.fields, pause_req,
 		    pausectl_overlay(&pause_ctl) ? "encima" : "sin dibujar");
+	/* Lo que el RSX tiene delante: 64 palabras antes del GET y 32 desde él. */
+	static bool fifo_dumped;
+	if (wi->get == wi->get0 && wi->get != wi->put && !fifo_dumped) {
+		fifo_dumped = true;
+		uint32_t from = wi->get >= 256 ? wi->get - 256 : 0, avail = 0;
+		const uint32_t *w = rsxkit_cmd_at(from, &avail);
+		if (w) {
+			uint32_t n = (wi->get - from) / 4 + 32;
+			if (n > avail)
+				n = avail;
+			for (uint32_t i = 0; i < n; i += 8) {
+				char line[128];
+				int len = snprintf(line, sizeof line, "%s%08x:", from + i * 4 == (wi->get & ~31u) ? ">" : " ",
+						   from + i * 4);
+				for (uint32_t k = i; k < i + 8 && k < n; k++)
+					len += snprintf(line + len, sizeof line - (size_t)len, " %08x", w[k]);
+				salsa64_log("RSX fifo %s", line);
+			}
+		}
+		else
+			salsa64_log("RSX fifo: GET 0x%08x fuera de la memoria mapeada", wi->get);
+	}
 }
 
 /* Salida con el RSX sin avanzar: lo que se pueda guardar sin él (la
