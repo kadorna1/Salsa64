@@ -1,0 +1,71 @@
+name: DuckStation PS3 phase-0 package
+
+on:
+  push:
+    branches: [duckstation-ps3-port]
+    paths:
+      - 'ports/duckstation-ps3/**'
+      - '.github/workflows/duckstation-ps3-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-phase0-package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout port branch
+        uses: actions/checkout@v6
+
+      - name: Install host requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ca-certificates curl jq make gcc
+
+      - name: Download latest PS3DEV nightly bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(curl -fsSL 'https://api.github.com/repos/ps3dev/ps3dev/releases?per_page=20' \
+            | jq -r '[.[] | select(.prerelease == true and .draft == false)] | sort_by(.published_at) | reverse | .[0].assets[] | select(.name == "ps3dev-linux-X64.tar.gz") | .browser_download_url' | head -n1)"
+          test -n "$url"
+          echo "Using nightly bundle: $url"
+          curl -fL --retry 3 "$url" -o /tmp/ps3dev-nightly.tar.gz
+          mkdir -p "$GITHUB_WORKSPACE/ps3dev"
+          tar -xzf /tmp/ps3dev-nightly.tar.gz -C "$GITHUB_WORKSPACE"
+          test -x "$GITHUB_WORKSPACE/ps3dev/ppu/bin/ppu-gcc"
+          echo "PS3DEV=$GITHUB_WORKSPACE/ps3dev" >> "$GITHUB_ENV"
+          echo "PSL1GHT=$GITHUB_WORKSPACE/ps3dev" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/ps3dev/bin:$GITHUB_WORKSPACE/ps3dev/ppu/bin:$GITHUB_WORKSPACE/ps3dev/spu/bin" >> "$GITHUB_PATH"
+
+      - name: Report installed toolchain
+        run: |
+          set -euo pipefail
+          ppu-gcc --version | head -n1
+          spu-gcc --version | head -n1
+          test -x "$PS3DEV/bin/make_self_npdrm"
+          test -x "$PS3DEV/bin/sfo"
+          test -x "$PS3DEV/bin/pkg"
+          test -x "$PS3DEV/bin/package_finalize"
+
+      - name: Run host instruction-encoding tests
+        run: make -C ports/duckstation-ps3/ps3 test-host
+
+      - name: Build PPU probe and finalized PKG
+        run: |
+          set -euo pipefail
+          make -C ports/duckstation-ps3/ps3 clean
+          make -C ports/duckstation-ps3/ps3 pkg ICON0="$GITHUB_WORKSPACE/assets/ps3/ICON0.PNG"
+
+      - name: Upload packages and diagnostics
+        uses: actions/upload-artifact@v7
+        with:
+          name: duckstation-ps3-phase0-packages
+          if-no-files-found: error
+          path: |
+            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.pkg
+            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.gnpdrm.pkg
+            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.elf
+            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.map
