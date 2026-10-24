@@ -14,8 +14,9 @@ void scale_auto_init(struct scale_auto *p, bool automatic, unsigned current, uns
 	memset(p, 0, sizeof *p);
 	p->automatic = automatic;
 	p->maximum = maximum < 1 ? 1 : maximum > 5 ? 5 : (uint8_t)maximum;
-	p->ceiling = p->maximum;
 	p->current = current < 1 ? 1 : current > p->maximum ? p->maximum : (uint8_t)current;
+	p->ceiling = automatic ? p->current : p->maximum;
+	p->failed = automatic && p->current < p->maximum;
 }
 
 unsigned scale_auto_ceiling(const struct scale_auto *p)

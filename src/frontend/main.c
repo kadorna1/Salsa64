@@ -2613,6 +2613,7 @@ static struct {
 } interp_alt;
 static int rdp_scale_req;  /* escala interna explícita pedida al RDP ahora */
 static struct menu_settings video_cfg;  /* video y escala que corren (video.cfg al arrancar o lo último aplicado) */
+static bool video_scale_configured;     /* video.cfg traía una escala explícita */
 static int scale_wanted(void);
 static const char *scale_label(char *buf, size_t n);
 static void scale_control_configure(bool new_game);
@@ -3827,17 +3828,27 @@ static void scale_control_configure(bool new_game)
 {
 	unsigned maximum = (unsigned)scale_limit();
 	bool automatic = menu_scale_is_auto(img.scale) && !auto_scale.disabled;
+	bool learned = automatic && img.game.stable_scale >= 1 && img.game.stable_scale <= MENU_SCALE_MAX;
+	unsigned start = learned ? (unsigned)img.game.stable_scale : maximum;
+	if (start > maximum)
+		start = maximum;
 	if (new_game || !scale_policy.maximum) {
-		unsigned start = automatic && img.game.stable_scale >= 1 && img.game.stable_scale <= MENU_SCALE_MAX
-				       ? (unsigned)img.game.stable_scale : maximum;
 		scale_auto_init(&scale_policy, automatic, start, maximum);
 	} else {
+		bool was_automatic = scale_policy.automatic;
 		scale_policy.automatic = automatic;
 		scale_policy.maximum = (uint8_t)maximum;
-		if (!scale_policy.failed)
+		if (!automatic) {
 			scale_policy.ceiling = (uint8_t)maximum;
-		unsigned wanted = automatic && img.game.stable_scale >= 1 && img.game.stable_scale <= MENU_SCALE_MAX
-					  ? (unsigned)img.game.stable_scale : maximum;
+			scale_policy.failed = false;
+		} else if (learned) {
+			scale_policy.ceiling = (uint8_t)start;
+			scale_policy.failed = start < maximum;
+		} else if (!was_automatic || !scale_policy.failed) {
+			scale_policy.ceiling = (uint8_t)maximum;
+			scale_policy.failed = false;
+		}
+		unsigned wanted = automatic ? start : maximum;
 		unsigned ceiling = scale_auto_ceiling(&scale_policy);
 		if (wanted > ceiling)
 			wanted = ceiling;
@@ -4012,6 +4023,17 @@ static void load_view(const char *source)
 			 : "");
 }
 
+static bool image_scale_save(void)
+{
+	if (!menu_game_scale_set(&img.game, img.scale) || !img.source)
+		return false;
+	bool ok = game_cfg_write(img.source, &img.game);
+	char name[32];
+	menu_scale_name(img.scale, video_cfg.resolution, name, sizeof name);
+	salsa64_log("imagen: escala %s %s para este juego", name, ok ? "guardada" : "NO guardada");
+	return ok;
+}
+
 /* «Guardar para este juego»: en juegos/<ROM>.cfg lo que se ve. Lo que
  * coincide con lo global y el juego no tenía propio queda «global» (sigue
  * a Opciones); un recorte personalizado de overscan.cfg, también. */
@@ -4065,6 +4087,8 @@ static void image_events(void)
 		break;
 	case IM_SCALE:
 		img.scale = menu_scale_step(img.scale, video_cfg.resolution, k);
+		if (!image_scale_save() && img.source)
+			osd_notice(sysGetSystemTime(), "No se pudo guardar la escala");
 		scale_control_configure(false);
 		return;  /* al seguir */
 	case IM_INTERP:
@@ -4976,9 +5000,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	filter_setup(view_crt);  /* antes de la escala: el CRT la limita */
 	auto_scale.disabled = file_exists(SCALE_AUTO_OFF_PATH);
 	scale_control_configure(true);
-	salsa64_log("escala automática: %s, arranca en %d×, máximo %d×, techo vigente %u×; "
+	const char *scale_origin = img.game.scale >= 0 ? "por juego" : video_scale_configured ? "global" : "por omisión";
+	const char *scale_mode = menu_scale_is_auto(img.scale) ? "automática" : "fija";
+	salsa64_log("escala interna: %s, modo %s%s, arranca en %d×, máximo %d×, techo vigente %u×; "
 		    "baja tras 3 s con VI ≥ 92 %% y RSX ≥ 100 %%; no sube automáticamente",
-		    auto_scale.disabled ? "apagada por sin-escala-auto" : scale_policy.automatic ? "encendida" : "escala fija",
+		    scale_origin, scale_mode, auto_scale.disabled && menu_scale_is_auto(img.scale)
+					       ? " (control apagado por sin-escala-auto)" : "",
 		    scale_policy.current, scale_policy.maximum, scale_auto_ceiling(&scale_policy));
 	rdp_scale_set(scale_wanted(), scale_capped() ? "al abrir el juego, tope de 3× con un CRT" : "al abrir el juego");
 	load_cheats(source);
@@ -5314,7 +5341,7 @@ static const char *const rom_dirs[] = {
 };
 _Static_assert(sizeof rom_dirs / sizeof rom_dirs[0] == ROMLIST_SOURCES_MAX, "capacidad por cada ubicación de ROMs");
 
-static void video_load(struct menu_settings *set);
+static bool video_load(struct menu_settings *set);
 static void video_save(const struct menu_settings *set);
 
 static struct romlist *roms;
@@ -6170,7 +6197,7 @@ static const int32_t modes_1080[] = {
 	VIDEO_RESOLUTION_1080, VIDEO_RESOLUTION_720, VIDEO_RESOLUTION_480, VIDEO_RESOLUTION_576,
 };
 
-static void video_load(struct menu_settings *set)
+static bool video_load(struct menu_settings *set)
 {
 	char text[256];
 	size_t n = 0;
@@ -6179,7 +6206,7 @@ static void video_load(struct menu_settings *set)
 		n = fread(text, 1, sizeof text - 1, f);
 		fclose(f);
 	}
-	menu_video_parse(set, text, n);
+	return menu_video_parse(set, text, n);
 }
 
 /* Opciones «Resolución» y «Escala interna» del menú: video.cfg con
@@ -6195,6 +6222,8 @@ static void video_save(const struct menu_settings *set)
 		ok = false;
 	if (!ok)
 		salsa64_log("menú: no se pudo escribir %s", VIDEO_CFG_PATH);
+	else
+		video_scale_configured = true;
 }
 
 static const rsxkit_config *video_config_for(int resolution, rsxkit_config *cfg)
@@ -6303,7 +6332,7 @@ int main(int argc, char **argv)
 	pausectl_init(&pause_ctl, true);
 
 	menu_settings_default(&video_cfg);
-	video_load(&video_cfg);
+	video_scale_configured = video_load(&video_cfg);
 	rsxkit_config vcfg;
 	const rsxkit_config *vc = video_config_for(video_cfg.resolution, &vcfg);
 	int rc = rsxkit_init(vc);

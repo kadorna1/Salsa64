@@ -331,6 +331,14 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 	return k < 0 ? -1 : n + k;
 }
 
+bool menu_game_scale_set(struct menu_game *g, int scale)
+{
+	if (!g || scale < 0 || scale > MENU_SCALE_VALUE_MAX)
+		return false;
+	g->scale = scale;
+	return true;
+}
+
 int menu_game_density(const struct menu_settings *s, const struct menu_game *g)
 {
 	return g->density >= 0 && g->density < MENU_DENSITIES ? g->density : s->density;
@@ -375,8 +383,9 @@ void menu_game_effective(const struct menu_settings *s, const struct menu_game *
 		*scale = g->scale >= 0 ? g->scale : s->scale;
 }
 
-void menu_video_parse(struct menu_settings *s, const char *text, size_t len)
+bool menu_video_parse(struct menu_settings *s, const char *text, size_t len)
 {
+	bool have_scale = false;
 	size_t i = 0;
 	while (i < len) {
 		size_t e = i;
@@ -408,14 +417,19 @@ void menu_video_parse(struct menu_settings *s, const char *text, size_t len)
 			else if (!strncmp(val, "720", 3))
 				s->resolution = MENU_RES_720P;
 		} else if (!strcmp(key, "escala")) {
-			if (!strcmp(val, "auto"))
+			if (!strcmp(val, "auto")) {
 				s->scale = 0;
-			else if (!strncmp(val, "auto-", 5) && val[5] >= '1' && val[5] <= '5' && !val[6])
+				have_scale = true;
+			} else if (!strncmp(val, "auto-", 5) && val[5] >= '1' && val[5] <= '5' && !val[6]) {
 				s->scale = menu_scale_auto_value(val[5] - '0');
-			else if (val[0] >= '1' && val[0] <= '5' && (!val[1] || (val[1] == 'x' && !val[2])))
+				have_scale = true;
+			} else if (val[0] >= '1' && val[0] <= '5' && (!val[1] || (val[1] == 'x' && !val[2]))) {
 				s->scale = val[0] - '0';
+				have_scale = true;
+			}
 		}
 	}
+	return have_scale;
 }
 
 int menu_video_format(const struct menu_settings *s, char *buf, size_t size)

@@ -34,6 +34,7 @@
 #include "frontend/menu.h"
 #include "frontend/padmap.h"
 #include "frontend/romlist.h"
+#include "frontend/scale_auto.h"
 #include "frontend/version.h"
 
 #define BIT(b) (1u << (b))
@@ -940,6 +941,24 @@ static void menu_game_page(void)
 	CHECK_EQ(back.overscan, -1);
 	CHECK_EQ(back.scale, -1);
 	CHECK_EQ(back.stable_scale, 0);
+	/* Pausa: una elección automática reemplaza el 5× fijo anterior. Tras
+	 * aprender 4×, guardar y reabrir conserva el modo y restaura su techo. */
+	menu_game_default(&back);
+	menu_game_parse(&back, "escala = 5\n", 11);
+	CHECK(menu_game_scale_set(&back, menu_scale_auto_value(5)));
+	back.stable_scale = 4;
+	n = menu_game_format(&back, buf, sizeof buf);
+	struct menu_game reopened;
+	menu_game_default(&reopened);
+	menu_game_parse(&reopened, buf, (size_t)n);
+	CHECK_EQ(reopened.scale, menu_scale_auto_value(5));
+	CHECK_EQ(reopened.stable_scale, 4);
+	struct scale_auto policy;
+	scale_auto_init(&policy, menu_scale_is_auto(reopened.scale), (unsigned)reopened.stable_scale,
+			menu_scale_limit(reopened.scale, MENU_RES_1080P));
+	CHECK(policy.automatic);
+	CHECK_EQ(policy.current, 4);
+	CHECK_EQ(scale_auto_ceiling(&policy), 4);
 	/* ○ vuelve a la lista. */
 	menu_input(&m, 0, 180);
 	CHECK_EQ(menu_input(&m, BIT(SALSA64_DS3_CIRCLE), 190), MENU_NONE);
@@ -1690,25 +1709,25 @@ static void menu_video_file(void)
 	CHECK_EQ(s.resolution, MENU_RES_720P);
 	CHECK_EQ(s.scale, 0);
 	const char old[] = "1080\n";
-	menu_video_parse(&s, old, sizeof old - 1);
+	CHECK(!menu_video_parse(&s, old, sizeof old - 1));
 	CHECK_EQ(s.resolution, MENU_RES_1080P);
 	CHECK_EQ(s.scale, 0);
 	const char old720[] = "720\n";
 	menu_video_parse(&s, old720, sizeof old720 - 1);
 	CHECK_EQ(s.resolution, MENU_RES_720P);
 	const char nuevo[] = "# x\nSalida = 1080\nescala = 5\n";
-	menu_video_parse(&s, nuevo, sizeof nuevo - 1);
+	CHECK(menu_video_parse(&s, nuevo, sizeof nuevo - 1));
 	CHECK_EQ(s.resolution, MENU_RES_1080P);
 	CHECK_EQ(s.scale, 5);
 	const char bad[] = "escala = 9\nsalida = 4k\n";
-	menu_video_parse(&s, bad, sizeof bad - 1);
+	CHECK(!menu_video_parse(&s, bad, sizeof bad - 1));
 	CHECK_EQ(s.scale, 5);
 	CHECK_EQ(s.resolution, MENU_RES_1080P);
 	const char autoc[] = "escala = auto\n";
-	menu_video_parse(&s, autoc, sizeof autoc - 1);
+	CHECK(menu_video_parse(&s, autoc, sizeof autoc - 1));
 	CHECK_EQ(s.scale, 0);
 	const char auto5[] = "escala = auto-5\n";
-	menu_video_parse(&s, auto5, sizeof auto5 - 1);
+	CHECK(menu_video_parse(&s, auto5, sizeof auto5 - 1));
 	CHECK_EQ(s.scale, menu_scale_auto_value(5));
 	char text[256];
 	s.scale = 2;

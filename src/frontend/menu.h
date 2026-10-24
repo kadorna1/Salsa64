@@ -267,6 +267,8 @@ void menu_game_default(struct menu_game *g);
 /* juegos/<ROM>.cfg: «aspecto|filtro|recorte|escala = global|...». */
 void menu_game_parse(struct menu_game *g, const char *text, size_t len);
 int menu_game_format(const struct menu_game *g, char *buf, size_t size);
+/* Conserva como propia la última escala elegida desde la pausa. */
+bool menu_game_scale_set(struct menu_game *g, int scale);
 /* Lo que vale para un juego: lo suyo, o si es -1 lo global (la escala
  * global es s->scale, la de video.cfg). Cualquiera puede ser NULL. */
 void menu_game_effective(const struct menu_settings *s, const struct menu_game *g, int *aspect, int *filter,
@@ -313,7 +315,8 @@ bool menu_settings_cfg_differs(const struct menu_settings *a, const struct menu_
 /* video.cfg: «salida = 1080|720» y «escala = auto|1..5». También acepta el
  * formato viejo, una sola línea «1080» o «720». Solo toca resolution y
  * scale; lo que no entiende lo deja como estaba. */
-void menu_video_parse(struct menu_settings *s, const char *text, size_t len);
+/* Devuelve true si había una escala válida explícita. */
+bool menu_video_parse(struct menu_settings *s, const char *text, size_t len);
 int menu_video_format(const struct menu_settings *s, char *buf, size_t size);
 
 /* Para la prueba automática: los botones que acercan la selección a la

@@ -7,7 +7,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Changed
-- Automatic internal scale now remembers the last stable value per game and never retries a scale that already failed while that game remains open. It only steps down: RSX headroom at one scale did not reliably predict the cost of the next one. Fixed scales are never changed.
+- Internal-scale choices made from the pause menu are saved per game, including automatic mode and its learned ceiling. The startup log reports whether the choice is per-game, global or default, and whether it is fixed or automatic. Automatic scale only steps down; fixed scales are never changed.
 
 ## [0.2.10] — 2026-10-22
 

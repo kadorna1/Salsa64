@@ -37,10 +37,12 @@ static void snap_reabre_en_la_estable(void)
 	struct scale_auto p;
 	scale_auto_init(&p, true, 4, 5);
 	CHECK_EQ(p.current, 4);
+	CHECK(p.failed);
+	CHECK_EQ(scale_auto_ceiling(&p), 4);
 	for (int i = 0; i < 120; i++)
 		CHECK_EQ(second(&p, 60, 60, 0, 400).action, SCALE_AUTO_NONE);
 	CHECK_EQ(p.current, 4);
-	CHECK_EQ(scale_auto_ceiling(&p), 5);
+	CHECK_EQ(scale_auto_ceiling(&p), 4);
 }
 
 static void shadows_lento_por_cpu_no_baja(void)

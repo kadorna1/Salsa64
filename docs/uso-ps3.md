@@ -175,8 +175,9 @@ Opciones:
   ocupa un período de la tele; una carga aislada o un juego lento por CPU no
   la baja. Una escala que ya falló no se vuelve a probar mientras ese juego
   siga abierto; la inferior se guarda en `juegos/<ROM>.cfg` y es la escala
-  inicial la próxima vez. No sube automáticamente: el coste del paso
-  siguiente no se puede predecir de forma fiable por el margen del actual.
+  inicial y el techo aprendido la próxima vez. No sube automáticamente: el
+  coste del paso siguiente no se puede predecir de forma fiable por el margen
+  del actual.
   Deja al menos 10 s entre bajadas. Una escala fija
   no cambia: si el RSX no alcanza, un aviso propone bajarla. El límite elegido fija un objetivo
   de líneas (5× = 1200) y cada imagen usa la entera que llega ahí sin
@@ -288,14 +289,15 @@ aspecto = 16:9      # 4:3 | 16:9 | global
 filtro = lineas     # suave | nitido | lineas | lineas+ | crt-mascara | crt-rgb | crt-svideo | crt-compuesto | crt-trinitron | global
 recorte = apagado   # apagado | normal | amplio | global
 escala = 2          # auto-N | 1 … 5 | global
+escala-estable = ninguna # 1 … 5 | ninguna (techo aprendido de la automática)
 densidad = fina     # normal | fina | global (la de «CRT máscara»)
 interpolacion = geometria  # no | geometria | global
 accesorio = controller-pak # controller-pak | ninguno
 ```
 
-Al abrir el juego, el log dice «imagen: … (con ajustes de este juego)» y, si
-la escala es otra que la de Opciones, «escala interna: …, al abrir el
-juego»; al cerrarlo vuelve la de Opciones.
+Al abrir el juego, el log dice «imagen: … (con ajustes de este juego)» y
+«escala interna: por juego|global|por omisión, modo fija|automática, …»; al
+cerrarlo vuelve la de Opciones.
 
 ### Descargas (experimental, apagadas)
 
@@ -400,9 +402,11 @@ recorte se ven al momento sobre el cuadro en pausa (el recorte de una imagen
 que el juego dibujó con el CPU, al seguir). La escala interna se pone al
 seguir jugando: cambiarla suelta las imágenes del juego en el RSX, que se
 vuelven a dibujar a la escala nueva en el cuadro siguiente (puede verse un
-cuadro raro en los juegos que reusan el anterior). Lo elegido vale para esta
-partida; **Guardar para este juego** lo deja en `juegos/<ROM>.cfg` (lo que
-coincide con Opciones queda «global»). ○ o «Volver» regresan al menú de
+cuadro raro en los juegos que reusan el anterior). La escala queda guardada
+de inmediato para ese juego, incluida «Automática (hasta N×)» y su techo
+aprendido. Los demás valores duran esta partida; **Guardar para este juego**
+los deja en `juegos/<ROM>.cfg` (lo que coincide con Opciones queda
+«global»). ○ o «Volver» regresan al menú de
 pausa; START cierra todo y el juego sigue.
 
 El **botón PS** abre el menú del sistema encima del juego: Salsa64 pausa la

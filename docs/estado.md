@@ -1,5 +1,15 @@
 # Estado
 
+## 2026-10-23 — La escala elegida en la pausa queda por juego
+
+- Al cambiar «Escala interna» en «Imagen» se escribe de inmediato su modo
+  fijo o `auto-N`; ya no reaparece un valor fijo anterior al abrir la ROM.
+- La bajada automática conserva a la vez `escala = auto-N` y
+  `escala-estable = M`, y M se restaura como escala y techo aprendido.
+- El arranque registra si la elección viene del juego, de la global o de la
+  omisión, y si su modo es fijo o automático. Hay prueba de ida y vuelta
+  5× fija → automática hasta 5× → estable 4× → reapertura a techo 4×.
+
 ## 2026-10-23 — La escala automática recuerda el límite estable
 
 - Pokémon Snap confirmó en la PS3 que 5× ocupa el 107,8 % del período y
