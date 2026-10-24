@@ -1,5 +1,13 @@
 # Estado
 
+## 2026-10-23 — OoT: el marcador diminuto pertenece a la lista del juego
+
+- Los dos volcados de la PS3 aíslan el mismo `TEXRECT` RGBA32 de 8 × 8 en
+  (1,0)–(9,8), desde la sublista del HUD en 0x17B410.
+- El RSP real emite al RDP las mismas palabras `E4024020 00004000`; HLE y
+  LLE producen 29 rectángulos. Es contenido de overscan, no un fallo HLE.
+- El volcado disponible de ares era del título, no de esta escena. Sin cambio.
+
 ## 2026-10-23 — #29, cuadriláteros de Shadows of the Empire
 
 - El microcódigo se anunciaba como Fast3D 2.0D, pero `B5` es un cuadrilátero
