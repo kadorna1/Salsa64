@@ -6,11 +6,30 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+### Added
+- **Automatic internal scale:** choose «Automatic (up to N×)» in Image. When
+  the RSX cannot keep up (frames dropped while the game itself runs at full
+  speed) Salsa64 steps the scale down and remembers the stable scale for that
+  game, so next time it starts there. It never steps down when the game is
+  slow because of the CPU, and fixed scales are never changed (you get a
+  notice instead). The choice is saved per game from the pause menu.
+- When the RSX stops responding, the log now shows the commands it was about
+  to run, to make those hangs easier to diagnose.
+
 ### Changed
-- Internal-scale choices made from the pause menu are saved per game, including automatic mode and its learned ceiling. The startup log reports whether the choice is per-game, global or default, and whether it is fixed or automatic. Automatic scale only steps down; fixed scales are never changed.
+- **The maximum internal scale is now 4×.** At 5× the RSX cannot keep up in
+  many games (for example Pokémon Snap), and 4× looks almost the same on a
+  1080p TV. A 5× setting saved before is read as 4×.
+
 ### Fixed
-- Match the host graphics command buffers to the 1280 KiB capacity used by the application.
-- **Star Wars: Shadows of the Empire:** recognize its Fast3D quadrilateral variant so the intro and gameplay geometry is rendered instead of a black screen.
+- **Star Wars: Shadows of the Empire:** the intro and gameplay are no longer
+  black; its microcode's quads were being dropped.
+
+### Known issues
+- Pokémon Snap still slows down with a CRT filter at 3×.
+- Conker's Bad Fur Day: the Great Mighty Poo does not open his mouth, so the
+  boss cannot be beaten (#3).
+- Donald Duck: Quack Attack can soft-lock when talking to a nephew (#16).
 
 ## [0.2.10] — 2026-10-22
 
