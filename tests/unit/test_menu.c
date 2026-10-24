@@ -892,8 +892,9 @@ static void menu_game_page(void)
 	char sbuf[24];
 	CHECK(!strcmp(menu_scale_name(0, MENU_RES_1080P, sbuf, sizeof sbuf), "Automática (hasta 4×)"));
 	CHECK(!strcmp(menu_scale_name(3, MENU_RES_720P, sbuf, sizeof sbuf), "3×"));
+	/* 5× ya no existe: «hasta 5×» se lee como «hasta 4×». */
 	CHECK(!strcmp(menu_scale_name(menu_scale_auto_value(5), MENU_RES_720P, sbuf, sizeof sbuf),
-		      "Automática (hasta 5×)"));
+		      "Automática (hasta 4×)"));
 	CHECK(!strcmp(menu_filter_credit(MENU_FILTER_SCAN_SOFT), "Filtro de VIDEOGAMES SCZ"));
 	/* Texto del archivo: ida y vuelta, y global ante lo que no entiende. */
 	char buf[512];
@@ -1079,7 +1080,7 @@ static void menu_options_page(void)
 	CHECK_EQ(m.opt, MENU_OPT_SCALE);
 	CHECK_EQ(m.set.scale, 0);
 	uint64_t t = 200;
-	const int scales[] = { 5, 10, 1, 6, 2, 7, 3, 8, 4, 9 };
+	const int scales[] = { 1, 5, 2, 6, 3, 7, 4, 8 };
 	for (unsigned i = 0; i < sizeof scales / sizeof scales[0]; i++) {
 		menu_input(&m, 0, t++);
 		CHECK_EQ(menu_input(&m, RIGHT, t++), MENU_SETTINGS);
@@ -1730,10 +1731,10 @@ static void menu_video_file(void)
 	const char nuevo[] = "# x\nSalida = 1080\nescala = 5\n";
 	CHECK(menu_video_parse(&s, nuevo, sizeof nuevo - 1));
 	CHECK_EQ(s.resolution, MENU_RES_1080P);
-	CHECK_EQ(s.scale, 5);
+	CHECK_EQ(s.scale, 4);  /* 5 guardado antes se lee como el máximo, 4 */
 	const char bad[] = "escala = 9\nsalida = 4k\n";
 	CHECK(!menu_video_parse(&s, bad, sizeof bad - 1));
-	CHECK_EQ(s.scale, 5);
+	CHECK_EQ(s.scale, 4);
 	CHECK_EQ(s.resolution, MENU_RES_1080P);
 	const char autoc[] = "escala = auto\n";
 	CHECK(menu_video_parse(&s, autoc, sizeof autoc - 1));

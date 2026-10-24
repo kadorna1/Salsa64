@@ -288,12 +288,15 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 				      : !strcmp(val, "normal") ? MENU_OVERSCAN_NORMAL
 				      : !strcmp(val, "amplio") ? MENU_OVERSCAN_WIDE : -1;
 		} else if (!strcmp(key, "escala")) {
+			/* Hasta '5' por compatibilidad: 5 se lee como el máximo. */
 			g->scale = !strcmp(val, "auto") ? 0
-				   : !strncmp(val, "auto-", 5) && val[5] >= '1' && val[5] <= '0' + MENU_SCALE_MAX && !val[6]
+				   : !strncmp(val, "auto-", 5) && val[5] >= '1' && val[5] <= '5' && !val[6]
 					     ? menu_scale_auto_value(val[5] - '0')
-				   : val[0] >= '1' && val[0] <= '0' + MENU_SCALE_MAX && !val[1] ? val[0] - '0' : -1;
+				   : val[0] >= '1' && val[0] <= '5' && !val[1]
+					     ? (val[0] - '0' > MENU_SCALE_MAX ? MENU_SCALE_MAX : val[0] - '0') : -1;
 		} else if (!strcmp(key, "escala-estable")) {
-			g->stable_scale = val[0] >= '1' && val[0] <= '0' + MENU_SCALE_MAX && !val[1] ? val[0] - '0' : 0;
+			g->stable_scale = val[0] >= '1' && val[0] <= '5' && !val[1]
+						  ? (val[0] - '0' > MENU_SCALE_MAX ? MENU_SCALE_MAX : val[0] - '0') : 0;
 		} else if (!strcmp(key, "densidad")) {
 			g->density = -1;
 			for (int d = 0; d < MENU_DENSITIES; d++)
@@ -318,7 +321,7 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 {
 	static const char *const crop[] = { "apagado", "normal", "amplio" };
-	static const char *const scale[] = { "auto", "1", "2", "3", "4", "5", "auto-1", "auto-2", "auto-3", "auto-4", "auto-5" };
+	static const char *const scale[] = { "auto", "1", "2", "3", "4", "auto-1", "auto-2", "auto-3", "auto-4" };
 	_Static_assert(sizeof scale / sizeof scale[0] == MENU_SCALE_VALUE_MAX + 1, "una clave por escala");
 	int n = snprintf(buf, size,
 			"# Ajustes de este juego (global = los de Opciones)\naspecto = %s\nfiltro = %s\nrecorte = %s\nescala = %s\n"
@@ -437,7 +440,7 @@ bool menu_video_parse(struct menu_settings *s, const char *text, size_t len)
 				s->scale = menu_scale_auto_value(val[5] - '0');
 				have_scale = true;
 			} else if (val[0] >= '1' && val[0] <= '5' && (!val[1] || (val[1] == 'x' && !val[2]))) {
-				s->scale = val[0] - '0';
+				s->scale = val[0] - '0' > MENU_SCALE_MAX ? MENU_SCALE_MAX : val[0] - '0';
 				have_scale = true;
 			}
 		}
@@ -448,12 +451,12 @@ bool menu_video_parse(struct menu_settings *s, const char *text, size_t len)
 int menu_video_format(const struct menu_settings *s, char *buf, size_t size)
 {
 	char scale[8] = "auto";
-	if (s->scale >= 1 && s->scale <= 5)
+	if (s->scale >= 1 && s->scale <= MENU_SCALE_MAX)
 		snprintf(scale, sizeof scale, "%d", s->scale);
 	else if (s->scale > MENU_SCALE_AUTO_BASE && s->scale <= MENU_SCALE_VALUE_MAX)
 		snprintf(scale, sizeof scale, "auto-%d", s->scale - MENU_SCALE_AUTO_BASE);
 	return snprintf(buf, size,
-			"# Video de Salsa64 (se lee al arrancar)\n# escala = 1..5 fija, auto-N automática hasta N; auto conserva el valor anterior\n"
+			"# Video de Salsa64 (se lee al arrancar)\n# escala = 1..4 fija, auto-N automática hasta N; auto conserva el valor anterior\n"
 			"salida = %s\nescala = %s\n",
 			s->resolution == MENU_RES_1080P ? "1080" : "720", scale);
 }

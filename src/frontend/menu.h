@@ -137,7 +137,9 @@ struct menu_game {
 /* MENU_GAME_DENSITY solo es una fila si el filtro que vale es la máscara. */
 enum { MENU_GAME_ASPECT, MENU_GAME_FILTER, MENU_GAME_DENSITY, MENU_GAME_OVERSCAN, MENU_GAME_SCALE, MENU_GAME_INTERP, MENU_GAME_CONTROLS,
        MENU_GAME_ACCESSORY, MENU_GAME_BACK, MENU_GAME_ROWS };
-#define MENU_SCALE_MAX 5
+/* 5× quedó fuera: el RSX no lo sostiene (2026-10-23). Lo guardado como 5 se
+ * lee como 4. */
+#define MENU_SCALE_MAX 4
 /* Escala elegida: 1..5 fija; 6..10 automática hasta 1..5. El valor 0 se
  * conserva para leer «auto» de configuraciones anteriores (hasta 3× en
  * 720p o 4× en 1080p), pero al cambiar la fila se vuelve explícito. */
