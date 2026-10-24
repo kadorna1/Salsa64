@@ -33,6 +33,51 @@
 - La escala fija solo avisa; `sin-escala-auto` conserva el camino anterior.
 - El cambio pausa en el límite de campo y reutiliza la recreación en vivo de
   destinos. Se añadieron series sintéticas de carga, margen y oscilación.
+## 2026-10-23 — #23, cueva de Conker
+
+- El estado reproduce 20 de 46 tareas cortadas con el búfer de 512 KiB del host.
+- Con 1280 KiB no se corta ninguna tarea y aparecen la cueva, el suelo y Conker;
+  el RSP LLE confirma que no era niebla, Z ni un efecto de framebuffer.
+- La aplicación ya usa 1280 KiB desde `f333282` (v0.2.8); `a254865` iguala el host.
+
+## 2026-10-23 — #3, canción del Great Mighty Poo
+
+- La traza registró 1247 lecturas de `AI_LEN` y 2272 de `AI_STATUS`.
+- No hubo escrituras de `AI_DRAM_ADDR` con el FIFO lleno: se descarta esa
+  diferencia con ares como causa de este caso.
+- La partida llega a Chapters, pero solo ofrece Hungover; falta un estado de
+  Sweet Melody para comparar el jefe con ares sin especular.
+
+## 2026-10-23 — OoT: el marcador diminuto pertenece a la lista del juego
+
+- Los dos volcados de la PS3 aíslan el mismo `TEXRECT` RGBA32 de 8 × 8 en
+  (1,0)–(9,8), desde la sublista del HUD en 0x17B410.
+- El RSP real emite al RDP las mismas palabras `E4024020 00004000`; HLE y
+  LLE producen 29 rectángulos. Es contenido de overscan, no un fallo HLE.
+- El volcado disponible de ares era del título, no de esta escena. Sin cambio.
+
+## 2026-10-23 — #29, cuadriláteros de Shadows of the Empire
+
+- El microcódigo se anunciaba como Fast3D 2.0D, pero `B5` es un cuadrilátero
+  con índices por cinco: la HLE genérica descartaba 13080 comandos en 120 de
+  240 tareas y dejaba 1836960 píxeles reales distintos frente al RSP LLE.
+- El CRC del código `E7FA4491` selecciona la variante F3DWR ya existente; no
+  depende del CRC de la ROM. Una prueba sintética cubre ambos CRC de la familia.
+- Tras el cambio: 240/240 tareas sin diferencia real ni comandos desconocidos;
+  la partida llega al campo 5600 con escenario, vehículo y HUD. Falta la PS3.
+- Docker: 682 pruebas, 887363 verificaciones, cero fallos; build completo con
+  holguras de 1568 a 14368 bytes en las imágenes gráficas del SPE.
+
+## 2026-10-23 — #16, Donald Duck: el estado ya contiene el bloqueo
+
+- El estado europeo `3DF17480` carga en el campo 41374 y reproduce la captura.
+  Desde el campo siguiente solo corre el hilo ocioso; los otros siete esperan
+  en colas vacías y siguen idénticos 926 campos después.
+- Acercarse al sobrino y repetir B/A como en el registro llega por el PIF, pero
+  no despierta la lógica. Intérprete/JIT: 86 campos, 3089430 entradas y cero
+  diferencias. Con Controller Pak o sin él solo difieren dos bytes de RDRAM.
+- ares no puede cargar este formato de estado. Para buscar la primera divergencia
+  hace falta un estado o Controller Pak de antes de llegar al sobrino.
 
 ## 2026-10-22 — HLE de F3DEX2ACCLAIM
 

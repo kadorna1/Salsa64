@@ -827,11 +827,11 @@ static struct salsa64_lle_host lle_host;
 static enum salsa64_lle_mode lle_mode;
 static double lle_speed;
 static struct gfx_vertex gfx_vtx[1u << 16] __attribute__((aligned(128)));
-/* 512 KB para los dibujos y, con GFX_JOB_INTERP (--interp), la mitad de eso
+/* 1280 KB para los dibujos y, con GFX_JOB_INTERP (--interp), la mitad de eso
  * más para los registros GFX_OP_VGROUP (un tercio del total, gfx.h), como
- * en la PS3 (src/rdp/rdp.c, CMD_INTERP). */
+ * en la PS3 (src/rdp/rdp.c, CMD_BYTES y CMD_INTERP). */
 #ifndef GFX_CMD_DRAWS
-#define GFX_CMD_DRAWS (512u << 10)
+#define GFX_CMD_DRAWS (1280u << 10)
 #endif
 static uint8_t gfx_cmd[GFX_CMD_DRAWS + GFX_CMD_DRAWS / (GFX_VGROUP_SHARE - 1)] __attribute__((aligned(128)));
 static uint8_t gfx_tex[4u << 20] __attribute__((aligned(128)));
@@ -848,7 +848,7 @@ static struct salsa64_gfx_sync ref_gfx_sync;
 static struct aud_state ref_aud_state;
 static struct salsa64_audio_sync ref_aud_sync;
 static struct gfx_vertex ref_gfx_vtx[1u << 16] __attribute__((aligned(128)));
-static uint8_t ref_gfx_cmd[512u << 10] __attribute__((aligned(128)));
+static uint8_t ref_gfx_cmd[GFX_CMD_DRAWS] __attribute__((aligned(128)));
 static uint8_t ref_gfx_tex[4u << 20] __attribute__((aligned(128)));
 static uint8_t ref_gfx_cache[8u << 20] __attribute__((aligned(128)));
 static uint32_t ref_gfx_tasks;
@@ -898,7 +898,7 @@ static struct {
 	unsigned torn_tasks, compared;
 } gfx_late;
 static struct gfx_vertex tear_vtx[1u << 16];
-static uint8_t tear_cmd[512u << 10];
+static uint8_t tear_cmd[GFX_CMD_DRAWS];
 
 static void late_start(void *ctx, const struct salsa64_task *task, enum salsa64_gbi gbi)
 {

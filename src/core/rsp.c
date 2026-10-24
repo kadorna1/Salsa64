@@ -387,14 +387,15 @@ static const uint8_t *find(const uint8_t *p, const uint8_t *end, const char *s)
 	return NULL;
 }
 
-/* Microcódigos sin texto de identificación, por el CRC-32 de su código
- * (ucode, ucode_size bytes; solo el valor, ver docs/compatibilidad.md). */
+/* Microcódigos cuyo texto no basta para identificarlos, por el CRC-32 de su
+ * código (ucode, ucode_size bytes; solo el valor, ver docs/compatibilidad.md). */
 static const struct {
 	uint32_t crc, size;
 	enum salsa64_gbi gbi;
 } ucode_crcs[] = {
 	{ 0xC543D0A8u, 0x1000, SALSA64_GBI_F3DPD },  /* Perfect Dark (NTSC-U) */
 	{ 0x81FA4A32u, 0x1000, SALSA64_GBI_F3DWR },  /* Wave Race 64: "RSP SW Version: 2.0D" */
+	{ 0xE7FA4491u, 0x1000, SALSA64_GBI_F3DWR },  /* Shadows of the Empire: misma variante con G_QUAD */
 	{ 0x3BFF208Du, 0x1000, SALSA64_GBI_F3DDKR }, /* Diddy Kong Racing (USA, rev. 1) */
 };
 
