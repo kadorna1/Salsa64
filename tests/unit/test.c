@@ -174,6 +174,7 @@ static int run_suites(void (*print)(const char *line), struct salsa64_rec *rec, 
 		{ "dlutil", t_suite_dlutil },
 		{ "i18n", t_suite_i18n },
 		{ "cuelgue", t_suite_cuelgue },
+		{ "escala", t_suite_scale_auto },
 	};
 	char line[256];
 

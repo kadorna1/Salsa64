@@ -858,20 +858,20 @@ static void menu_game_page(void)
 	menu_input(&m, 0, 160);
 	menu_input(&m, RIGHT, 170);
 	CHECK_EQ(m.game.overscan, MENU_OVERSCAN_OFF);
-	/* Escala interna: Global → Auto → 1× … 5× → Global; izquierda al revés. */
+	/* Escala interna: Global → 1× → Auto hasta 1× → 2×…; izquierda al revés. */
 	menu_input(&m, 0, 172);
 	menu_input(&m, DOWN, 174);
 	CHECK_EQ(m.game_sel, MENU_GAME_SCALE);
 	CHECK_EQ(m.game.scale, -1);
 	menu_input(&m, 0, 175);
 	CHECK_EQ(menu_input(&m, RIGHT, 176), MENU_GAME_CHANGED);
-	CHECK_EQ(m.game.scale, 0);
+	CHECK_EQ(m.game.scale, 1);
 	menu_input(&m, 0, 177);
 	menu_input(&m, LEFT, 178);
 	CHECK_EQ(m.game.scale, -1);
 	menu_input(&m, 0, 179);
 	menu_input(&m, LEFT, 179);
-	CHECK_EQ(m.game.scale, MENU_SCALE_MAX);
+	CHECK_EQ(m.game.scale, menu_scale_auto_value(MENU_SCALE_MAX));
 	m.game.scale = 2;
 	/* Lo efectivo: lo del juego o, si es global, lo de Opciones. */
 	m.set.aspect = MENU_ASPECT_4_3;
@@ -888,8 +888,10 @@ static void menu_game_page(void)
 	menu_game_effective(&m.set, &m.game, NULL, &f, NULL, NULL);
 	CHECK_EQ(f, MENU_FILTER_SHARP);
 	char sbuf[24];
-	CHECK(!strcmp(menu_scale_name(0, MENU_RES_1080P, sbuf, sizeof sbuf), "Auto (4×)"));
+	CHECK(!strcmp(menu_scale_name(0, MENU_RES_1080P, sbuf, sizeof sbuf), "Automática (hasta 4×)"));
 	CHECK(!strcmp(menu_scale_name(3, MENU_RES_720P, sbuf, sizeof sbuf), "3×"));
+	CHECK(!strcmp(menu_scale_name(menu_scale_auto_value(5), MENU_RES_720P, sbuf, sizeof sbuf),
+		      "Automática (hasta 5×)"));
 	CHECK(!strcmp(menu_filter_credit(MENU_FILTER_SCAN_SOFT), "Filtro de VIDEOGAMES SCZ"));
 	/* Texto del archivo: ida y vuelta, y global ante lo que no entiende. */
 	char buf[512];
@@ -909,6 +911,10 @@ static void menu_game_page(void)
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.scale, 0);
 	CHECK_EQ(back.interp, MENU_INTERP_GEOMETRY);
+	m.game.scale = menu_scale_auto_value(5);
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.scale, menu_scale_auto_value(5));
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_GEOMETRY);
 	back.interp = -1;
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_OFF);  /* la de Opciones */
@@ -1032,26 +1038,24 @@ static void menu_options_page(void)
 	CHECK_EQ(m.set.resolution, MENU_RES_1080P);
 	CHECK_EQ(m.set.overscan, MENU_OVERSCAN_NORMAL);
 	CHECK(m.set.waves);
-	/* Escala interna: Auto → 1× … 5× → Auto (izquierda, al revés). */
+	/* Escala interna: cada escala fija seguida de «Automática hasta N×». */
 	menu_input(&m, 0, 77);
 	menu_input(&m, DOWN, 77);
 	CHECK_EQ(m.opt, MENU_OPT_SCALE);
 	CHECK_EQ(m.set.scale, 0);
 	uint64_t t = 200;
-	for (int want = 1; want <= 5; want++) {
+	const int scales[] = { 5, 10, 1, 6, 2, 7, 3, 8, 4, 9 };
+	for (unsigned i = 0; i < sizeof scales / sizeof scales[0]; i++) {
 		menu_input(&m, 0, t++);
 		CHECK_EQ(menu_input(&m, RIGHT, t++), MENU_SETTINGS);
-		CHECK_EQ(m.set.scale, want);
+		CHECK_EQ(m.set.scale, scales[i]);
 	}
 	menu_input(&m, 0, t++);
-	CHECK_EQ(menu_input(&m, RIGHT, t++), MENU_SETTINGS);
-	CHECK_EQ(m.set.scale, 0);
-	menu_input(&m, 0, t++);
 	CHECK_EQ(menu_input(&m, LEFT, t++), MENU_SETTINGS);
-	CHECK_EQ(m.set.scale, 5);
+	CHECK_EQ(m.set.scale, 4);
 	menu_input(&m, 0, t++);
 	CHECK_EQ(menu_input(&m, CROSS, t++), MENU_SETTINGS);
-	CHECK_EQ(m.set.scale, 0);
+	CHECK_EQ(m.set.scale, menu_scale_auto_value(4));
 	CHECK_EQ(m.set.resolution, MENU_RES_1080P);
 	/* Lo elegido (1080p) difiere de lo que corre (720p): aparece «Aplicar ahora». */
 	CHECK(menu_video_pending(&m));
@@ -1699,6 +1703,9 @@ static void menu_video_file(void)
 	const char autoc[] = "escala = auto\n";
 	menu_video_parse(&s, autoc, sizeof autoc - 1);
 	CHECK_EQ(s.scale, 0);
+	const char auto5[] = "escala = auto-5\n";
+	menu_video_parse(&s, auto5, sizeof auto5 - 1);
+	CHECK_EQ(s.scale, menu_scale_auto_value(5));
 	char text[256];
 	s.scale = 2;
 	s.resolution = MENU_RES_720P;
@@ -1709,6 +1716,10 @@ static void menu_video_file(void)
 	menu_video_parse(&t, text, (size_t)n);
 	CHECK_EQ(t.scale, 2);
 	CHECK_EQ(t.resolution, MENU_RES_720P);
+	s.scale = menu_scale_auto_value(5);
+	n = menu_video_format(&s, text, sizeof text);
+	menu_video_parse(&t, text, (size_t)n);
+	CHECK_EQ(t.scale, menu_scale_auto_value(5));
 }
 
 static void check_label(const char *describe, const char *commit, const char *want)

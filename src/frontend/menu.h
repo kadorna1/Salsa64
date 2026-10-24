@@ -122,7 +122,7 @@ struct menu_game {
 	int aspect;    /* -1 o enum menu_aspect */
 	int filter;    /* -1 o enum menu_filter */
 	int overscan;  /* -1 o MENU_OVERSCAN_OFF / NORMAL / WIDE */
-	int scale;     /* -1, 0 (automática) o 1 .. MENU_SCALE_MAX: escala interna */
+	int scale;     /* -1, 0 antigua, 1..5 fija o 6..10 automática hasta 1..5 */
 	int density;   /* -1 o enum menu_density (solo con la máscara) */
 	int interp;    /* -1 o enum menu_interp */
 	struct salsa64_padmap controls; /* asignaciones propias; INHERIT usa el global */
@@ -132,6 +132,11 @@ struct menu_game {
 enum { MENU_GAME_ASPECT, MENU_GAME_FILTER, MENU_GAME_DENSITY, MENU_GAME_OVERSCAN, MENU_GAME_SCALE, MENU_GAME_INTERP, MENU_GAME_CONTROLS,
        MENU_GAME_ACCESSORY, MENU_GAME_BACK, MENU_GAME_ROWS };
 #define MENU_SCALE_MAX 5
+/* Escala elegida: 1..5 fija; 6..10 automática hasta 1..5. El valor 0 se
+ * conserva para leer «auto» de configuraciones anteriores (hasta 3× en
+ * 720p o 4× en 1080p), pero al cambiar la fila se vuelve explícito. */
+#define MENU_SCALE_AUTO_BASE MENU_SCALE_MAX
+#define MENU_SCALE_VALUE_MAX (2 * MENU_SCALE_MAX)
 
 /* Ajustes del menú: el fondo, el contador y la confirmación al salir van en
  * SALSA64_DATA_DIR/menu.cfg; el recorte
@@ -141,7 +146,7 @@ struct menu_settings {
 	bool waves;     /* fondo animado («fondo = si|no») */
 	int overscan;   /* enum menu_overscan */
 	int resolution; /* enum menu_resolution */
-	int scale;      /* escala interna del render: 0 automática, 1 .. 5 */
+	int scale;      /* escala interna: 0 automática antigua; 1..5 fija; 6..10 automática */
 	bool fps;       /* contador de velocidad en el juego («fps = si|no»; SELECT + △) */
 	bool confirm;   /* START + SELECT pregunta antes de salir del juego («confirmar = si|no») */
 	int aspect;     /* enum menu_aspect («aspecto = 4:3|16:9») */
@@ -265,6 +270,10 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size);
  * global es s->scale, la de video.cfg). Cualquiera puede ser NULL. */
 void menu_game_effective(const struct menu_settings *s, const struct menu_game *g, int *aspect, int *filter,
 			 int *overscan, int *scale);
+bool menu_scale_is_auto(int scale);
+int menu_scale_limit(int scale, int resolution);
+int menu_scale_auto_value(int limit);
+int menu_scale_step(int scale, int resolution, int direction);
 /* La densidad que vale para el juego (la suya o la de Opciones). */
 int menu_game_density(const struct menu_settings *s, const struct menu_game *g);
 /* Si el filtro tiene densidad (el CRT de máscara de sombra) y el nombre de
