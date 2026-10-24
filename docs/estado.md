@@ -1,5 +1,20 @@
 # Estado
 
+## 2026-10-23 — #23, cueva de Conker
+
+- El estado reproduce 20 de 46 tareas cortadas con el búfer de 512 KiB del host.
+- Con 1280 KiB no se corta ninguna tarea y aparecen la cueva, el suelo y Conker;
+  el RSP LLE confirma que no era niebla, Z ni un efecto de framebuffer.
+- La aplicación ya usa 1280 KiB desde `f333282` (v0.2.8); `a254865` iguala el host.
+
+## 2026-10-23 — #3, canción del Great Mighty Poo
+
+- La traza registró 1247 lecturas de `AI_LEN` y 2272 de `AI_STATUS`.
+- No hubo escrituras de `AI_DRAM_ADDR` con el FIFO lleno: se descarta esa
+  diferencia con ares como causa de este caso.
+- La partida llega a Chapters, pero solo ofrece Hungover; falta un estado de
+  Sweet Melody para comparar el jefe con ares sin especular.
+
 ## 2026-10-23 — OoT: el marcador diminuto pertenece a la lista del juego
 
 - Los dos volcados de la PS3 aíslan el mismo `TEXRECT` RGBA32 de 8 × 8 en

@@ -7,6 +7,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Fixed
+- Match the host graphics command buffers to the 1280 KiB capacity used by the application.
 - **Star Wars: Shadows of the Empire:** recognize its Fast3D quadrilateral variant so the intro and gameplay geometry is rendered instead of a black screen.
 
 ## [0.2.10] — 2026-10-22
