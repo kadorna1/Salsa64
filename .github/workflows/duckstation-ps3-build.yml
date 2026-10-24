@@ -65,7 +65,7 @@ jobs:
           name: duckstation-ps3-phase0-packages
           if-no-files-found: error
           path: |
-            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.pkg
-            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.gnpdrm.pkg
-            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.elf
-            ports/duckstation-ps3/ps3/build/duckstation-ps3-probe.map
+            build/duckstation-ps3-probe/duckstation-ps3-probe.pkg
+            build/duckstation-ps3-probe/duckstation-ps3-probe.gnpdrm.pkg
+            build/duckstation-ps3-probe/duckstation-ps3-probe.elf
+            build/duckstation-ps3-probe/duckstation-ps3-probe.map
