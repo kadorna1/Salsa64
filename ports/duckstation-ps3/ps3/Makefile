@@ -18,7 +18,7 @@ PPU_CFLAGS := -std=gnu11 -O2 -Wall -Wextra -mcpu=cell -mhard-float \
 PPU_LDFLAGS := -mcpu=cell -mhard-float -Wl,--gc-sections \
                -Wl,-Map,$(OUT)/$(PROGRAM).map -L$(PSL1GHT)/ppu/lib \
                -T $(CURDIR)/linker/duckstation-jit-cache.ld \
-               -T $(PSL1GHT)/ppu/crt/lv2.ld
+               -T $(PSL1GHT)/ppu/powerpc64-ps3-elf/lib/lv2.ld
 LIBS := -lio -lsysutil -llv2 -lm
 
 SOURCES := src/main.c src/ps3_jit_probe.c src/ppc64_emit.c
