@@ -105,14 +105,23 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 	struct gfx_result *res = g->res;
 	const bool zex = g->job->gbi == SALSA64_GBI_F3DZEX2;
 	uint32_t w0, w1;
-	uint32_t commands_seen = res->commands;
 	uint32_t counted_remaining = 0, counted_return_sp = 0, counted_return_pc = 0;
 	bool counted_active = false;
 
 	while (gfx_dl_next(g, &w0, &w1)) {
 		bool counted_started = false;
 		if (hook && hook(g, w0, w1)) {
-			commands_seen = res->commands;
+			if (counted_active && !counted_started) {
+				if (g->dl_sp <= (int)counted_return_sp) {
+					counted_active = false;
+				} else if (counted_remaining <= 1) {
+					g->dl_sp = (int)counted_return_sp;
+					g->dl_pc = counted_return_pc;
+					counted_active = false;
+				} else {
+					counted_remaining--;
+				}
+			}
 			continue;
 		}
 		uint32_t op = w0 >> 24;
@@ -254,19 +263,17 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 			}
 			break;
 		}
-		/* Include commands consumed as the extra words of TEXRECT. */
+		/* Un paso por comando decodificado; las palabras extra de TEXRECT son datos. */
 		if (counted_active && !counted_started) {
-			uint32_t used = res->commands - commands_seen;
 			if (g->dl_sp <= (int)counted_return_sp) {
 				counted_active = false;
-			} else if (used >= counted_remaining) {
+			} else if (counted_remaining <= 1) {
 				g->dl_sp = (int)counted_return_sp;
 				g->dl_pc = counted_return_pc;
 				counted_active = false;
 			} else {
-				counted_remaining -= used;
+				counted_remaining--;
 			}
 		}
-		commands_seen = res->commands;
 	}
 }

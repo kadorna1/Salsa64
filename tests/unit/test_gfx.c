@@ -2992,24 +2992,29 @@ static void gfx_clip_four_planes(void)
 }
 
 
-/* Cruis'n Exotica: SPECIAL_1 ejecuta N comandos y vuelve al flujo padre. */
+/* Cruis'n Exotica: SPECIAL_1 ejecuta N comandos y vuelve al flujo padre.
+ * TEXRECT consume dos palabras de datos, pero sigue contando como un comando. */
 static void gfx_cruisn_exotica_counted_dlist(void)
 {
 	start();
 	job_gbi = SALSA64_GBI_F3DEX2_CRUISN;
 	dl(0xD5000003u, DATA_PA);
-	dl(0xFA000000u, 0xAABBCCDDu);
+	dl(0x00000000u, 0); /* comando padre tras el retorno */
 
-	t_wr32(DATA_PA + 0, 0xFA000000u);
-	t_wr32(DATA_PA + 4, 0x11223344u);
-	t_wr32(DATA_PA + 8, 0xFA000000u);
-	t_wr32(DATA_PA + 12, 0x55667788u);
-	t_wr32(DATA_PA + 16, 0x00000000u);
-	t_wr32(DATA_PA + 20, 0x00000000u);
+	t_wr32(DATA_PA + 0, 0xE4000000u); /* TEXRECT */
+	t_wr32(DATA_PA + 4, 0);
+	t_wr32(DATA_PA + 8, 0xE1000000u); /* coordenadas de textura */
+	t_wr32(DATA_PA + 12, 0);
+	t_wr32(DATA_PA + 16, 0xF1000000u); /* incrementos */
+	t_wr32(DATA_PA + 20, 0x04000400u);
+	t_wr32(DATA_PA + 24, 0xFA000000u); /* segundo comando RSP del tramo */
+	t_wr32(DATA_PA + 28, 0x11223344u);
+	t_wr32(DATA_PA + 32, 0x00000000u); /* tercer comando RSP del tramo */
+	t_wr32(DATA_PA + 36, 0);
 
 	run();
-	CHECK_EQ(res.commands, 6);
-	CHECK_EQ(gs.prim, 0xAABBCCDDu);
+	CHECK_EQ(res.commands, 8); /* incluye las dos palabras inline de TEXRECT */
+	CHECK_EQ(gs.prim, 0x11223344u); /* el comando después de TEXRECT se ejecutó */
 	CHECK_EQ(res.unknown_cmds, 0);
 	CHECK_EQ(res.dl_errors, 0);
 }
