@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-ps3-pkg-prebuilt:
     name: Build PKG with prebuilt PPU/SPU toolchain
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
       - name: Check out source
@@ -73,6 +73,7 @@ jobs:
           echo "$PS3DEV/bin" >> "$GITHUB_PATH"
           echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
           echo "$PS3DEV/spu/bin" >> "$GITHUB_PATH"
+          ldd --version | head -n1
           "$PS3DEV/ppu/bin/ppu-gcc" --version | head -n1
           "$PS3DEV/spu/bin/spu-gcc" --version | head -n1
 
