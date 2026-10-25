@@ -1,4 +1,4 @@
-name: Salsa64 PS3 build (prebuilt ps3dev nightly, v2.10b)
+name: Salsa64 PS3 build (Docker toolchain, v2.10b)
 
 on:
   push:
@@ -9,143 +9,55 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: salsa64-ps3-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-ps3-pkg-prebuilt:
-    name: Build PKG with prebuilt PPU/SPU toolchain
-    runs-on: ubuntu-24.04
-    timeout-minutes: 180
+  build-ps3-pkg:
+    name: Build PS3 PKG using the existing Docker toolchain
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install native build dependencies
+      - name: Apply temporary build version tag
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            autoconf automake bison build-essential bzip2 ca-certificates curl \
-            flex git libelf-dev libgmp-dev libncurses-dev libssl-dev libtool-bin \
-            patch pkg-config python3 python3-dev python3-setuptools texinfo wget \
-            xz-utils zlib1g-dev xxd jq
+          git tag -f v2.10b "$GITHUB_SHA"
+          echo "Building $(git describe --tags --always --dirty) from $GITHUB_SHA"
 
-      - name: Download latest ps3toolchain Linux X64 nightly
-        id: prebuilt
+      - name: Build PS3 toolchain Docker image
         shell: bash
-        run: |
-          set -euo pipefail
-          releases="$(curl -fsSL \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
-            'https://api.github.com/repos/ps3dev/ps3toolchain/releases?per_page=50')"
-          release="$(jq -c '[.[] | select(.tag_name | startswith("nightly-"))] | sort_by(.published_at) | last // empty' <<< "$releases")"
-          test -n "$release" && test "$release" != "null" || {
-            echo "No nightly release found in ps3dev/ps3toolchain" >&2
-            exit 1
-          }
-          tag="$(jq -r '.tag_name' <<< "$release")"
-          url="$(jq -r '.assets[] | select(.name == "ps3dev-linux-X64.tar.gz") | .browser_download_url' <<< "$release" | head -n1)"
-          test -n "$url" || {
-            echo "Release $tag has no ps3dev-linux-X64.tar.gz asset" >&2
-            exit 1
-          }
-          echo "Using prebuilt compiler archive: $tag"
-          curl -fL --retry 3 "$url" -o "$RUNNER_TEMP/ps3dev-linux-X64.tar.gz"
-          # Don't pipe tar into grep -m1: grep can close early and make tar fail with EPIPE under pipefail.
-          archive_list="$RUNNER_TEMP/ps3dev-archive-files.txt"
-          tar -tzf "$RUNNER_TEMP/ps3dev-linux-X64.tar.gz" > "$archive_list"
-          compiler_member="$(awk '/(^|\/)ppu\/bin\/ppu-gcc$/ { print; exit }' "$archive_list")"
-          test -n "$compiler_member" || {
-            echo "The archive does not contain ppu/bin/ppu-gcc" >&2
-            echo "First archive entries:" >&2
-            sed -n '1,25p' "$archive_list" >&2
-            exit 1
-          }
-          toolchain_dir="${compiler_member%ppu/bin/ppu-gcc}"
-          toolchain_dir="${toolchain_dir%/}"
-          tar -xzf "$RUNNER_TEMP/ps3dev-linux-X64.tar.gz" -C "$RUNNER_TEMP"
-          export PS3DEV="$RUNNER_TEMP/$toolchain_dir"
-          echo "Extracted PS3DEV at $PS3DEV"
-          test -x "$PS3DEV/ppu/bin/ppu-gcc"
-          echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
-          echo "PSL1GHT=$PS3DEV" >> "$GITHUB_ENV"
-          echo "$PS3DEV/bin" >> "$GITHUB_PATH"
-          echo "$PS3DEV/ppu/bin" >> "$GITHUB_PATH"
-          echo "$PS3DEV/spu/bin" >> "$GITHUB_PATH"
-          ldd --version | head -n1
-          "$PS3DEV/ppu/bin/ppu-gcc" --version | head -n1
-          "$PS3DEV/spu/bin/spu-gcc" --version | head -n1
+        run: tools/docker-image.sh
 
-      - name: Build and install PSL1GHT and cgcomp
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/psl1ght-src" "$RUNNER_TEMP/cgtoolkit" build/logs
-
-          # Match the PSL1GHT revision used by Salsa64's Docker toolchain image.
-          PSL1GHT_REF=f649a08fd536a9e27c08c7db2d93a2d7ee4c3bbe
-          curl -fL --retry 3 \
-            "https://github.com/ps3dev/PSL1GHT/archive/${PSL1GHT_REF}.tar.gz" \
-            -o "$RUNNER_TEMP/psl1ght.tar.gz"
-          tar -xzf "$RUNNER_TEMP/psl1ght.tar.gz" \
-            --strip-components=1 -C "$RUNNER_TEMP/psl1ght-src"
-
-          # cgcomp needs NVIDIA's x86_64 Cg runtime; verify the archive before use.
-          CG_URL=https://developer.download.nvidia.com/cg/Cg_3.1/Cg-3.1_April2012_x86_64.tgz
-          CG_SHA256=e8ff01e6cc38d1b3fd56a083f5860737dbd2f319a39037528fb1a74a89ae9878
-          curl -fL --retry 3 "$CG_URL" -o "$RUNNER_TEMP/cg.tgz"
-          echo "$CG_SHA256  $RUNNER_TEMP/cg.tgz" | sha256sum -c -
-          tar -xzf "$RUNNER_TEMP/cg.tgz" -C "$RUNNER_TEMP/cgtoolkit"
-          test -f "$RUNNER_TEMP/cgtoolkit/usr/lib64/libCg.so"
-
-          {
-            make -C "$RUNNER_TEMP/psl1ght-src" install-ctrl
-            make -C "$RUNNER_TEMP/psl1ght-src" -j"$(nproc)"
-            make -C "$RUNNER_TEMP/psl1ght-src" install
-            make -C "$RUNNER_TEMP/psl1ght-src/tools/cgcomp" -j"$(nproc)"
-          } 2>&1 | tee build/logs/prebuilt-psl1ght.log
-
-          install -m 0755 "$RUNNER_TEMP/psl1ght-src/tools/cgcomp/cgcomp" "$PS3DEV/bin/cgcomp"
-          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/cgtoolkit/usr/lib64:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-
-          printf 'void main(float4 p : POSITION, out float4 o : POSITION) { o = p; }\n' > "$RUNNER_TEMP/smoke.vcg"
-          LD_LIBRARY_PATH="$RUNNER_TEMP/cgtoolkit/usr/lib64:${LD_LIBRARY_PATH:-}" \
-            "$PS3DEV/bin/cgcomp" -v "$RUNNER_TEMP/smoke.vcg" "$RUNNER_TEMP/smoke.vpo"
-          test -s "$RUNNER_TEMP/smoke.vpo"
-
-          for tool in ppu-gcc spu-gcc make_self_npdrm sfo pkg package_finalize cgcomp; do
-            command -v "$tool"
-          done
-
-      - name: Run host unit tests
+      - name: Run host unit tests inside Docker
         shell: bash
         run: |
           set -o pipefail
           mkdir -p build/logs
-          make -C tests/unit run 2>&1 | tee build/logs/prebuilt-unit-tests.log
+          tools/build.sh test-host 2>&1 | tee build/logs/docker-unit-tests.log
 
-      - name: Build the installable PS3 package
+      - name: Build installable PS3 package inside Docker
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           mkdir -p build/logs
-          git tag -f v2.10b "$GITHUB_SHA"
-          export SALSA64_VERSION=v2.10b
-          export SALSA64_COMMIT="${GITHUB_SHA::7}"
-          {
-            echo "Building Salsa64 $SALSA64_VERSION from $SALSA64_COMMIT"
-            make -C src/frontend -j2 pkg
-          } 2>&1 | tee build/logs/prebuilt-package-build.log
+          tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/docker-package-build.log
           test -s build/salsa64/salsa64.pkg
 
-      - name: Upload package and logs
+      - name: Upload package and build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: salsa64-v2.10b-ps3-pkg-prebuilt-toolchain
+          name: salsa64-v2.10b-ps3-pkg-docker-toolchain
           path: |
             build/salsa64/*.pkg
-            build/logs/prebuilt-*.log
+            build/logs/docker-image.log
+            build/logs/docker-unit-tests.log
+            build/logs/docker-package-build.log
           if-no-files-found: warn
           compression-level: 0
