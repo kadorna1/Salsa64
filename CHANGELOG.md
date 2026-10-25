@@ -4,7 +4,7 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
-## [Unreleased]
+## [0.2.11] — 2026-10-25
 
 ### Added
 - **Automatic internal scale:** choose «Automatic (up to N×)» in Image. When
@@ -27,6 +27,8 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ### Known issues
 - Pokémon Snap still slows down with a CRT filter at 3×.
+- Star Wars: Shadows of the Empire: the later Hoth sections run at 40–52 fps
+  (CPU-bound).
 - Conker's Bad Fur Day: the Great Mighty Poo does not open his mouth, so the
   boss cannot be beaten (#3).
 - Donald Duck: Quack Attack can soft-lock when talking to a nephew (#16).
