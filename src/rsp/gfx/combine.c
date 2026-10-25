@@ -102,10 +102,18 @@ static void p_term(poly *p, mono m, float c, struct cc_ctx *x)
 	p->n++;
 }
 
+/* Construye solo los campos que indica n. No inicializar el poly entero:
+ * p_zero/memset agregaban una cadena de pila innecesaria en el SPE. */
 static poly p_const(float v, struct cc_ctx *x)
 {
-	poly p = p_zero();
-	p_term(&p, 0, v, x);
+	(void)x; /* un polinomio constante no puede desbordar P_MAX */
+	poly p;
+	p.n = 0;
+	if (v != 0.0f) {
+		p.m[0] = 0;
+		p.c[0] = v;
+		p.n = 1;
+	}
 	return p;
 }
 
