@@ -988,6 +988,35 @@ static void gfx_fill_and_zclear(void)
 	CHECK(find_cmd(GFX_OP_TARGET, 0) != NULL);
 }
 
+/* Cruis'n Exotica ejecuta con G_SPECIAL_1 un bloque contado de comandos
+ * F3DEX2 y vuelve a la lista principal tras la cantidad indicada. */
+static void gfx_eurocom_rdp_block(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3DEX2EUROCOM;
+	uint32_t block = data_alloc(4 * 8);
+	t_wr32(block + 0, 0xFF100000 | 319);       /* color image RGBA16, 320 */
+	t_wr32(block + 4, 0x00100000);
+	t_wr32(block + 8, 0xE3000A01);             /* ciclo fill */
+	t_wr32(block + 12, G_CYC_FILL << 20);
+	t_wr32(block + 16, 0xF7000000);            /* color rojo */
+	t_wr32(block + 20, 0xF801F801);
+	t_wr32(block + 24, 0xF6000000 | (31 << 2) << 12 | (15 << 2));
+	t_wr32(block + 28, 0);
+	dl(0xD5000004, block);
+	run();
+	CHECK_EQ(res.rects, 1);
+	CHECK_EQ(res.dl_errors, 0);
+	CHECK(find_cmd(GFX_OP_TARGET, 0) != NULL);
+	CHECK(draw_n(0) != NULL);
+
+	start();
+	job_gbi = SALSA64_GBI_F3DEX2;  /* el F3DEX2 normal conserva D5 como no-op */
+	dl(0xD5000004, block);
+	run();
+	CHECK_EQ(res.rects, 0);
+}
+
 /* El relleno de la z image también va a la RDRAM, como lo deja el RDP
  * (Donkey Kong 64 lee la profundidad donde se ve al jugador y, si lee 0,
  * lo cree tapado y mueve la cámara cada 21 cuadros). */
@@ -3020,6 +3049,7 @@ void t_suite_gfx(void)
 	RUN(gfx_combiner_premul);
 	RUN(gfx_tmem_premul);
 	RUN(gfx_fill_and_zclear);
+	RUN(gfx_eurocom_rdp_block);
 	RUN(gfx_zclear_fills_rdram);
 	RUN(gfx_zclear_scissor);
 	RUN(gfx_zclear_rdram_at_finish);

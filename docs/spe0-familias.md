@@ -78,7 +78,7 @@ los 68 respaldos del autor (unos 50 juegos distintos; cada uno 4·10⁹ ciclos,
 | Imagen | Programa | Familias | Juegos medidos |
 |---|---|---|---|
 | 0 «F3D» | `spu_gfx0` | F3D, F3DEX 1.x, F3DWR, F3DPD, F3DDKR, F3DJFG | SM64, GoldenEye, Perfect Dark, MK64, Wave Race, Star Fox 64, Banjo-Kazooie, Diddy Kong Racing, Jet Force Gemini, Mickey's Speedway, Killer Instinct Gold, Doom 64, 1080, FIFA 99… |
-| 1 «F3DEX2» | `spu_gfx1` | F3DEX2, F3DZEX2, S2DEX2 y F3DFLX en la tarea | Zelda OoT y MM, Kirby 64, F-Zero X, Smash, Banjo-Tooie, DK64, Paper Mario, Pokémon Snap y Stadium, Mario Party, RE2 (sus tareas F3DEX2)… |
+| 1 «F3DEX2» | `spu_gfx1` | F3DEX2, F3DZEX2, F3DEX2EUROCOM, S2DEX2 y F3DFLX en la tarea | Zelda OoT y MM, Cruis'n Exotica, Kirby 64, F-Zero X, Smash, Banjo-Tooie, DK64, Paper Mario, Pokémon Snap y Stadium, Mario Party, RE2 (sus tareas F3DEX2)… |
 | 2 «Conker» | `spu_gfx2` | F3DEXBG (sobre F3DEX2) | Conker's Bad Fur Day |
 | 3 «Factor 5» | `spu_gfx3` | F5Rogue (sobre lo común de F3D: `f3d.c` da G_TEXTURE, el modo geométrico, G_SETOTHERMODE y los comandos del RDP) | Star Wars: Rogue Squadron (desde el 2026-10-18) |
 | 4 «Factor 5 Indy» | `spu_gfx4` | F5Indy (`f5indy.c`, con su propia DMEM de 4 KB y su propio recorrido de la lista: no lleva F3D) | Indiana Jones and the Infernal Machine (desde el 2026-10-18); Battle for Naboo (sin respaldo para probarlo) |
@@ -110,6 +110,11 @@ G_RDPHALF (DKR) y en la de Conker un G_TRI4. En RPCS3, al cargar cada
 imagen después de sus tareas de prueba, la pila que el SPE nunca tocó es algo
 mayor que la holgura del build (14 736, 14 256 y 15 536 bytes, contando
 palabras en cero): el grafo de llamadas del build es una cota.
+
+F3DEX2EUROCOM reconoce por CRC el código de Cruis'n Exotica y ejecuta sus
+sublistas contadas por `G_SPECIAL_1`. La imagen conserva las 1024 entradas
+de caché; para mantener la holgura mínima recuerda 27 texturas del arena por
+tarea (25 en la imagen experimental de fase), frente a 32 en las demás.
 
 ### La imagen 4, de Indiana Jones y Battle for Naboo (2026-10-18)
 

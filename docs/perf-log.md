@@ -1,5 +1,18 @@
 # Registro de rendimiento
 
+## 2026-10-25 — Cruis'n Exotica, perfil orientativo del host
+
+En una carrera reproducida en el host, 1375 tareas durante 2800 campos
+promediaron 10506 comandos, 1682 triángulos, 355 dibujos y 1050 cargas a
+TMEM por tarea; el CPU emulado quedó 88 % en espera. Frente a las 260–450
+cargas por tarea de las escenas pesadas de Zelda medidas en PS3, el primer
+cuello probable es el SPE/TMEM y después la traducción al RSX.
+
+El host y qemu solo ordenan alternativas: no predicen campos/s de la PS3.
+Antes de cambiar la caché o agrupar cargas hace falta medir el paquete en la
+consola. Como techo orientativo, la caché redujo hasta 2,4× el tramo de
+cargas de Zelda; no implica la misma mejora total ni el mismo factor aquí.
+
 ## 2026-10-23 — Pokémon Snap: límite estable de la escala automática (PS3 real)
 
 Revisión `18ea16f`, automática hasta 5×. En la escena de la introducción,

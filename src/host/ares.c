@@ -822,6 +822,10 @@ int ares_main(int argc, char **argv)
 	}
 	if (o.out && (o.png || o.gfxdump))
 		mkdir(o.out, 0777);  /* si ya existe, nada */
+	/* El comparador no arranca el núcleo ni sus backends. Activa aquí las
+	 * variantes optativas para que sus CRC se reconozcan igual que al jugar. */
+	static struct salsa64_gfx_backend detector = { .turbo3d = true, .acclaim = true, .eurocom = true };
+	salsa64_rsp_set_gfx(&bus, &detector);
 	if (getenv("SALSA64_FBFX"))
 		raster_fbfx = atoi(getenv("SALSA64_FBFX"));
 	if (getenv("SALSA64_AA_EDGES"))

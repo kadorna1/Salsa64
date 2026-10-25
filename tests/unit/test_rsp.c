@@ -541,6 +541,42 @@ static void rsp_detect_gbi_acclaim(void)
 	memset(p, 0, size);
 }
 
+/* La variante de Eurocom también anuncia F3DEX2 2.08. Su CRC activa el
+ * intérprete de G_SPECIAL_1; sin el interruptor sigue siendo F3DEX2. */
+static void rsp_detect_gbi_eurocom(void)
+{
+	struct salsa64_bus *bus = &t_n64.bus;
+	const uint32_t code = 0x8000, size = 0x1000;
+	uint8_t *p = bus->rdram + code, tail[4];
+	uint32_t state = 0xFFFFFFFFu;
+	memset(p, 0, size);
+	for (uint32_t i = 0; i < size - 4; i++)
+		for (int k = 0; k < 8; k++)
+			state = (state >> 1) ^ (0xEDB88320u & (0u - (state & 1)));
+	crc32_force(state, 0xC6121CAAu, tail);
+	for (int i = 0; i < 4; i++)
+		p[size - 4 + (3 - i)] = tail[i];
+	CHECK_EQ(salsa64_crc32_words_swapped(p, size), 0xC6121CAAu);
+
+	struct salsa64_task task;
+	memset(&task, 0, sizeof task);
+	memset(bus->rdram + 0x5000, 0, 0x800);
+	put_text(0x5040, "RSP Gfx ucode F3DEX       fifo 2.08 ");
+	task.ucode = 0x80000000u | code;
+	task.ucode_size = 0;
+	task.ucode_data = 0x80005000;
+	task.ucode_data_size = 0x800;
+	struct salsa64_gfx_backend off = { 0 }, on = { .eurocom = true };
+	salsa64_rsp_set_gfx(bus, &off);
+	CHECK_EQ(salsa64_rsp_detect_gbi(bus, &task), SALSA64_GBI_F3DEX2);
+	salsa64_rsp_set_gfx(bus, &on);
+	CHECK_EQ(salsa64_rsp_detect_gbi(bus, &task), SALSA64_GBI_F3DEX2EUROCOM);
+	p[17] ^= 1;
+	CHECK_EQ(salsa64_rsp_detect_gbi(bus, &task), SALSA64_GBI_F3DEX2);
+	salsa64_rsp_set_gfx(bus, NULL);
+	memset(p, 0, size);
+}
+
 /* Animal Crossing (Dōbutsu no Mori): dos microcódigos sin texto, que se reconocen por el CRC-32 de su
  * código (en palabras del host, de la lista de otros emuladores): el F3DZEX2 trae la bandera de «sin
  * recorte contra el plano cercano» (el .NoN que un texto diría) y el S2DEX2 no. Código fabricado para
@@ -805,6 +841,7 @@ void t_suite_rsp(void)
 	RUN(rsp_detect_gbi_wr);
 	RUN(rsp_detect_gbi_dkr);
 	RUN(rsp_detect_gbi_acclaim);
+	RUN(rsp_detect_gbi_eurocom);
 	RUN(rsp_detect_animal_crossing);
 	RUN(rsp_dpc_from_cpu);
 	RUN(rsp_dpc_split_command);

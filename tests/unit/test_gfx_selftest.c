@@ -64,7 +64,7 @@ static void check_gbi(uint32_t gbi, bool rare)
 	run(gbi, vtx_a, cmd_a, tex_a, cache_a, &ra);
 	run(gbi, vtx_b, cmd_b, tex_b, cache_b, &rb);
 	bool gen2 = gbi == SALSA64_GBI_F3DEX2 || gbi == SALSA64_GBI_F3DZEX2 ||
-		    gbi == SALSA64_GBI_F3DEX2ACCLAIM;
+		    gbi == SALSA64_GBI_F3DEX2ACCLAIM || gbi == SALSA64_GBI_F3DEX2EUROCOM;
 	bool s2dex = gbi == SALSA64_GBI_S2DEX || gbi == SALSA64_GBI_S2DEX1;
 	if (gbi == SALSA64_GBI_F3DEX2ACCLAIM)
 		CHECK_EQ(gs.ucode, GFX_SELFTEST_UCODE);
@@ -140,6 +140,7 @@ static void gfx_selftest_lists(void)
 	check_gbi(SALSA64_GBI_F3DEX2, false);
 	check_gbi(SALSA64_GBI_F3DZEX2, false);
 	check_gbi(SALSA64_GBI_F3DEX2ACCLAIM, false);
+	check_gbi(SALSA64_GBI_F3DEX2EUROCOM, false);
 	check_gbi(SALSA64_GBI_S2DEX, false);
 	/* Las de Rare interpretan distinto vértices y triángulos: basta que
 	 * dibujen algo y terminen (lo que se compara es SPE contra PPE). */
@@ -213,6 +214,7 @@ static void gfx_spe0_images(void)
 	CHECK_EQ(gfx_spe0_image(SALSA64_GBI_F3DEX2), GFX_SPE0_F3DEX2);
 	CHECK_EQ(gfx_spe0_image(SALSA64_GBI_F3DZEX2), GFX_SPE0_F3DEX2);
 	CHECK_EQ(gfx_spe0_image(SALSA64_GBI_F3DEX2ACCLAIM), GFX_SPE0_TURBO3D);
+	CHECK_EQ(gfx_spe0_image(SALSA64_GBI_F3DEX2EUROCOM), GFX_SPE0_F3DEX2);
 	CHECK_EQ(gfx_spe0_image(SALSA64_GBI_S2DEX), GFX_SPE0_F3DEX2);
 	CHECK_EQ(gfx_spe0_image(SALSA64_GBI_F3DEXBG), GFX_SPE0_CONKER);
 	CHECK_EQ(gfx_spe0_image(SALSA64_GBI_F5ROGUE), GFX_SPE0_F5ROGUE);

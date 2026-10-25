@@ -51,8 +51,15 @@ void gfx_io_detail_end(struct gfx_state *g);
 #define GFX_MAX_LIGHTS  11   /* + la ambiental; F3DEX2: 7, Conker: 11 */
 /* Texturas del arena que se recuerdan por tarea (para no decodificar dos
  * veces la misma con la caché llena o apagada): 32 entradas, 1,5 KB del
- * local store del SPE 0. */
+ * local store del SPE 0; 27 en la imagen F3DEX2 y 25 en sus imágenes
+ * experimentales de fase. La caché normal de 1024 entradas sigue intacta. */
+#if defined(GFX_SPE0_PHASE)
+#define GFX_ARENA_TEXTURES 25
+#elif defined(GFX_SPE0_IMG) && GFX_SPE0_IMG == GFX_SPE0_F3DEX2
+#define GFX_ARENA_TEXTURES 27
+#else
 #define GFX_ARENA_TEXTURES 32
+#endif
 /* Texturas en la caché entre tareas: en el SPE 0, las de su imagen
  * (spe0.h; la pila manda); en el host y el PPE, 1024. El máximo de texturas
  * distintas en 100 campos es 428 (GoldenEye en Dam, en el host). No hace

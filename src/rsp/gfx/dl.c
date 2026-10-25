@@ -163,6 +163,11 @@ void gfx_run(struct gfx_state *g, const struct gfx_job *job, struct gfx_result *
 			gfx_dl_f3dex2acclaim(g);
 			break;
 #endif
+#if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == GFX_SPE0_F3DEX2
+		case SALSA64_GBI_F3DEX2EUROCOM:
+			gfx_dl_f3dex2(g, NULL);
+			break;
+#endif
 #if GFX_HAS(F5ROGUE)
 		case SALSA64_GBI_F5ROGUE:
 			gfx_dl_f5rogue(g);

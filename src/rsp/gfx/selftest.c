@@ -217,6 +217,7 @@ uint32_t gfx_selftest_build(uint8_t *ram, uint32_t gbi, uint32_t seed)
 		break;
 	case SALSA64_GBI_F3DEX2:
 	case SALSA64_GBI_F3DZEX2:
+	case SALSA64_GBI_F3DEX2EUROCOM:
 	case SALSA64_GBI_F3DEXBG:
 		b.fam = FAM_F3DEX2;
 		break;

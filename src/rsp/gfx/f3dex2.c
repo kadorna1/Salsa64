@@ -104,9 +104,19 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 {
 	struct gfx_result *res = g->res;
 	const bool zex = g->job->gbi == SALSA64_GBI_F3DZEX2;
+	const bool eurocom = g->job->gbi == SALSA64_GBI_F3DEX2EUROCOM;
+	uint32_t eurocom_return = 0, eurocom_left = 0;
 	uint32_t w0, w1;
 
-	while (gfx_dl_next(g, &w0, &w1)) {
+	for (;;) {
+		if (eurocom_return && !eurocom_left) {
+			g->dl_pc = eurocom_return;
+			eurocom_return = 0;
+		}
+		if (!gfx_dl_next(g, &w0, &w1))
+			break;
+		if (eurocom_return)
+			eurocom_left--;
 		if (hook && hook(g, w0, w1))
 			continue;
 		uint32_t op = w0 >> 24;
@@ -204,6 +214,12 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 		case 0x00:  /* G_NOOP */
 		case G_SPNOOP:
 		case G_SPECIAL_1:
+			if (eurocom) {
+				eurocom_return = g->dl_pc;
+				eurocom_left = w0 & 0xFFFFu;
+				g->dl_pc = gfx_addr(g, w1);
+			}
+			break;
 		case G_SPECIAL_2:
 		case G_SPECIAL_3:
 			break;

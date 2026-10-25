@@ -103,6 +103,9 @@ static inline int gfx_spe0_image(uint32_t gbi)
 		return GFX_SPE0_F3D;
 	case SALSA64_GBI_F3DEX2:
 	case SALSA64_GBI_F3DZEX2:
+#if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == GFX_SPE0_F3DEX2
+	case SALSA64_GBI_F3DEX2EUROCOM:
+#endif
 	case SALSA64_GBI_S2DEX:
 		return GFX_SPE0_F3DEX2;
 #if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == 5

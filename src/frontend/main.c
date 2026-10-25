@@ -4861,6 +4861,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_log("gfx: Turbo3D %s (sin-turbo3d)", turbo3d ? "activo" : "apagado");
 	bool acclaim = !file_exists(SALSA64_DATA_DIR "/sin-acclaim");
 	salsa64_log("gfx: HLE Acclaim %s (sin-acclaim)", acclaim ? "activa" : "apagada");
+	bool eurocom = !file_exists(SALSA64_DATA_DIR "/sin-eurocom");
+	salsa64_log("gfx: HLE Eurocom %s (sin-eurocom)", eurocom ? "activa" : "apagada");
 	if (gfx_on_spu) {
 		spukit_init(6);
 		if ((rc = salsa64_gfx_spu_init(&gfx_spu, &n64.bus, &front_sink)) != 0) {
@@ -4871,11 +4873,13 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (gfx_on_spu) {
 		gfx_spu.backend.turbo3d = turbo3d;
 		gfx_spu.backend.acclaim = acclaim;
+		gfx_spu.backend.eurocom = eurocom;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_spu.backend);
 	} else {
 		salsa64_gfx_sync_init(&gfx_ppe, &gfx_ppe_state, &n64.bus, &front_sink);
 		gfx_ppe.backend.turbo3d = turbo3d;
 		gfx_ppe.backend.acclaim = acclaim;
+		gfx_ppe.backend.eurocom = eurocom;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_ppe.backend);
 	}
 	/* Killer Instinct Gold (y otros) dibuja con listas del RDP que el CPU

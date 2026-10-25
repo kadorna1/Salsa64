@@ -2600,7 +2600,7 @@ static uint32_t jitter_rand(void)
 /* Tareas gráficas por microcódigo y cambios de imagen del SPE 0 que habría
  * en la PS3 (rsp/gfx/spe0.h): al final, en el resumen de gfx. */
 static struct {
-	uint32_t tasks[SALSA64_GBI_F3DEX2ACCLAIM + 1];
+	uint32_t tasks[SALSA64_GBI_F3DEX2EUROCOM + 1];
 	int img;          /* imagen de la última tarea con HLE, o -1 */
 	uint32_t switches;
 	uint32_t imgs;    /* imágenes usadas (bit por imagen) */
@@ -2608,7 +2608,7 @@ static struct {
 
 static void count_gbi(enum salsa64_gbi gbi)
 {
-	if ((unsigned)gbi <= SALSA64_GBI_F3DEX2ACCLAIM)
+	if ((unsigned)gbi <= SALSA64_GBI_F3DEX2EUROCOM)
 		gbi_hist.tasks[gbi]++;
 	int img = gfx_spe0_image(gbi);
 	if (img < 0)
@@ -2642,13 +2642,13 @@ static void trace_rsp(void *ctx, const struct salsa64_task *t, enum salsa64_gbi 
 		char key[96], text[80];
 		static const char *const names[] = { "desconocido", "F3DEX2", "F3DZEX2", "F3D", "F3DEX", "S2DEX", "F3DPD",
 						     "F3DEXBG", "F3DWR", "F3DDKR", "F3DJFG", "S2DEX1", "F5ROGUE", "F5INDY",
-						     "Turbo3D", "Turbo3D-F3D", "F3DEX2ACCLAIM" };
-		_Static_assert(sizeof names / sizeof names[0] == SALSA64_GBI_F3DEX2ACCLAIM + 1, "names");
+						     "Turbo3D", "Turbo3D-F3D", "F3DEX2ACCLAIM", "F3DEX2EUROCOM" };
+		_Static_assert(sizeof names / sizeof names[0] == SALSA64_GBI_F3DEX2EUROCOM + 1, "names");
 		salsa64_rsp_ucode_text(&n64.bus, t->ucode_data, text, sizeof text);
 		uint32_t base = t->ucode_data & 0x7FFFFF, size = t->ucode_data_size;
 		if (!text[0] && base < n64.bus.rdram_size && size && size <= n64.bus.rdram_size - base)
 			snprintf(text, sizeof text, "sin texto, crc de ucode_data %08x", salsa64_crc32(n64.bus.rdram + base, size));
-		snprintf(key, sizeof key, "%s: %s", (unsigned)gbi <= SALSA64_GBI_F3DEX2ACCLAIM ? names[gbi] : "?", text);
+		snprintf(key, sizeof key, "%s: %s", (unsigned)gbi <= SALSA64_GBI_F3DEX2EUROCOM ? names[gbi] : "?", text);
 		gchk_task_start(t, gbi, key);
 	}
 	if (shadow.on) {
@@ -2723,12 +2723,12 @@ static void gfx_summary(void)
 		s->flags);
 	static const char *const gbi_names[] = { "desconocido", "F3DEX2", "F3DZEX2", "F3D", "F3DEX", "S2DEX", "F3DPD",
 						 "F3DEXBG", "F3DWR", "F3DDKR", "F3DJFG", "S2DEX1", "F5ROGUE", "F5INDY", "Turbo3D", "Turbo3D-F3D",
-						 "F3DEX2ACCLAIM" };
-	_Static_assert(sizeof gbi_names / sizeof gbi_names[0] == SALSA64_GBI_F3DEX2ACCLAIM + 1, "gbi_names");
+						 "F3DEX2ACCLAIM", "F3DEX2EUROCOM" };
+	_Static_assert(sizeof gbi_names / sizeof gbi_names[0] == SALSA64_GBI_F3DEX2EUROCOM + 1, "gbi_names");
 	char hist[256];
 	size_t used = 0;
 	hist[0] = '\0';
-	for (unsigned i = 0; i <= SALSA64_GBI_F3DEX2ACCLAIM; i++)
+	for (unsigned i = 0; i <= SALSA64_GBI_F3DEX2EUROCOM; i++)
 		if (gbi_hist.tasks[i] && used < sizeof hist)
 			used += (size_t)snprintf(hist + used, sizeof hist - used, "%s%s %u", used ? ", " : "", gbi_names[i],
 						 gbi_hist.tasks[i]);
@@ -3843,6 +3843,10 @@ int main(int argc, char **argv)
 	gfx_sync.backend.acclaim = !acclaim || strcmp(acclaim, "0");
 	fprintf(stderr, "salsa64-run: HLE Acclaim %s (SALSA64_GFX_ACCLAIM=0 la apaga)\n",
 		gfx_sync.backend.acclaim ? "activa" : "apagada");
+	const char *eurocom = getenv("SALSA64_GFX_EUROCOM");
+	gfx_sync.backend.eurocom = !eurocom || strcmp(eurocom, "0");
+	fprintf(stderr, "salsa64-run: HLE Eurocom %s (SALSA64_GFX_EUROCOM=0 la apaga)\n",
+		gfx_sync.backend.eurocom ? "activa" : "apagada");
 	salsa64_rsp_set_gfx(&n64.bus, &gfx_sync.backend);
 	if (getenv("SALSA64_GFX_LATE")) {
 		gfx_late.polls = (unsigned)strtoul(getenv("SALSA64_GFX_LATE"), NULL, 0);
@@ -3854,6 +3858,7 @@ int main(int argc, char **argv)
 			gfx_late.block_after = (unsigned)strtoul(getenv("SALSA64_GFX_BLOCK"), NULL, 0);
 		gfx_late.backend.turbo3d = gfx_sync.backend.turbo3d;
 		gfx_late.backend.acclaim = gfx_sync.backend.acclaim;
+		gfx_late.backend.eurocom = gfx_sync.backend.eurocom;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_late.backend);
 	}
 	if (getenv("SALSA64_JITTER")) {
@@ -3863,6 +3868,7 @@ int main(int argc, char **argv)
 			gfx_late.backend = (struct salsa64_gfx_backend){ .start = late_start, .finish = late_finish, .done = late_done };
 			gfx_late.backend.turbo3d = gfx_sync.backend.turbo3d;
 			gfx_late.backend.acclaim = gfx_sync.backend.acclaim;
+			gfx_late.backend.eurocom = gfx_sync.backend.eurocom;
 			salsa64_rsp_set_gfx(&n64.bus, &gfx_late.backend);
 		}
 	}

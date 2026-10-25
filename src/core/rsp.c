@@ -469,6 +469,19 @@ static bool acclaim_ucode(const struct salsa64_bus *bus, const struct salsa64_ta
 	       salsa64_crc32_words_swapped(bus->rdram + addr, size) == 0xE44DF568u;
 }
 
+/* Cruis'n Exotica conserva el texto de F3DEX2, pero usa G_SPECIAL_1 para
+ * ejecutar bloques contados de comandos F3DEX2. Se distingue por el código, como
+ * las demás variantes cuyo texto genérico no basta. */
+static bool eurocom_ucode(const struct salsa64_bus *bus, const struct salsa64_task *task)
+{
+	if (!bus->rsp.gfx || !bus->rsp.gfx->eurocom)
+		return false;
+	uint32_t addr = task->ucode & 0x1FFFFFFFu;
+	uint32_t size = task->ucode_size ? task->ucode_size : 0x1000u;
+	return size == 0x1000u && in_rdram(bus, addr, size) &&
+	       salsa64_crc32_words_swapped(bus->rdram + addr, size) == 0xC6121CAAu;
+}
+
 static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct salsa64_task *task, bool *nonear);
 
 enum salsa64_gbi salsa64_rsp_detect_gbi(const struct salsa64_bus *bus, const struct salsa64_task *task)
@@ -492,6 +505,8 @@ static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct s
 	/* Antes del texto genérico F3DEX2, que esta variante también trae. */
 	if (acclaim_ucode(bus, task))
 		return SALSA64_GBI_F3DEX2ACCLAIM;
+	if (eurocom_ucode(bus, task))
+		return SALSA64_GBI_F3DEX2EUROCOM;
 
 	/* ROMs de prueba de Salsa64 (sin microcódigo de Nintendo). */
 	if (find(p, end, "Salsa64 GBI Turbo3D") && bus->rsp.gfx && bus->rsp.gfx->turbo3d)
@@ -652,7 +667,7 @@ void salsa64_rsp_start(struct salsa64_bus *bus)
 	if (rsp->lle && rsp->lle_mode != SALSA64_LLE_OFF && rsp->sched) {
 		bool hle_gfx = task.type == SALSA64_TASK_GFX && valid && rsp->gfx &&
 			       (gbi == SALSA64_GBI_F3DEX2 || gbi == SALSA64_GBI_F3DZEX2 ||
-				gbi == SALSA64_GBI_F3DEX2ACCLAIM || gbi == SALSA64_GBI_F3D ||
+				gbi == SALSA64_GBI_F3DEX2ACCLAIM || gbi == SALSA64_GBI_F3DEX2EUROCOM || gbi == SALSA64_GBI_F3D ||
 				gbi == SALSA64_GBI_F3DEX || gbi == SALSA64_GBI_F3DWR || gbi == SALSA64_GBI_F3DPD ||
 				gbi == SALSA64_GBI_F3DDKR || gbi == SALSA64_GBI_F3DJFG || gbi == SALSA64_GBI_F3DEXBG ||
 				gbi == SALSA64_GBI_F5ROGUE || gbi == SALSA64_GBI_F5INDY ||

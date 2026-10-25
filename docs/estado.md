@@ -25,6 +25,16 @@
 - En el host llega a Golden Gate Park: 1672 tareas gráficas en 3900 campos;
   el A/B inmediato repite el bloqueo con una sola tarea. Falta probar la PS3.
 
+## 2026-10-25 — #37, HLE gráfica de Cruis'n Exotica
+
+- El código del microcódigo da CRC `C6121CAA` y se anuncia como F3DEX 2.08.
+- Su `D5` ejecuta una sublista F3DEX2 contada; tratarlo como NOP perdía casi toda la geometría.
+- En 1500 campos: 702 tareas, 324 idénticas y 378 menores contra LLE; 0 distintas, grandes, desconocidos, errores o cortes.
+- La comparación de carrera con ares da 13,73 dB en bloques 4×4; vehículos negros pendientes, probable estado Z/RDP.
+- Una carrera carga 1050 veces la TMEM por tarea con 88 % de CPU ociosa: el SPE/TMEM es el cuello probable; falta medir PS3.
+- `sin-eurocom` restaura el despacho anterior; F3DEX2 conserva 1024 entradas de caché y 1632 bytes de holgura.
+- Host: 691/887834 sin fallos; lockstep de 600 campos sin diferencias en SM64, OoT, MK64, GoldenEye y Cruis'n World.
+
 ## 2026-10-23 — La escala elegida en la pausa queda por juego
 
 - Al cambiar «Escala interna» en «Imagen» se escribe de inmediato su modo
