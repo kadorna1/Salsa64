@@ -629,10 +629,10 @@ static bool resolve(struct gfx_state *g, const struct gfx_tile *t, unsigned tt, 
 	}
 	/* Copiar cada campo evita escribir 8 bytes a través del subobjeto
 	 * src_addr (4 bytes), que GCC 13 rechaza con -Wstringop-overflow. */
-	tex->src_addr = src.src_addr;
-	tex->src_pitch = src.src_pitch;
-	tex->src_siz = src.src_siz;
-	tex->src_fmt = src.src_fmt;
+	/* Una sola copia de 8 bytes desde el inicio de los campos (no a
+	 * través del subobjeto src_addr, que GCC 13 rechaza): copiar campo por
+	 * campo agranda el código del SPE 0 y le quita holgura de pila. */
+	memcpy((char *)tex + offsetof(struct gfx_tex, src_addr), &src, sizeof src);
 #ifdef SALSA64_GFX_TRACE
 	salsa64_gfx_trace_tex(g, t, tex, g->res->textures != before);
 #endif
