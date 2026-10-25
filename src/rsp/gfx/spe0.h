@@ -63,7 +63,9 @@
 
 /* Entradas de la caché de texturas de cada imagen (hle.h, GFX_TC_ENTRIES):
  * lo que deja el local store con la holgura de pila de 1,5 KB. */
-#define GFX_SPE0_TC_0 1024
+/* Sprite2D ocupa parte del programa de la imagen 0. Sus 896 entradas aún
+ * duplican el máximo medido (428 texturas distintas en 100 campos). */
+#define GFX_SPE0_TC_0 896
 #define GFX_SPE0_TC_1 1024
 #define GFX_SPE0_TC_2 1024
 #define GFX_SPE0_TC_3 1024

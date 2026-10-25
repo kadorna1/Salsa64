@@ -8,6 +8,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ### Fixed
 - **Monaco Grand Prix:** no longer freezes after choosing Single when a slow graphics task finishes; SP interrupt delay is capped at one video field.
+- **Midway's Greatest Arcade Hits Volume 1:** arcade games are no longer black; Fast3D Sprite2D commands now render their textured rectangles.
 - **Cruis'n USA:** no longer freezes on the copyright screen; SI DMA now stays
   busy until its delayed completion and raises the interrupt afterwards.
 

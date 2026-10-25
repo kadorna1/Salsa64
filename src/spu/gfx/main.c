@@ -182,10 +182,9 @@ static int handler(void *ctx, const spukit_job *j, spukit_result *res)
 #if GFX_SPE0_IMG == 1 && GFX_SPE0_PHASE == 8
 	if (j->kind == GFX_JOB_CLIP4) {
 		gfx_clip4f x, y, z, w;
-		struct gfx_clip4_job input;
-		memcpy(&input, j->data, sizeof input);
-		memcpy(&x, input.x, sizeof x); memcpy(&y, input.y, sizeof y);
-		memcpy(&z, input.z, sizeof z); memcpy(&w, input.w, sizeof w);
+		const struct gfx_clip4_job *input = (const struct gfx_clip4_job *)(const void *)j->data;
+		memcpy(&x, input->x, sizeof x); memcpy(&y, input->y, sizeof y);
+		memcpy(&z, input->z, sizeof z); memcpy(&w, input->w, sizeof w);
 		gfx_clip4u clips = gfx_clip4_mask(x, y, z, w);
 		memcpy(res->data, &clips, sizeof clips);
 		return 0;

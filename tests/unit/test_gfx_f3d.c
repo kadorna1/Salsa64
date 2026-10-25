@@ -418,6 +418,47 @@ static void f3d_texrect(void)
 	CHECK(out_vtx[6].x == 10.0f && out_vtx[7].x == 14.0f);
 }
 
+/* Sprite2D de la primera generación: BASE cambia temporalmente CULLDL y
+ * POPMTX por SCALEFLIP y DRAW. La subimagen CI4 y su paleta deben llegar a
+ * la TMEM y producir el mismo TEXRECT que arma el microcódigo. */
+static void f3d_sprite2d(void)
+{
+	start(false);
+	dl(0xFF100000 | 319, 0x00100000);  /* color image */
+	/* TEXEL0 en color y alfa. */
+	dl(0xFC000000 | 1u << 20 | 31u << 15 | 7u << 12 | 7u << 9 | 1u << 5 | 31u,
+	   7u << 28 | 7u << 24 | 7u << 21 | 7u << 18 | 1u << 15 | 7u << 12 | 1u << 9 | 1u << 6 | 7u << 3 | 1u);
+	uint32_t desc = data_alloc(24);
+	salsa64_wr32(t_n64.bus.rdram + desc, TEX_PA);
+	salsa64_wr32(t_n64.bus.rdram + desc + 4, TEX_PA + 0x100);
+	salsa64_wr16(t_n64.bus.rdram + desc + 8, 8);   /* ancho */
+	salsa64_wr16(t_n64.bus.rdram + desc + 10, 8);  /* stride */
+	salsa64_wr16(t_n64.bus.rdram + desc + 12, 2);  /* alto */
+	t_n64.bus.rdram[desc + 14] = G_IM_FMT_CI;
+	t_n64.bus.rdram[desc + 15] = G_IM_SIZ_4b;
+	for (int i = 0; i < 8; i++)
+		t_n64.bus.rdram[TEX_PA + i] = (uint8_t)(i << 4 | (i + 1));
+	for (int i = 0; i < 16; i++)
+		salsa64_wr16(t_n64.bus.rdram + TEX_PA + 0x100 + 2 * i, (uint16_t)((i * 2) << 1 | 1));
+	dl(0x09000018, desc);               /* G_SPRITE2D_BASE */
+	dl(0xBE000000, 0x04000400);         /* escala 1:1, sin voltear */
+	dl(0xBD000000, 0x00100020);         /* (4, 8) píxeles */
+	run();
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+	CHECK_EQ(res.loads, 2);
+	CHECK_EQ(res.rects, 1);
+	CHECK_EQ(res.draws, 1);
+	const struct gfx_draw *d = draw_n(0);
+	CHECK(d != NULL);
+	if (!d)
+		return;
+	CHECK_EQ(d->tex[0].width, 8);
+	CHECK_EQ(d->tex[0].height, 2);
+	CHECK(out_vtx[0].x == 4.0f && out_vtx[0].y == 8.0f);
+	CHECK(out_vtx[1].x == 12.0f && out_vtx[2].y == 10.0f);
+}
+
 /* Segmentos (G_MW_SEGMENT), G_DL con y sin regreso y G_CULLDL (×40). */
 static void f3d_dl_flow(void)
 {
@@ -778,6 +819,7 @@ void t_suite_gfx_f3d(void)
 	RUN(f3d_modes);
 	RUN(f3d_rdp_othermode_shadow);
 	RUN(f3d_texrect);
+	RUN(f3d_sprite2d);
 	RUN(f3d_dl_flow);
 	RUN(f3d_points_and_matrix);
 	RUN(f3d_unknown);

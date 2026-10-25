@@ -8,6 +8,14 @@
 - A 1,50 M, GoldenEye llegó a la presa, y Road Rash y Cruis'n Exotica completaron sus recorridos sin alcanzar el límite.
 - El log de cada ventana da mediana/máximo del atraso de la IRQ del SP, número de esperas al SPE y milisegundos esperados.
 
+## 2026-10-25 — Midway's Greatest Arcade Hits dibuja los arcades
+
+- Las tareas no eran vacías: F3D descartaba 20–964 comandos Sprite2D `0x09` por tarea.
+- La HLE carga subimagen/TLUT y emite el TEXRECT de `BASE`, `SCALEFLIP` y `DRAW`.
+- Joust: 45/45 tareas idénticas al RSP real; Tapper: 2/2, con cero píxeles distintos.
+- El RDP sí escribe los destinos que cubren el VI; no cambió la presentación ni requiere interruptor.
+- Host: 692 pruebas y tres gfxtest sin fallos; lockstep de cinco juegos y MGAH, 600 campos.
+
 ## 2026-10-25 — #37, Cruis'n USA supera la pantalla de copyright
 
 - El juego esperaba el evento SI en `80111B00`; el SI inmediato dejaba la

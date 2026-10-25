@@ -19,18 +19,23 @@
  * G_TEXRECT llega seguido de dos G_RDPHALF_*: G_RDPHALF_2 y G_RDPHALF_CONT
  * (SM64, Mario Kart 64) o G_RDPHALF_1 y G_RDPHALF_2 (libultra 2.0).
  *
- * En el SPE 0 son 3,5 KB de código y nada de estado propio (usa la
- * gfx_state de siempre); presupuesto completo en src/spu/gfx/main.c.
+ * Sprite2D (G_SPRITE2D_BASE, SCALEFLIP y DRAW) cambia temporalmente el
+ * significado de G_CULLDL y G_POPMTX. El microcódigo carga la subimagen y,
+ * si es CI, su TLUT, y la dibuja con TEXRECT. El estado breve del trío vive
+ * en el final de raw[], que no se usa a la vez que un comando crudo del RDP.
  *
  * Fuentes (docs/THIRD_PARTY.md): n64brew.dev y la documentación de la
- * comunidad de SM64 sobre Fast3D para la codificación; GLideN64 como
- * referencia de comportamiento (solo consulta, sin copiar código).
+ * comunidad de SM64 sobre Fast3D para la codificación; GLideN64 y Rice como
+ * referencias de comportamiento (solo consulta, sin copiar código). La
+ * secuencia del RDP de Sprite2D se midió contra el microcódigo real.
  */
 #include "core/rcp.h"
+#include "core/endian.h"
 #include "rsp/gfx/hle.h"
 
 enum {
 	G_SPNOOP = 0x00, G_MTX = 0x01, G_MOVEMEM = 0x03, G_VTX = 0x04, G_DL = 0x06,
+	G_SPRITE2D_BASE = 0x09,
 	G_LOAD_UCODE = 0xAF, G_BRANCH_Z = 0xB0,
 	G_TRI2 = 0xB1,          /* F3D 2.0G (GoldenEye): G_TRI4 */
 	G_MODIFYVTX = 0xB2,     /* F3D: G_RDPHALF_CONT */
@@ -43,6 +48,124 @@ enum {
 	G_TEXRECT = 0xE4, G_TEXRECTFLIP = 0xE5,
 };
 #define G_RDPHALF_CONT G_MODIFYVTX
+
+#if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == 0
+/* Estado de Sprite2D en lugares que quedan libres entre comandos crudos. */
+#define SPR_PTR(g)   ((g)->raw[40])
+#define SPR_SCALE(g) ((g)->raw[41])
+#define SPR_FLIP(g)  ((g)->raw[42])
+#define SPR_ON(g)    ((g)->raw[43])
+
+/* Descriptor de 24 bytes de Sprite2D. Los anchos y offsets son texels; la
+ * escala u5.10 dice cuántos texels corresponden a un píxel. */
+struct sprite2d {
+	uint32_t image, tlut;
+	uint32_t width, stride, height, fmt, siz;
+	int32_t off_s, off_t;
+};
+
+static bool sprite2d_read(struct gfx_state *g, struct sprite2d *s)
+{
+	const uint8_t *p = gfx_io_read(g, GFX_IO_SMALL, gfx_addr(g, SPR_PTR(g)), 24);
+	if (!p) {
+		g->res->dl_errors++;
+		return false;
+	}
+	s->image = gfx_addr(g, salsa64_rd32(p));
+	s->tlut = gfx_addr(g, salsa64_rd32(p + 4));
+	s->width = salsa64_rd16(p + 8);
+	s->stride = salsa64_rd16(p + 10);
+	s->height = salsa64_rd16(p + 12);
+	s->fmt = p[14];
+	s->siz = p[15];
+	s->off_t = (int16_t)salsa64_rd16(p + 16);
+	s->off_s = (int16_t)salsa64_rd16(p + 18);
+	return s->width && s->stride && s->height && s->fmt <= G_IM_FMT_I && s->siz <= G_IM_SIZ_32b;
+}
+
+static void sprite2d_tlut(struct gfx_state *g, const struct sprite2d *s)
+{
+	if (s->fmt != G_IM_FMT_CI || !s->tlut)
+		return;
+	uint32_t count = s->siz == G_IM_SIZ_4b ? 16u : 256u;
+	gfx_rdp_command(g, 0xFDu << 24 | G_IM_SIZ_16b << 19, s->tlut);
+	gfx_rdp_command(g, 0xE8u << 24, 0);
+	gfx_rdp_command(g, 0xF5u << 24 | 0x100u, 7u << 24);
+	gfx_rdp_command(g, 0xE6u << 24, 0);
+	gfx_rdp_command(g, 0xF0u << 24, 7u << 24 | ((count - 1) << 2) << 12);
+	gfx_rdp_command(g, 0xE7u << 24, 0);
+	gfx_rdp_command(g, 0xEFu << 24 | (g->oh | 2u << G_MDSFT_TEXTLUT), g->ol);
+}
+
+static __attribute__((noinline)) void sprite2d_draw(struct gfx_state *g, uint32_t pos)
+{
+	struct sprite2d s;
+	if (!sprite2d_read(g, &s))
+		return;
+	uint32_t sx = SPR_SCALE(g) >> 16, sy = SPR_SCALE(g) & 0xFFFF;
+	if (!sx || !sy || s.off_s < 0 || s.off_t < 0)
+		return;
+
+	sprite2d_tlut(g, &s);
+	/* LOADTILE no carga texels de 4 bits: el RSP los presenta al RDP como
+	 * bytes, con la mitad de ancho, y luego vuelve a la tile de 4 bits. */
+	uint32_t lsiz = s.siz == G_IM_SIZ_4b ? G_IM_SIZ_8b : s.siz;
+	uint32_t div = s.siz == G_IM_SIZ_4b ? 2u : 1u;
+	uint32_t lw = (s.stride + div - 1) / div;
+	uint32_t x0 = (uint32_t)s.off_s / div, x1 = ((uint32_t)s.off_s + s.width + div - 1) / div - 1;
+	uint32_t y0 = (uint32_t)s.off_t, y1 = y0 + s.height - 1;
+	uint32_t line = (((s.stride << s.siz) >> 1) + 7) / 8;
+	if (!lw || !line || line > 0x1FF || x1 > 0x3FF || y1 > 0x3FF ||
+	    (uint32_t)s.off_s + s.width - 1 > 0x3FF || line * s.height > 512)
+		return;
+	gfx_rdp_command(g, 0xFDu << 24 | s.fmt << 21 | lsiz << 19 | (lw - 1), s.image);
+	gfx_rdp_command(g, 0xF5u << 24 | s.fmt << 21 | lsiz << 19 | line << 9,
+			7u << 24 | 2u << 18 | 2u << 8);
+	gfx_rdp_command(g, 0xE6u << 24, 0);
+	gfx_rdp_command(g, 0xF4u << 24 | (x0 << 2) << 12 | (y0 << 2),
+			7u << 24 | (x1 << 2) << 12 | (y1 << 2));
+	gfx_rdp_command(g, 0xE7u << 24, 0);
+	gfx_rdp_command(g, 0xF5u << 24 | s.fmt << 21 | s.siz << 19 | line << 9,
+			2u << 18 | 2u << 8);
+	gfx_rdp_command(g, 0xF2u << 24 | ((uint32_t)s.off_s << 2) << 12 | ((uint32_t)s.off_t << 2),
+			(((uint32_t)s.off_s + s.width - 1) << 2) << 12 |
+			(((uint32_t)s.off_t + s.height - 1) << 2));
+
+	int32_t qx0 = (int16_t)(pos >> 16), qy0 = (int16_t)pos;
+	int32_t qw = (int32_t)((s.width * 4096u + sx - 1) / sx);
+	int32_t qh = (int32_t)((s.height * 4096u + sy - 1) / sy);
+	int32_t ss = s.off_s << 5, tt = s.off_t << 5;
+	if ((SPR_FLIP(g) >> 8) & 0xFF) {
+		ss = (s.off_s + (int32_t)s.width - 1) << 5;
+		sx = (uint16_t)-(int32_t)sx;
+	}
+	if (SPR_FLIP(g) & 0xFF) {
+		tt = (s.off_t + (int32_t)s.height - 1) << 5;
+		sy = (uint16_t)-(int32_t)sy;
+	}
+	/* El RDP no codifica coordenadas negativas: recorta el borde y avanza
+	 * la coordenada de textura como lo hace el microcódigo. */
+	if (qx0 < 0) {
+		ss += (-qx0 * (int16_t)sx) / 4;
+		qw += qx0;
+		qx0 = 0;
+	}
+	if (qy0 < 0) {
+		tt += (-qy0 * (int16_t)sy) / 4;
+		qh += qy0;
+		qy0 = 0;
+	}
+	if (qw <= 0 || qh <= 0 || qx0 > 0xFFF || qy0 > 0xFFF)
+		return;
+	uint32_t qx1 = (uint32_t)qx0 + (uint32_t)qw, qy1 = (uint32_t)qy0 + (uint32_t)qh;
+	if (qx1 > 0xFFF)
+		qx1 = 0xFFF;
+	if (qy1 > 0xFFF)
+		qy1 = 0xFFF;
+	gfx_texrect(g, 0xE4u << 24 | qx1 << 12 | qy1, (uint32_t)qx0 << 12 | (uint32_t)qy0,
+			(uint32_t)(uint16_t)ss << 16 | (uint16_t)tt, sx << 16 | sy, false);
+}
+#endif
 
 /* G_MTX */
 #define F3D_MTX_PROJECTION 0x01u
@@ -215,12 +338,23 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 	const bool wr = g->job->gbi == SALSA64_GBI_F3DWR;
 	const unsigned kind = ex ? IDX_X2 : wr ? IDX_X5 : IDX_X10;
 	uint32_t w0, w1;
+#if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == 0
+	SPR_ON(g) = 0;
+#endif
 
 	while (gfx_dl_next(g, &w0, &w1)) {
 		if (hook && hook(g, w0, w1))
 			continue;
 		uint32_t op = w0 >> 24;
 		switch (op) {
+#if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == 0
+		case G_SPRITE2D_BASE:
+			SPR_PTR(g) = w1;
+			SPR_SCALE(g) = 1024u << 16 | 1024u;
+			SPR_FLIP(g) = 0;
+			SPR_ON(g) = 1;
+			break;
+#endif
 		case G_VTX: {
 			uint32_t v0, n;
 			if (ex) {
@@ -250,6 +384,16 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 			break;
 		}
 		case G_POPMTX:
+#if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == 0
+			if (SPR_ON(g)) {
+				sprite2d_draw(g, w1);
+				/* F3DEX restaura POPMTX/CULLDL tras DRAW; el F3D especial
+				 * conserva las entradas Sprite2D hasta el fin de la tarea. */
+				if (ex)
+					SPR_ON(g) = 0;
+				break;
+			}
+#endif
 			/* Solo la modelview tiene pila. */
 			if (!(w1 & F3D_MTX_PROJECTION))
 				gfx_pop_matrix(g, 1);
@@ -274,6 +418,13 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 			gfx_sp_othermode(g, op == G_SETOTHERMODE_H, (int)((w0 >> 8) & 0xFF), (int)(w0 & 0xFF), w1);
 			break;
 		case G_CULLDL: {
+#if !defined(GFX_SPE0_IMG) || GFX_SPE0_IMG == 0
+			if (SPR_ON(g)) {
+				SPR_SCALE(g) = w1;
+				SPR_FLIP(g) = w0;
+				break;
+			}
+#endif
 			/* F3D: offsets de 40 bytes y el final exclusivo; F3DEX: ×2. */
 			bool out = ex ? gfx_vertices_culled(g, (w0 & 0xFFFF) / 2, (w1 & 0xFFFF) / 2)
 				      : w1 >= 40 && gfx_vertices_culled(g, (w0 & 0xFFFFFF) / 40, w1 / 40 - 1);

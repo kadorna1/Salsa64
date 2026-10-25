@@ -143,6 +143,12 @@ $(call GFX_ALL_OBJ,s2dex.c.o): SPU_CFLAGS += -Os
 # texturas van en geom.c y tmem.c), también: lo que ahorra paga el TEXRECT
 # dentro del tramo S2DEX (el cielo de Kirby 64).
 $(call GFX_ALL_OBJ,f3dpd.c.o): SPU_CFLAGS += -Os
+# Sprite2D es una ruta 2D de la primera generación; mantener compacto el
+# despacho F3D deja la holgura de pila exigida por la imagen 0.
+$(OBJ)/spu-gfx0/src/rsp/gfx/f3d.c.o: SPU_CFLAGS += -Os
+# La envoltura de fase 8 incluye la autoprueba de recorte y no forma parte
+# del intervalo medido; compactarla conserva la misma HLE con 1,5 KB de pila.
+$(OBJ)/spu-gfx1fase8/src/spu/gfx/main.c.o: SPU_CFLAGS += -Os
 # Lo de Diddy Kong Racing (f3ddkr.c: matrices, vértices y triángulos por DMA),
 # también: solo corre con ese juego.
 $(call GFX_ALL_OBJ,f3ddkr.c.o): SPU_CFLAGS += -Os
@@ -171,7 +177,8 @@ $(OBJ)/spu-gfx1/src/rsp/gfx/tmem.c.o $(call GFX_PHASE_OBJ,tmem.c.o): SPU_CFLAGS 
 # 1328); identificar texturas cuesta 0,01–0,02 ms más por tarea.
 $(call GFX_ALL_OBJ,texcache.c.o): SPU_CFLAGS += -Os
 # make no ve un cambio de banderas: que se recompilen si cambia este archivo.
-$(call GFX_ALL_OBJ,combine.c.o) $(call GFX_ALL_OBJ,s2dex.c.o) $(call GFX_ALL_OBJ,f3dpd.c.o) \
+$(call GFX_ALL_OBJ,combine.c.o) $(call GFX_ALL_OBJ,s2dex.c.o) $(OBJ)/spu-gfx0/src/rsp/gfx/f3d.c.o $(call GFX_ALL_OBJ,f3dpd.c.o) \
 $(call GFX_ALL_OBJ,f3ddkr.c.o) $(call GFX_ALL_OBJ,f5rogue.c.o) $(call GFX_ALL_OBJ,f5indy.c.o) $(call GFX_ALL_OBJ,vgroup.c.o) $(call GFX_ALL_OBJ,flx.c.o) \
 $(call GFX_ALL_OBJ,dl.c.o) $(call GFX_ALL_OBJ,f3dex2.c.o) $(call GFX_ALL_OBJ,f3dex2acclaim.c.o) $(call GFX_ALL_OBJ,texcache.c.o): Makefile
 $(OBJ)/spu-gfx1/src/rsp/gfx/tmem.c.o $(call GFX_PHASE_OBJ,tmem.c.o): Makefile
+$(OBJ)/spu-gfx1fase8/src/spu/gfx/main.c.o: Makefile
