@@ -115,6 +115,7 @@ static int check_hash(spukit_worker *w)
 #define SPE0_DETAIL_PATH SALSA64_DATA_DIR "/gfx-spe-detalle"
 #define SPE0_CLIP4_PATH SALSA64_DATA_DIR "/gfx-recorte-vector"
 #define SPE0_SCALAR_PATH SALSA64_DATA_DIR "/gfx-escalar"
+#define SPE0_POLL_PATH SALSA64_DATA_DIR "/gfx-sondeo"
 struct detail_window {
 	struct gfx_detail task __attribute__((aligned(128)));
 	uint64_t sum[sizeof(struct gfx_detail) / 4];
@@ -820,7 +821,6 @@ int salsa64_gfx_spu_init(struct salsa64_gfx_spu *s, const struct salsa64_bus *bu
 	s->backend.ctx = s;
 	s->backend.start = spu_start;
 	s->backend.finish = spu_finish;
-	s->backend.done = spu_done;
 	s->backend.state_size = GFX_STATE_BYTES;
 	s->backend.save_state = spu_save_state;
 	s->backend.load_state = spu_load_state;
@@ -835,6 +835,16 @@ int salsa64_gfx_spu_init(struct salsa64_gfx_spu *s, const struct salsa64_bus *bu
 	 * para probarlas en RPCS3 con las ROMs de prueba, que usan solo una
 	 * familia. Después se sigue como siempre, con la primera. */
 	struct stat st;
+	/* La hora emulada del fin no depende de cuánto tarde el SPE. Al llegar a
+	 * ella, finish espera el resultado sin adelantar el reloj de la N64. El
+	 * sondeo anterior queda como comparación: con una lista costosa podía
+	 * retrasar millones de ciclos la IRQ del SP y desbordar colas del juego. */
+	if (stat(SPE0_POLL_PATH, &st) == 0) {
+		s->backend.done = spu_done;
+		salsa64_log("gfx: fin de tarea sondeado (gfx-sondeo)");
+	} else {
+		salsa64_log("gfx: fin de tarea a tiempo emulado; el PPE espera al SPE si hace falta");
+	}
 	if (stat(SPE0_CLIP4_PATH, &st) == 0) {
 		s->detail_phase = 8;
 		salsa64_log("gfx: recorte SIMD experimental (gfx-recorte-vector), mide lote completo; sustituye gfx-fase");

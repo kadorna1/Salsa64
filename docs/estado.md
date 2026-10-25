@@ -1,5 +1,14 @@
 # Estado
 
+## 2026-10-25 — Monaco: el fin gráfico no sigue al tiempo del SPE
+
+- El volcado muestra al hilo de audio muerto por TLBL al agotar sin corrupción sus 11 nodos;
+  los demás esperan porque él ya no atiende la cola. Las IRQ de PI previas sí se entregaron.
+- Una lista de 101,94 ms retrasó la IRQ del SP 8,63 M ciclos emulados, primera divergencia;
+  el host reproduce el mismo PC/RA con 900 sondeos. El SI inmediato y el diferido pasan igual.
+- En PS3 el fin vuelve al plazo emulado y espera al SPE sin adelantar la N64; `gfx-sondeo` lo
+  desactiva. El A/B corregido pasa, y Monaco llega a carrera con el pool sano.
+
 ## 2026-10-25 — #37, Cruis'n USA supera la pantalla de copyright
 
 - El juego esperaba el evento SI en `80111B00`; el SI inmediato dejaba la

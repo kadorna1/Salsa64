@@ -3830,6 +3830,10 @@ int main(int argc, char **argv)
 		gfx_late.polls = (unsigned)strtoul(getenv("SALSA64_GFX_LATE"), NULL, 0);
 		gfx_late.tear = getenv("SALSA64_GFX_TEAR") != NULL;
 		gfx_late.backend = (struct salsa64_gfx_backend){ .start = late_start, .finish = late_finish, .done = late_done };
+		/* Modelo del frontend de PS3: al vencimiento emulado espera el trabajo
+		 * físico, en vez de desplazar la interrupción por cada sondeo. */
+		if (getenv("SALSA64_GFX_BLOCK"))
+			gfx_late.backend.done = NULL;
 		gfx_late.backend.turbo3d = gfx_sync.backend.turbo3d;
 		gfx_late.backend.acclaim = gfx_sync.backend.acclaim;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_late.backend);
