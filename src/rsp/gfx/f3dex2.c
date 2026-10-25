@@ -105,10 +105,16 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 	struct gfx_result *res = g->res;
 	const bool zex = g->job->gbi == SALSA64_GBI_F3DZEX2;
 	uint32_t w0, w1;
+	uint32_t commands_seen = res->commands;
+	uint32_t counted_remaining = 0, counted_return_sp = 0, counted_return_pc = 0;
+	bool counted_active = false;
 
 	while (gfx_dl_next(g, &w0, &w1)) {
-		if (hook && hook(g, w0, w1))
+		bool counted_started = false;
+		if (hook && hook(g, w0, w1)) {
+			commands_seen = res->commands;
 			continue;
+		}
 		uint32_t op = w0 >> 24;
 		switch (op) {
 		case G_VTX: {
@@ -204,6 +210,17 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 		case 0x00:  /* G_NOOP */
 		case G_SPNOOP:
 		case G_SPECIAL_1:
+			/* Solo Cruis'n Exotica usa SPECIAL_1 como llamada contada. */
+			if (g->job->gbi == SALSA64_GBI_F3DEX2_CRUISN && (w0 & 0xFF)) {
+				counted_return_sp = (uint32_t)g->dl_sp;
+				counted_return_pc = g->dl_pc;
+				if (!gfx_dl_call(g, w1, false))
+					return;
+				counted_remaining = w0 & 0xFF;
+				counted_active = true;
+				counted_started = true;
+			}
+			break;
 		case G_SPECIAL_2:
 		case G_SPECIAL_3:
 			break;
@@ -237,5 +254,19 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 			}
 			break;
 		}
+		/* Include commands consumed as the extra words of TEXRECT. */
+		if (counted_active && !counted_started) {
+			uint32_t used = res->commands - commands_seen;
+			if (g->dl_sp <= (int)counted_return_sp) {
+				counted_active = false;
+			} else if (used >= counted_remaining) {
+				g->dl_sp = (int)counted_return_sp;
+				g->dl_pc = counted_return_pc;
+				counted_active = false;
+			} else {
+				counted_remaining -= used;
+			}
+		}
+		commands_seen = res->commands;
 	}
 }

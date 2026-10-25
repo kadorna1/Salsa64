@@ -2991,6 +2991,45 @@ static void gfx_clip_four_planes(void)
 	}
 }
 
+
+/* Cruis'n Exotica: SPECIAL_1 ejecuta N comandos y vuelve al flujo padre. */
+static void gfx_cruisn_exotica_counted_dlist(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3DEX2_CRUISN;
+	dl(0xD5000003u, DATA_PA);
+	dl(0xFA000000u, 0xAABBCCDDu);
+
+	t_wr32(DATA_PA + 0, 0xFA000000u);
+	t_wr32(DATA_PA + 4, 0x11223344u);
+	t_wr32(DATA_PA + 8, 0xFA000000u);
+	t_wr32(DATA_PA + 12, 0x55667788u);
+	t_wr32(DATA_PA + 16, 0x00000000u);
+	t_wr32(DATA_PA + 20, 0x00000000u);
+
+	run();
+	CHECK_EQ(res.commands, 6);
+	CHECK_EQ(gs.prim, 0xAABBCCDDu);
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+}
+
+/* Cruis'n USA beta: B3=HALF_1, B4=PERSPNORM y B2=HALF_CONT. */
+static void gfx_cruisn_usa_beta_half_commands(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3DBETA;
+	dl(0xB3000000u, 0xFA000000u);
+	dl(0xB4000000u, 0xDEADBEEFu);
+	dl(0xB2000000u, 0xAABBCCDDu);
+	dl(0xB8000000u, 0);
+
+	run();
+	CHECK_EQ(gs.prim, 0xAABBCCDDu);
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+}
+
 void t_suite_gfx(void)
 {
 	RUN(gfx_clip_four_planes);
@@ -3049,4 +3088,6 @@ void t_suite_gfx(void)
 	RUN(gfx_tri_no_persp_half);
 	RUN(gfx_s2dex_chained_affine_texture);
 	RUN(gfx_f3dex2_othermode_copy);
+	RUN(gfx_cruisn_exotica_counted_dlist);
+	RUN(gfx_cruisn_usa_beta_half_commands);
 }

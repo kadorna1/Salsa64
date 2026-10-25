@@ -264,10 +264,10 @@ static void log_words(const char *what, const uint8_t *spe, const uint8_t *ppe, 
 
 static int check_lists(spukit_worker *w, int img, struct detail_window *detail)
 {
-	static const uint32_t gbis[] = { SALSA64_GBI_F3D,    SALSA64_GBI_F3DEX,  SALSA64_GBI_F3DWR,
+	static const uint32_t gbis[] = { SALSA64_GBI_F3D,    SALSA64_GBI_F3DBETA, SALSA64_GBI_F3DEX,  SALSA64_GBI_F3DWR,
 					 SALSA64_GBI_F3DPD,  SALSA64_GBI_F3DDKR, SALSA64_GBI_F3DJFG,
 					 SALSA64_GBI_S2DEX1, SALSA64_GBI_F3DEX2, SALSA64_GBI_F3DZEX2,
-					 SALSA64_GBI_S2DEX,  SALSA64_GBI_F3DEXBG,
+					 SALSA64_GBI_S2DEX,  SALSA64_GBI_F3DEX2_CRUISN, SALSA64_GBI_F3DEXBG,
 					 SALSA64_GBI_F5ROGUE, SALSA64_GBI_F5INDY,
 					 SALSA64_GBI_TURBO3D, SALSA64_GBI_TURBO3D_F3D, SALSA64_GBI_F3DEX2ACCLAIM };
 	int bad = 0;

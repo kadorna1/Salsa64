@@ -40,7 +40,7 @@
 #define CIMG_PA    0x10000u /* color image y z image: solo las direcciones */
 #define ZIMG_PA    0x18000u
 
-enum fam { FAM_F3D, FAM_F3DEX, FAM_F3DWR, FAM_F3DEX2, FAM_ACCLAIM, FAM_F5, FAM_INDY };
+enum fam { FAM_F3D, FAM_F3DEX, FAM_F3DWR, FAM_F3DBETA, FAM_F3DEX2, FAM_ACCLAIM, FAM_F5, FAM_INDY };
 
 struct b {
 	uint8_t *ram;
@@ -134,6 +134,7 @@ static void vtx(struct b *b, uint32_t addr, unsigned v0, unsigned n)
 		dl(b, 0x04000000u | v0 << 17 | n << 10 | (16 * n - 1), addr);
 		break;
 	case FAM_F3DWR:
+	case FAM_F3DBETA:
 		dl(b, 0x04000000u | (v0 * 5) << 16 | n << 9 | (16 * n - 1), addr);
 		break;
 	default:
@@ -175,6 +176,7 @@ static void tri(struct b *b, unsigned v0, unsigned v1, unsigned v2)
 		dl(b, 0xBF000000u, (v0 * 2) << 16 | (v1 * 2) << 8 | v2 * 2);
 		break;
 	case FAM_F3DWR:
+	case FAM_F3DBETA:
 		dl(b, 0xBF000000u, (v0 * 5) << 16 | (v1 * 5) << 8 | v2 * 5);
 		break;
 	default:
@@ -194,8 +196,13 @@ static void texrect(struct b *b, unsigned tile, unsigned x0, unsigned y0, unsign
 		return;
 	}
 	dl(b, 0xE4000000u | (x1 << 2) << 12 | y1 << 2, tile << 24 | (x0 << 2) << 12 | y0 << 2);
-	dl(b, gen2(b) ? 0xE1000000u : 0xB4000000u, 0);
-	dl(b, gen2(b) ? 0xF1000000u : 0xB3000000u, (copy ? 4u << 10 : 1u << 10) << 16 | 1u << 10);
+	if (b->fam == FAM_F3DBETA) {
+		dl(b, 0xB3000000u, 0);
+		dl(b, 0xB2000000u, (copy ? 4u << 10 : 1u << 10) << 16 | 1u << 10);
+	} else {
+		dl(b, gen2(b) ? 0xE1000000u : 0xB4000000u, 0);
+		dl(b, gen2(b) ? 0xF1000000u : 0xB3000000u, (copy ? 4u << 10 : 1u << 10) << 16 | 1u << 10);
+	}
 }
 
 static void put_texels(struct b *b, uint32_t addr, uint32_t bytes)
@@ -212,10 +219,14 @@ uint32_t gfx_selftest_build(uint8_t *ram, uint32_t gbi, uint32_t seed)
 	case SALSA64_GBI_F3DEX:
 		b.fam = FAM_F3DEX;
 		break;
+	case SALSA64_GBI_F3DBETA:
+		b.fam = FAM_F3DBETA;
+		break;
 	case SALSA64_GBI_F3DWR:
 		b.fam = FAM_F3DWR;
 		break;
 	case SALSA64_GBI_F3DEX2:
+	case SALSA64_GBI_F3DEX2_CRUISN:
 	case SALSA64_GBI_F3DZEX2:
 	case SALSA64_GBI_F3DEXBG:
 		b.fam = FAM_F3DEX2;
@@ -543,6 +554,16 @@ uint32_t gfx_selftest_build(uint8_t *ram, uint32_t gbi, uint32_t seed)
 		dl(&b, 0x0000000Fu, 0);
 	}
 
+	/* Tramo contado de Cruis'n Exotica, sin G_ENDDL propio. */
+	if (gbi == SALSA64_GBI_F3DEX2_CRUISN) {
+		uint32_t saved_pc = b.pc;
+		b.pc = 0x6000u;
+		dl(&b, 0xFA000000u, 0x11223344u);
+		dl(&b, 0xFA000000u, 0x55667788u);
+		dl(&b, 0x00000000u, 0);
+		b.pc = saved_pc;
+		dl(&b, 0xD5000003u, 0x6000u);
+	}
 	dl(&b, 0xE9000000u, 0);  /* G_RDPFULLSYNC */
 	dl(&b, gen2(&b) ? 0xDF000000u : 0xB8000000u, 0);
 	return DL_PA;

@@ -109,6 +109,8 @@ enum salsa64_gbi {
 	SALSA64_GBI_TURBO3D, /* listas de objetos de Dark Rift */
 	SALSA64_GBI_TURBO3D_F3D, /* su Fast3D acompañante, en la misma imagen */
 	SALSA64_GBI_F3DEX2ACCLAIM, /* variante de F3DEX2 con luces compactas y bit de iluminación propio */
+	SALSA64_GBI_F3DBETA, /* Cruis'n USA: mapa de comandos Fast3D beta */
+	SALSA64_GBI_F3DEX2_CRUISN, /* Cruis'n Exotica: G_SPECIAL_1 ejecuta una lista contada */
 };
 
 /* Campos de OSTask (16 palabras en DMEM 0xFC0). */
