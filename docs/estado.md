@@ -1,13 +1,12 @@
 # Estado
 
-## 2026-10-25 — Monaco: el fin gráfico no sigue al tiempo del SPE
+## 2026-10-25 — Monaco: atraso gráfico acotado sin quitar el solape
 
-- El volcado muestra al hilo de audio muerto por TLBL al agotar sin corrupción sus 11 nodos;
-  los demás esperan porque él ya no atiende la cola. Las IRQ de PI previas sí se entregaron.
-- Una lista de 101,94 ms retrasó la IRQ del SP 8,63 M ciclos emulados, primera divergencia;
-  el host reproduce el mismo PC/RA con 900 sondeos. El SI inmediato y el diferido pasan igual.
-- En PS3 el fin vuelve al plazo emulado y espera al SPE sin adelantar la N64; `gfx-sondeo` lo
-  desactiva. El A/B corregido pasa, y Monaco llega a carrera con el pool sano.
+- El volcado mostró al hilo de audio muerto por TLBL: una lista de 101,94 ms atrasó la IRQ del SP 8,63 M ciclos y agotó sus 11 nodos.
+- La ruta híbrida conserva el sondeo durante un campo y después espera al SPE; `gfx-sondeo` restaura el sondeo ilimitado y `gfx-espera-siempre`, la espera estricta.
+- Con 9 M ciclos modelados, Monaco llegó a carrera en el campo 6500 con el atraso limitado a 1,56 M, 14899 tareas de audio y sin errores.
+- A 1,50 M, GoldenEye llegó a la presa, y Road Rash y Cruis'n Exotica completaron sus recorridos sin alcanzar el límite.
+- El log de cada ventana da mediana/máximo del atraso de la IRQ del SP, número de esperas al SPE y milisegundos esperados.
 
 ## 2026-10-25 — #37, Cruis'n USA supera la pantalla de copyright
 

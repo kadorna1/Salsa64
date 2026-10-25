@@ -22,6 +22,7 @@
 
 #include "core/bus.h"
 #include "core/endian.h"
+#include "cpu/vr4300.h"
 #include "platform/ps3/log.h"
 #include "platform/ps3/paths.h"
 #include "rsp/gfx/hle.h"
@@ -116,6 +117,7 @@ static int check_hash(spukit_worker *w)
 #define SPE0_CLIP4_PATH SALSA64_DATA_DIR "/gfx-recorte-vector"
 #define SPE0_SCALAR_PATH SALSA64_DATA_DIR "/gfx-escalar"
 #define SPE0_POLL_PATH SALSA64_DATA_DIR "/gfx-sondeo"
+#define SPE0_WAIT_PATH SALSA64_DATA_DIR "/gfx-espera-siempre"
 struct detail_window {
 	struct gfx_detail task __attribute__((aligned(128)));
 	uint64_t sum[sizeof(struct gfx_detail) / 4];
@@ -659,6 +661,7 @@ static bool need_image(struct salsa64_gfx_spu *s, uint32_t gbi)
 static void spu_start(void *ctx, const struct salsa64_task *task, enum salsa64_gbi gbi)
 {
 	struct salsa64_gfx_spu *s = ctx;
+	s->late_started = false;
 	if (!need_image(s, gbi)) {
 		/* Sin SPE: la tarea termina cortada (spu_finish), con su DP. */
 		memset(&s->job, 0, sizeof s->job);
@@ -686,16 +689,48 @@ static void spu_start(void *ctx, const struct salsa64_task *task, enum salsa64_g
 
 #define POLL_SLEEP_US 100
 
+static void late_account(struct salsa64_gfx_spu *s, uint64_t cycles)
+{
+	uint64_t bin = cycles / GFX_LATE_BIN_CYCLES;
+	if (bin >= GFX_LATE_HIST_N)
+		bin = GFX_LATE_HIST_N - 1;
+	s->late_hist[bin]++;
+}
+
 static bool spu_done(void *ctx, bool idle)
 {
 	struct salsa64_gfx_spu *s = ctx;
-	if (!s->pending || spukit_done(s->worker, s->seq))
+	if (!s->pending)
 		return true;
+	uint64_t now = s->bus->cpu ? s->bus->cpu->cycles : 0;
+	if (!s->late_started) {
+		s->late_cycle0 = now;
+		s->late_started = true;
+	}
+	uint64_t late = now - s->late_cycle0;
+	if (spukit_done(s->worker, s->seq)) {
+		late_account(s, late);
+		return true;
+	}
 	s->polls++;
+	/* El SPE conserva un campo entero de solape adicional. Si tampoco acabó,
+	 * el PPE deja de adelantar el reloj emulado y lo espera aquí. */
+	if (!s->poll_forever && late >= s->max_late_cycles) {
+		uint64_t t0 = sysGetSystemTime();
+		s->waits++;
+		while (!spukit_done(s->worker, s->seq))
+			sysUsleep(POLL_SLEEP_US);
+		s->wait_us += sysGetSystemTime() - t0;
+		late_account(s, late);
+		return true;
+	}
 	if (idle) {
 		sysUsleep(POLL_SLEEP_US);
 		s->sleep_us += POLL_SLEEP_US;
-		return spukit_done(s->worker, s->seq);
+		if (spukit_done(s->worker, s->seq)) {
+			late_account(s, late);
+			return true;
+		}
 	}
 	return false;
 }
@@ -836,15 +871,21 @@ int salsa64_gfx_spu_init(struct salsa64_gfx_spu *s, const struct salsa64_bus *bu
 	 * familia. Después se sigue como siempre, con la primera. */
 	struct stat st;
 	/* La hora emulada del fin no depende de cuánto tarde el SPE. Al llegar a
-	 * ella, finish espera el resultado sin adelantar el reloj de la N64. El
-	 * sondeo anterior queda como comparación: con una lista costosa podía
-	 * retrasar millones de ciclos la IRQ del SP y desbordar colas del juego. */
+	 * ella se conserva hasta un campo de solape; después el PPE espera sin
+	 * adelantar más el reloj de la N64. El sondeo anterior y la espera desde
+	 * el primer plazo quedan como comparaciones. */
+	s->max_late_cycles = bus->vi.field_cycles ? bus->vi.field_cycles : 1562500u;
 	if (stat(SPE0_POLL_PATH, &st) == 0) {
-		s->backend.done = spu_done;
+		s->poll_forever = true;
 		salsa64_log("gfx: fin de tarea sondeado (gfx-sondeo)");
+	} else if (stat(SPE0_WAIT_PATH, &st) == 0) {
+		s->max_late_cycles = 0;
+		salsa64_log("gfx: fin de tarea con espera desde el primer plazo (gfx-espera-siempre)");
 	} else {
-		salsa64_log("gfx: fin de tarea a tiempo emulado; el PPE espera al SPE si hace falta");
+		salsa64_log("gfx: fin de tarea híbrido; hasta %u ciclos de solape antes de esperar al SPE",
+			    s->max_late_cycles);
 	}
+	s->backend.done = spu_done;
 	if (stat(SPE0_CLIP4_PATH, &st) == 0) {
 		s->detail_phase = 8;
 		salsa64_log("gfx: recorte SIMD experimental (gfx-recorte-vector), mide lote completo; sustituye gfx-fase");

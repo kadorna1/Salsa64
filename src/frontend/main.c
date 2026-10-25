@@ -1781,6 +1781,25 @@ static void gfx_window(uint64_t now, uint64_t us_field)
 			    (s->spu_ticks - s0->spu_ticks) * k, (s->t_vtx - s0->t_vtx) * k, (s->t_state - s0->t_state) * k,
 			    (s->t_hash - s0->t_hash) * k, (s->t_tex - s0->t_tex) * k, (s->t_load - s0->t_load) * k,
 			    (s->wait_us - s0->wait_us) / 1e3 / tasks, (rs.us_translate - gwin.rdp.us_translate) / 1e3 / tasks);
+		uint64_t samples = 0, half, median = 0, maximum = 0;
+		bool median_set = false;
+		for (unsigned i = 0; i < GFX_LATE_HIST_N; i++)
+			samples += s->late_hist[i] - s0->late_hist[i];
+		half = (samples + 1) / 2;
+		uint64_t seen = 0;
+		for (unsigned i = 0; i < GFX_LATE_HIST_N; i++) {
+			uint32_t n = s->late_hist[i] - s0->late_hist[i];
+			if (n) maximum = (uint64_t)i * GFX_LATE_BIN_CYCLES;
+			seen += n;
+			if (!median_set && n && seen >= half) {
+				median = (uint64_t)i * GFX_LATE_BIN_CYCLES;
+				median_set = true;
+			}
+		}
+		salsa64_log("gfx IRQ SP: atraso mediana %llu, máximo %llu ciclos en %llu tareas; "
+			    "el PPE esperó al SPE %u veces, %.2f ms en total",
+			    (unsigned long long)median, (unsigned long long)maximum, (unsigned long long)samples,
+			    s->waits - s0->waits, (s->wait_us - s0->wait_us) / 1e3);
 	}
 	gwin.field0 = field;
 	gwin.t0 = now;

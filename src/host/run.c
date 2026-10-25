@@ -890,7 +890,9 @@ static struct {
 	struct salsa64_gfx_backend backend;
 	struct salsa64_task task;
 	enum salsa64_gbi gbi;
-	unsigned polls, left;
+	unsigned polls, left, block_after, done_calls;
+	uint64_t completion_calls;
+	unsigned completions, completion_max, blocked;
 	bool pending, tear;
 	struct gfx_state state;
 	uint32_t vtx_bytes, cmd_bytes;
@@ -906,6 +908,7 @@ static void late_start(void *ctx, const struct salsa64_task *task, enum salsa64_
 	gfx_late.task = *task;
 	gfx_late.gbi = gbi;
 	gfx_late.left = gfx_late.polls;
+	gfx_late.done_calls = 0;
 	gfx_late.pending = true;
 	gfx_late.start_cycle = n64.cpu.cycles;
 	if (gfx_late.tear) {
@@ -923,10 +926,20 @@ static void late_start(void *ctx, const struct salsa64_task *task, enum salsa64_
 static bool late_done(void *ctx, bool idle)
 {
 	(void)ctx, (void)idle;
+	gfx_late.done_calls++;
+	if (gfx_late.block_after && gfx_late.done_calls >= gfx_late.block_after) {
+		gfx_late.blocked++;
+		goto done;
+	}
 	if (gfx_late.left) {
 		gfx_late.left--;
 		return false;
 	}
+done:
+	gfx_late.completions++;
+	gfx_late.completion_calls += gfx_late.done_calls;
+	if (gfx_late.done_calls > gfx_late.completion_max)
+		gfx_late.completion_max = gfx_late.done_calls;
 	return true;
 }
 
@@ -2747,6 +2760,11 @@ static void gfx_summary(void)
 	if (gfx_late.tear)
 		fprintf(stderr, "salsa64-run: gfx: %u tareas comparadas entre el arranque y el fin, %u cambiaron\n",
 			gfx_late.compared, gfx_late.torn_tasks);
+	if (gfx_late.completions)
+		fprintf(stderr, "salsa64-run: gfx: modelo tardío, %u fines; atraso medio %.0f y máximo %u ciclos; "
+			"%u esperas al límite\n", gfx_late.completions,
+			(double)(gfx_late.completion_calls - gfx_late.completions) * n64.bus.rsp.poll_cycles /
+			gfx_late.completions, (gfx_late.completion_max - 1) * n64.bus.rsp.poll_cycles, gfx_late.blocked);
 	/* Listas que el CPU le da al RDP por DPC_START/DPC_END, sin pasar por el RSP. */
 	if (n64.bus.rsp.stats.dpc_runs)
 		fprintf(stderr, "salsa64-run: gfx: RDP desde el CPU (DPC_END): %u tramos, %u comandos, %u triángulos, "
@@ -3830,10 +3848,10 @@ int main(int argc, char **argv)
 		gfx_late.polls = (unsigned)strtoul(getenv("SALSA64_GFX_LATE"), NULL, 0);
 		gfx_late.tear = getenv("SALSA64_GFX_TEAR") != NULL;
 		gfx_late.backend = (struct salsa64_gfx_backend){ .start = late_start, .finish = late_finish, .done = late_done };
-		/* Modelo del frontend de PS3: al vencimiento emulado espera el trabajo
-		 * físico, en vez de desplazar la interrupción por cada sondeo. */
+		/* Número de plazos que se deja correr al CPU antes de esperar el trabajo.
+		 * 1 reproduce la espera estricta; 157, un campo NTSC. */
 		if (getenv("SALSA64_GFX_BLOCK"))
-			gfx_late.backend.done = NULL;
+			gfx_late.block_after = (unsigned)strtoul(getenv("SALSA64_GFX_BLOCK"), NULL, 0);
 		gfx_late.backend.turbo3d = gfx_sync.backend.turbo3d;
 		gfx_late.backend.acclaim = gfx_sync.backend.acclaim;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_late.backend);

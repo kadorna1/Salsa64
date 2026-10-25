@@ -7,7 +7,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Fixed
-- **Monaco Grand Prix:** no longer freezes after choosing Single when a slow graphics task finishes.
+- **Monaco Grand Prix:** no longer freezes after choosing Single when a slow graphics task finishes; SP interrupt delay is capped at one video field.
 - **Cruis'n USA:** no longer freezes on the copyright screen; SI DMA now stays
   busy until its delayed completion and raises the interrupt afterwards.
 

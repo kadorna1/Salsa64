@@ -3,11 +3,11 @@
  * Salsa64 — backend gráfico en un SPE (PS3): cada tarea gráfica del RSP
  * se publica como un trabajo de lib/spukit al programa src/spu/gfx. El
  * núcleo pregunta si terminó (`done`) cada poll_cycles y entre medias
- * sigue emulando el CPU; si el CPU está en un bucle de espera, aquí se
- * duerme POLL_SLEEP_US antes de contestar, para no girar en vacío (el PPE
- * es SMT: una espera activa le quita ciclos al otro hilo) y para que el
- * reloj emulado no corra más rápido que el real. `finish` recoge el
- * resultado (ya casi nunca espera).
+ * sigue emulando el CPU, hasta un campo de atraso. Después se espera aquí
+ * al SPE sin seguir adelantando el reloj emulado. Si el CPU está en un
+ * bucle de espera, cada sondeo duerme POLL_SLEEP_US para no girar en vacío
+ * (el PPE es SMT: una espera activa le quita ciclos al otro hilo).
+ * `finish` recoge el resultado ya terminado.
  *
  * El programa del SPE viene en varias imágenes, una por grupo de familias de
  * microcódigos (rsp/gfx/spe0.h): se carga la de la familia de cada tarea y,
@@ -20,6 +20,9 @@
 #include <spukit/spukit.h>
 
 #include "rsp/gfx/backend.h"
+
+#define GFX_LATE_HIST_N 1024
+#define GFX_LATE_BIN_CYCLES 10000u
 
 struct salsa64_gfx_spu {
 	struct salsa64_gfx_backend backend;
@@ -64,6 +67,13 @@ struct salsa64_gfx_spu {
 	uint32_t waits;
 	uint32_t polls;      /* sondeos con el SPE todavía ocupado */
 	uint64_t sleep_us;   /* dormido en los sondeos con el CPU en bucle de espera */
+	/* Atraso de la IRQ del SP desde el primer plazo emulado, en tramos de
+	 * poll_cycles. Acumulativo: el frontend resta dos ventanas. */
+	uint32_t late_hist[GFX_LATE_HIST_N];
+	uint64_t late_cycle0;
+	uint32_t max_late_cycles;
+	bool late_started;
+	bool poll_forever;   /* gfx-sondeo: comportamiento anterior */
 	/* Etapas de la HLE (ticks del SPE, ver gfx_result). */
 	uint64_t t_vtx, t_state, t_tex, t_load;
 	/* Texturas decodificadas y reusadas, cargas a la TMEM y sus lecturas
