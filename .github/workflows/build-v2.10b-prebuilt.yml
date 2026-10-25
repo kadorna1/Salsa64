@@ -52,9 +52,21 @@ jobs:
           }
           echo "Using prebuilt compiler archive: $tag"
           curl -fL --retry 3 "$url" -o "$RUNNER_TEMP/ps3dev-linux-X64.tar.gz"
-          tar -tzf "$RUNNER_TEMP/ps3dev-linux-X64.tar.gz" | grep -m1 '^ps3dev/ppu/bin/ppu-gcc$' >/dev/null
+          # Don't pipe tar into grep -m1: grep can close early and make tar fail with EPIPE under pipefail.
+          archive_list="$RUNNER_TEMP/ps3dev-archive-files.txt"
+          tar -tzf "$RUNNER_TEMP/ps3dev-linux-X64.tar.gz" > "$archive_list"
+          compiler_member="$(awk '/(^|\/)ppu\/bin\/ppu-gcc$/ { print; exit }' "$archive_list")"
+          test -n "$compiler_member" || {
+            echo "The archive does not contain ppu/bin/ppu-gcc" >&2
+            echo "First archive entries:" >&2
+            sed -n '1,25p' "$archive_list" >&2
+            exit 1
+          }
+          toolchain_dir="${compiler_member%ppu/bin/ppu-gcc}"
+          toolchain_dir="${toolchain_dir%/}"
           tar -xzf "$RUNNER_TEMP/ps3dev-linux-X64.tar.gz" -C "$RUNNER_TEMP"
-          export PS3DEV="$RUNNER_TEMP/ps3dev"
+          export PS3DEV="$RUNNER_TEMP/$toolchain_dir"
+          echo "Extracted PS3DEV at $PS3DEV"
           test -x "$PS3DEV/ppu/bin/ppu-gcc"
           echo "PS3DEV=$PS3DEV" >> "$GITHUB_ENV"
           echo "PSL1GHT=$PS3DEV" >> "$GITHUB_ENV"
