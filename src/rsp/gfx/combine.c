@@ -71,11 +71,10 @@ struct cc_ctx {
 	bool swap;  /* segundo ciclo de 2CYCLE: TEXEL0 lee el texel de la tile+1 */
 };
 
-static poly p_zero(void)
+static void p_zero(poly *p)
 {
-	poly p;
-	memset(&p, 0, sizeof p);
-	return p;
+	/* Solo n determina qué elementos son válidos; los demás no se leen. */
+	p->n = 0;
 }
 
 /* Suma c·m a p; los coeficientes que quedan en cero desaparecen. */
@@ -102,50 +101,42 @@ static void p_term(poly *p, mono m, float c, struct cc_ctx *x)
 	p->n++;
 }
 
-/* Construye solo los campos que indica n. No inicializar el poly entero:
- * p_zero/memset agregaban una cadena de pila innecesaria en el SPE. */
-static poly p_const(float v, struct cc_ctx *x)
+/* Los constructores escriben en el resultado del llamador: poly ronda
+ * los 100 bytes y devolverlo por valor inflaba las pilas de los SPE. */
+static void p_const(poly *p, float v, struct cc_ctx *x)
 {
 	(void)x; /* un polinomio constante no puede desbordar P_MAX */
-	poly p;
-	p.n = 0;
+	p->n = 0;
 	if (v != 0.0f) {
-		p.m[0] = 0;
-		p.c[0] = v;
-		p.n = 1;
+		p->m[0] = 0;
+		p->c[0] = v;
+		p->n = 1;
 	}
-	return p;
 }
 
-/* Un monomio único no necesita p_zero ni p_term: además de ser más
- * barato, evita anidar sus marcos grandes en la pila del SPE. */
-static poly p_mono(int f)
+static void p_mono(poly *p, int f)
 {
-	poly p = { 0 };
-	p.n = 1;
-	p.m[0] = M_ONE(f);
-	p.c[0] = 1.0f;
-	return p;
+	p->n = 1;
+	p->m[0] = M_ONE(f);
+	p->c[0] = 1.0f;
 }
 
-static poly p_tex(int f, struct cc_ctx *x)
+static void p_tex(poly *p, int f, struct cc_ctx *x)
 {
 	static const int swapped[F_N] = { F_T1, F_T1A, F_T0, F_T0A, F_S, F_SA };
-	return p_mono(x->swap ? swapped[f] : f);
+	p_mono(p, x->swap ? swapped[f] : f);
 }
 
-static poly p_sub(poly a, const poly *b, struct cc_ctx *x)
+static void p_sub(poly *a, const poly *b, struct cc_ctx *x)
 {
 	for (unsigned i = 0; i < b->n; i++)
-		p_term(&a, b->m[i], -b->c[i], x);
-	return a;
+		p_term(a, b->m[i], -b->c[i], x);
 }
 
-static poly p_add(poly a, const poly *b, struct cc_ctx *x)
+static void p_add(poly *a, const poly *b, struct cc_ctx *x)
 {
 	for (unsigned i = 0; i < b->n; i++)
-		p_term(&a, b->m[i], b->c[i], x);
-	return a;
+		p_term(a, b->m[i], b->c[i], x);
 }
 
 /* Producto de dos monomios: cada textura a lo sumo una vez y dos texturas
@@ -174,72 +165,80 @@ approx:
 	return a;
 }
 
-static poly p_mul(const poly *a, const poly *b, struct cc_ctx *x)
+static void p_mul(poly *out, const poly *a, const poly *b, struct cc_ctx *x)
 {
-	poly r = p_zero();
+	/* El resultado va aparte para permitir out == a o out == b. */
+	poly r;
+	p_zero(&r);
 	for (unsigned i = 0; i < a->n; i++)
 		for (unsigned j = 0; j < b->n; j++)
 			p_term(&r, mono_mul(a->m[i], b->m[j], x), a->c[i] * b->c[j], x);
-	return r;
+	*out = r;
 }
 
 /* Entradas de un canal de color (lane 0–2). comb = COMBINED de ese canal y
  * comb_a = COMBINED del canal alfa. */
-static poly in_rgb(int slot, unsigned v, int lane, const poly *comb, const poly *comb_a, struct cc_ctx *x)
+/* Evita devolver y copiar poly por valor en el camino caliente del SPE. */
+static void in_rgb(poly *out, int slot, unsigned v, int lane, const poly *comb,
+		   const poly *comb_a, struct cc_ctx *x)
 {
 	switch (v) {
-	case 0: return *comb;
-	case 1: return p_tex(F_T0, x);
-	case 2: return p_tex(F_T1, x);
-	case 3: return p_const(x->prim[lane], x);
-	case 4: return p_mono(F_S);
-	case 5: return p_const(x->env[lane], x);
+	case 0: *out = *comb; return;
+	case 1: p_tex(out, F_T0, x); return;
+	case 2: p_tex(out, F_T1, x); return;
+	case 3: p_const(out, x->prim[lane], x); return;
+	case 4: p_mono(out, F_S); return;
+	case 5: p_const(out, x->env[lane], x); return;
 	default: break;
 	}
 	switch (slot) {
 	case 'a':  /* 6 ONE, 7 NOISE, 8–15 cero */
-		return p_const(v == 6 ? 1.0f : v == 7 ? x->noise : 0.0f, x);
+		p_const(out, v == 6 ? 1.0f : v == 7 ? x->noise : 0.0f, x);
+		return;
 	case 'b':  /* 6 CENTER, 7 K4, 8–15 cero */
-		return p_const(v == 7 ? x->k4 : 0.0f, x);
+		p_const(out, v == 7 ? x->k4 : 0.0f, x);
+		return;
 	case 'c':
 		switch (v) {
-		case 6: return p_const(0.0f, x);              /* SCALE (clave) */
-		case 7: return *comb_a;                       /* COMBINED_ALPHA */
-		case 8: return p_tex(F_T0A, x);
-		case 9: return p_tex(F_T1A, x);
-		case 10: return p_const(x->prim[3], x);
-		case 11: return p_mono(F_SA);
-		case 12: return p_const(x->env[3], x);
-		case 13: return p_const(x->lod, x);           /* LOD_FRACTION */
-		case 14: return p_const(x->prim_lod, x);      /* PRIM_LOD_FRAC */
-		case 15: return p_const(x->k5, x);
-		default: return p_const(0.0f, x);
+		case 6: p_const(out, 0.0f, x); return;              /* SCALE */
+		case 7: *out = *comb_a; return;                     /* COMBINED_ALPHA */
+		case 8: p_tex(out, F_T0A, x); return;
+		case 9: p_tex(out, F_T1A, x); return;
+		case 10: p_const(out, x->prim[3], x); return;
+		case 11: p_mono(out, F_SA); return;
+		case 12: p_const(out, x->env[3], x); return;
+		case 13: p_const(out, x->lod, x); return;           /* LOD_FRACTION */
+		case 14: p_const(out, x->prim_lod, x); return;      /* PRIM_LOD_FRAC */
+		case 15: p_const(out, x->k5, x); return;
+		default: p_const(out, 0.0f, x); return;
 		}
 	default:   /* 'd': 6 ONE, 7 cero */
-		return p_const(v == 6 ? 1.0f : 0.0f, x);
+		p_const(out, v == 6 ? 1.0f : 0.0f, x);
+		return;
 	}
 }
 
-static poly in_alpha(int slot, unsigned v, const poly *comb_a, struct cc_ctx *x)
+static void in_alpha(poly *out, int slot, unsigned v, const poly *comb_a, struct cc_ctx *x)
 {
 	if (slot == 'c') {
 		switch (v) {
-		case 0: return p_const(x->lod, x);
-		case 6: return p_const(x->prim_lod, x);
-		case 7: return p_const(0.0f, x);
+		case 0: p_const(out, x->lod, x); return;
+		case 6: p_const(out, x->prim_lod, x); return;
+		case 7: p_const(out, 0.0f, x); return;
 		default: break;
 		}
 	} else if (v == 0) {
-		return *comb_a;
+		*out = *comb_a;
+		return;
 	}
 	switch (v) {
-	case 1: return p_tex(F_T0A, x);
-	case 2: return p_tex(F_T1A, x);
-	case 3: return p_const(x->prim[3], x);
-	case 4: return p_mono(F_SA);
-	case 5: return p_const(x->env[3], x);
-	case 6: return p_const(1.0f, x);
-	default: return p_const(0.0f, x);
+	case 1: p_tex(out, F_T0A, x); return;
+	case 2: p_tex(out, F_T1A, x); return;
+	case 3: p_const(out, x->prim[3], x); return;
+	case 4: p_mono(out, F_SA); return;
+	case 5: p_const(out, x->env[3], x); return;
+	case 6: p_const(out, 1.0f, x); return;
+	default: p_const(out, 0.0f, x); return;
 	}
 }
 
@@ -272,21 +271,25 @@ static void unpack(uint32_t hi, uint32_t lo, struct cc_cycle cyc[2])
 static void run_cycle(const struct cc_cycle *cy, poly out[4], const poly comb[4], struct cc_ctx *x)
 {
 	for (int lane = 0; lane < 3; lane++) {
-		poly a = in_rgb('a', cy->a, lane, &comb[lane], &comb[3], x);
-		poly b = in_rgb('b', cy->b, lane, &comb[lane], &comb[3], x);
-		poly c = in_rgb('c', cy->c, lane, &comb[lane], &comb[3], x);
-		poly d = in_rgb('d', cy->d, lane, &comb[lane], &comb[3], x);
-		a = p_sub(a, &b, x);
-		a = p_mul(&a, &c, x);
-		out[lane] = p_add(a, &d, x);
+		poly a, b, c, d;
+		in_rgb(&a, 'a', cy->a, lane, &comb[lane], &comb[3], x);
+		in_rgb(&b, 'b', cy->b, lane, &comb[lane], &comb[3], x);
+		in_rgb(&c, 'c', cy->c, lane, &comb[lane], &comb[3], x);
+		in_rgb(&d, 'd', cy->d, lane, &comb[lane], &comb[3], x);
+		p_sub(&a, &b, x);
+		p_mul(&a, &a, &c, x);
+		p_add(&a, &d, x);
+		out[lane] = a;
 	}
-	poly a = in_alpha('a', cy->aa, &comb[3], x);
-	poly b = in_alpha('b', cy->ab, &comb[3], x);
-	poly c = in_alpha('c', cy->ac, &comb[3], x);
-	poly d = in_alpha('d', cy->ad, &comb[3], x);
-	a = p_sub(a, &b, x);
-	a = p_mul(&a, &c, x);
-	out[3] = p_add(a, &d, x);
+	poly a, b, c, d;
+	in_alpha(&a, 'a', cy->aa, &comb[3], x);
+	in_alpha(&b, 'b', cy->ab, &comb[3], x);
+	in_alpha(&c, 'c', cy->ac, &comb[3], x);
+	in_alpha(&d, 'd', cy->ad, &comb[3], x);
+	p_sub(&a, &b, x);
+	p_mul(&a, &a, &c, x);
+	p_add(&a, &d, x);
+	out[3] = a;
 }
 
 static void rgba(uint32_t c, float out[4])
@@ -541,8 +544,7 @@ bool gfx_combine(const struct gfx_state *g, struct gfx_draw *d)
 	struct cc_cycle cyc[2];
 	unpack(g->cc_hi, g->cc_lo, cyc);
 
-	poly zero = p_zero();
-	poly comb[4] = { zero, zero, zero, zero }, out[4];
+	poly comb[4] = { 0 }, out[4];
 	unsigned cycle = (g->oh >> G_MDSFT_CYCLETYPE) & 3;
 	if (cycle == G_CYC_2CYCLE) {
 		run_cycle(&cyc[0], comb, comb, &x);
