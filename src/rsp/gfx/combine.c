@@ -109,17 +109,21 @@ static poly p_const(float v, struct cc_ctx *x)
 	return p;
 }
 
-static poly p_mono(int f, struct cc_ctx *x)
+/* Un monomio único no necesita p_zero ni p_term: además de ser más
+ * barato, evita anidar sus marcos grandes en la pila del SPE. */
+static poly p_mono(int f)
 {
-	poly p = p_zero();
-	p_term(&p, M_ONE(f), 1.0f, x);
+	poly p = { 0 };
+	p.n = 1;
+	p.m[0] = M_ONE(f);
+	p.c[0] = 1.0f;
 	return p;
 }
 
 static poly p_tex(int f, struct cc_ctx *x)
 {
 	static const int swapped[F_N] = { F_T1, F_T1A, F_T0, F_T0A, F_S, F_SA };
-	return p_mono(x->swap ? swapped[f] : f, x);
+	return p_mono(x->swap ? swapped[f] : f);
 }
 
 static poly p_sub(poly a, const poly *b, struct cc_ctx *x)
@@ -180,7 +184,7 @@ static poly in_rgb(int slot, unsigned v, int lane, const poly *comb, const poly 
 	case 1: return p_tex(F_T0, x);
 	case 2: return p_tex(F_T1, x);
 	case 3: return p_const(x->prim[lane], x);
-	case 4: return p_mono(F_S, x);
+	case 4: return p_mono(F_S);
 	case 5: return p_const(x->env[lane], x);
 	default: break;
 	}
@@ -196,7 +200,7 @@ static poly in_rgb(int slot, unsigned v, int lane, const poly *comb, const poly 
 		case 8: return p_tex(F_T0A, x);
 		case 9: return p_tex(F_T1A, x);
 		case 10: return p_const(x->prim[3], x);
-		case 11: return p_mono(F_SA, x);
+		case 11: return p_mono(F_SA);
 		case 12: return p_const(x->env[3], x);
 		case 13: return p_const(x->lod, x);           /* LOD_FRACTION */
 		case 14: return p_const(x->prim_lod, x);      /* PRIM_LOD_FRAC */
@@ -224,7 +228,7 @@ static poly in_alpha(int slot, unsigned v, const poly *comb_a, struct cc_ctx *x)
 	case 1: return p_tex(F_T0A, x);
 	case 2: return p_tex(F_T1A, x);
 	case 3: return p_const(x->prim[3], x);
-	case 4: return p_mono(F_SA, x);
+	case 4: return p_mono(F_SA);
 	case 5: return p_const(x->env[3], x);
 	case 6: return p_const(1.0f, x);
 	default: return p_const(0.0f, x);
