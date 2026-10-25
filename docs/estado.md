@@ -7,6 +7,16 @@
 - La sección aditiva TPAK guarda identidad, registros, SRAM y latch; estados sin ella reinician los accesorios.
 - Pruebas del protocolo, SI diferido, mappers, archivos y estados; falta validación en PS3 real.
 
+## 2026-10-25 — #37, vida de las texturas en el RSX
+
+- La caché normal solo recicla entradas tras la barrera del RSX; las tres arenas y el staging SPE también esperan su consumidor.
+- La TLUT se decodifica a RGBA8888 dentro de cada entrada: no hay una paleta mutable que el RSX lea en paralelo.
+- Las listas XBUS sí tenían otro directorio sobre la misma región XDR y podían pisar una tarea SPE aún en vuelo.
+- Ahora XBUS recoge primero el SPE y usa solo el arena de su tarea; `texturas-xbus-viejo` restaura el camino anterior.
+- `texturas-espera-rsx` espera todas las tareas anteriores antes de escribir texturas y sirve como diagnóstico fuerte.
+- El log cuenta listas XBUS, llegadas en vuelo, esperas y tiempo, además de las esperas del diagnóstico.
+- Exotica produjo 0 listas XBUS en el host: el riesgo es real y general, pero no explica todavía su cuadro intermitente.
+
 ## 2026-10-25 — Monaco: atraso gráfico acotado sin quitar el solape
 
 - El volcado mostró al hilo de audio muerto por TLBL: una lista de 101,94 ms atrasó la IRQ del SP 8,63 M ciclos y agotó sus 11 nodos.

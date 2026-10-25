@@ -41,8 +41,10 @@ struct salsa64_rdp_stats {
 	uint32_t dpc_cont_saved;   /* destinos dibujados que con ese envejecimiento habrían pasado de frescos a cebarse de nuevo */
 	uint32_t targets_evicted;  /* destinos reciclados por el tope de memoria */
 	uint32_t set_waits;      /* veces que un juego de búferes seguía en uso (emulación) */
+	uint32_t tex_waits;      /* modo diagnóstico: esperas antes de entregar una tarea */
 	uint64_t us_translate;   /* PPE traduciendo a comandos del RSX (presentación) */
 	uint64_t us_set_wait;    /* hilo de emulación esperando un juego */
+	uint64_t us_tex_wait;    /* modo diagnóstico: esperando todas las tareas anteriores */
 	/* Antigüedad de lo presentado desde el RSX: campos entre el dibujo del
 	 * destino y el campo que lo muestra (la latencia propia del juego: 2 con
 	 * doble búfer a 30 cps), sumada y la mayor. */
@@ -212,6 +214,9 @@ void salsa64_rdp_drop_targets(void);
 /* Las copias de las capas de 8 bits (big8) se esperan solo si el juego lo pide
  * (Yoshi's Story: las lee como CI8 desde la RDRAM); por omisión no se esperan. */
 void salsa64_rdp_set_big8_wait(bool wait);
+/* Diagnóstico: antes de cada tarea, espera mediante sondeo a que el RSX
+ * termine todas las anteriores. No emite órdenes desde el hilo productor. */
+void salsa64_rdp_set_texture_wait(bool wait);
 void salsa64_rdp_set_memory(uint8_t *rdram, uint32_t rdram_size, void (*wake)(void));
 /* Hilo de emulación, al terminar cada campo con imagen: geometría del VI,
  * para distinguir framebuffers de imágenes auxiliares y reservar una color

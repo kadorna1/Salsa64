@@ -1879,6 +1879,14 @@ static void gfx_window(uint64_t now, uint64_t us_field)
 			    "el PPE esperó al SPE %u veces, %.2f ms en total",
 			    (unsigned long long)median, (unsigned long long)maximum, (unsigned long long)samples,
 			    s->waits - s0->waits, (s->wait_us - s0->wait_us) / 1e3);
+		uint32_t xbus = s->xbus_runs - s0->xbus_runs;
+		uint32_t tw = rs.tex_waits - gwin.rdp.tex_waits;
+		if (xbus || tw)
+			salsa64_log("gfx texturas: %u listas XBUS, %u llegaron con el SPE en vuelo y %u esperaron %.2f ms; "
+			    "espera diagnóstica %u veces, %.2f ms en la ventana", xbus,
+			    s->xbus_inflight - s0->xbus_inflight, s->xbus_waits - s0->xbus_waits,
+			    (s->xbus_wait_us - s0->xbus_wait_us) / 1e3, tw,
+			    (rs.us_tex_wait - gwin.rdp.us_tex_wait) / 1e3);
 	}
 	gwin.field0 = field;
 	gwin.t0 = now;
@@ -3393,6 +3401,12 @@ static void stats(uint64_t now)
 			if (gfx_spu.dpc_jobs)
 				salsa64_log("gfx: %u listas del CPU al RDP hechas en el SPE desde el arranque, %.2f ms "
 					    "de espera cada una", gfx_spu.dpc_jobs, gfx_spu.dpc_us / 1e3 / gfx_spu.dpc_jobs);
+			if (gfx_spu.xbus_runs || rs.tex_waits != sw.rdp0.tex_waits)
+				salsa64_log("gfx: XBUS %u desde el arranque (%u con SPE en vuelo, %u esperas, %.2f ms); "
+				    "espera diagnóstica %u veces, %.2f ms en la ventana", gfx_spu.xbus_runs,
+				    gfx_spu.xbus_inflight, gfx_spu.xbus_waits, gfx_spu.xbus_wait_us / 1e3,
+				    rs.tex_waits - sw.rdp0.tex_waits,
+				    (rs.us_tex_wait - sw.rdp0.us_tex_wait) / 1e3);
 			if (rs.dpc_cont)
 				salsa64_log("gfx: listas del RDP: %u trabajos continuaban una lista abierta (GFX_JOB_DPC_CONT, sin "
 				    "envejecer destinos; %u de ellos del SPE); %u destinos que el envejecimiento por tramo "
@@ -5011,6 +5025,11 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_log("gfx: HLE Acclaim %s (sin-acclaim)", acclaim ? "activa" : "apagada");
 	bool eurocom = !file_exists(SALSA64_DATA_DIR "/sin-eurocom");
 	salsa64_log("gfx: HLE Eurocom %s (sin-eurocom)", eurocom ? "activa" : "apagada");
+	bool xbus_old = file_exists(SALSA64_DATA_DIR "/texturas-xbus-viejo");
+	bool texture_wait = file_exists(SALSA64_DATA_DIR "/texturas-espera-rsx");
+	salsa64_rdp_set_texture_wait(texture_wait);
+	salsa64_log("gfx: texturas XBUS %s (texturas-xbus-viejo); espera diagnóstica del RSX %s (texturas-espera-rsx)",
+		    xbus_old ? "sin aislar" : "aisladas", texture_wait ? "activa" : "apagada");
 	if (gfx_on_spu) {
 		spukit_init(6);
 		if ((rc = salsa64_gfx_spu_init(&gfx_spu, &n64.bus, &front_sink)) != 0) {
@@ -5040,6 +5059,10 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (gfx_on_spu) {
 		/* Solo para las listas en la DMEM (xbus), que el SPE no lee. */
 		salsa64_gfx_sync_init(&gfx_ppe, &gfx_ppe_state, &n64.bus, &front_sink);
+		/* Este backend tiene un directorio distinto al del SPE sobre la misma
+		 * región. Su arena de tarea sí comparte las barreras del consumidor. */
+		gfx_ppe.nocache = !xbus_old;
+		gfx_spu.xbus_safe = !xbus_old;
 		gfx_spu.xbus = &gfx_ppe.dpc;
 	}
 	salsa64_rsp_set_dpc(&n64.bus, gfx_on_spu ? &gfx_spu.dpc : &gfx_ppe.dpc);

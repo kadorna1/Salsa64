@@ -51,6 +51,7 @@ struct salsa64_gfx_spu {
 	bool pending;
 	bool nocache;        /* el hash del SPE no coincide: sin caché de texturas */
 	bool scalar;         /* gfx-escalar: ruta de geometría anterior para A/B */
+	bool xbus_safe;      /* serializa XBUS y la deja fuera de la caché compartida */
 	bool no_worker;      /* la tarea en curso no tuvo SPE: termina cortada */
 	/* Imagen del SPE 0 cargada (rsp/gfx/spe0.h; -1: ninguna) y sus cambios. */
 	int image;
@@ -81,6 +82,8 @@ struct salsa64_gfx_spu {
 	uint64_t textures, tex_reused, loads, load_reads;
 	/* Caché de texturas (gfx_result). */
 	uint64_t tex_old, tex_arena, tex_evicted, t_hash;
+	uint32_t xbus_runs, xbus_inflight, xbus_waits;
+	uint64_t xbus_wait_us;
 	uint64_t skipped;    /* comandos de otro microcódigo saltados (G_LOAD_UCODE) */
 	uint64_t bg;         /* fondos de S2DEX dibujados (G_BG_COPY, G_BG_1CYC) */
 	uint64_t tex_target; /* texturas sin decodificar: se leen de un destino (GFX_TEX_TARGET) */

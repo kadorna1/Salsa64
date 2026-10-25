@@ -1117,10 +1117,12 @@ static void gfx_zclear_scissor(void)
 /* En el backend síncrono el relleno llega al terminar la tarea (finish),
  * cuando el RDP la daría por hecha, no al arrancarla. */
 static struct gfx_state zf_state;
+static uint32_t zf_flags;
 
 static void zf_acquire(void *ctx, struct gfx_job *j)
 {
 	(void)ctx;
+	zf_flags = j->flags;
 	j->vtx_ea = (uint64_t)(uintptr_t)out_vtx;
 	j->vtx_cap = sizeof out_vtx;
 	j->cmd_ea = (uint64_t)(uintptr_t)out_cmd;
@@ -1132,6 +1134,20 @@ static void zf_acquire(void *ctx, struct gfx_job *j)
 static void zf_done(void *ctx, const struct gfx_job *j, const struct gfx_result *r)
 {
 	(void)ctx, (void)j, (void)r;
+}
+
+static void gfx_sync_dpc_nocache(void)
+{
+	static struct salsa64_gfx_sync s;
+	const struct salsa64_gfx_sink sink = { NULL, zf_acquire, zf_done };
+	uint8_t dmem[16] __attribute__((aligned(16))) = { 0 };
+	salsa64_wr32(dmem, 0xE9000000);  /* FULLSYNC */
+	salsa64_gfx_sync_init(&s, &zf_state, &t_n64.bus, &sink);
+	s.dpc.run(s.dpc.ctx, 0, 8, dmem);
+	CHECK(!(zf_flags & GFX_JOB_NOCACHE));
+	s.nocache = true;
+	s.dpc.run(s.dpc.ctx, 0, 8, dmem);
+	CHECK(zf_flags & GFX_JOB_NOCACHE);
 }
 
 static void gfx_zclear_rdram_at_finish(void)
@@ -3053,6 +3069,7 @@ void t_suite_gfx(void)
 	RUN(gfx_zclear_fills_rdram);
 	RUN(gfx_zclear_scissor);
 	RUN(gfx_zclear_rdram_at_finish);
+	RUN(gfx_sync_dpc_nocache);
 	RUN(gfx_fill_1cycle_edge);
 	RUN(gfx_draw_batching);
 	RUN(gfx_cvg_x_alpha);

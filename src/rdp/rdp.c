@@ -327,6 +327,7 @@ static struct {
 	int fbfx;                    /* 0 apagado, 1 render a textura, 2 también copias */
 	bool aa_edges;               /* salsa64_rdp_aa_edges */
 	bool target_alpha;           /* salsa64_rdp_target_alpha */
+	bool texture_wait;           /* serialización diagnóstica de escrituras de textura */
 	uint8_t *rdram;              /* la RDRAM emulada (NULL: sin copias ni cebado) */
 	uint32_t rdram_size;
 	void (*wake)(void);          /* despierta al hilo de presentación */
@@ -847,6 +848,34 @@ static void acquire(void *ctx, struct gfx_job *job)
 			uint64_t dt = sysGetSystemTime() - t0;
 			rdp.stats.us_set_wait += dt;
 			s->set_wait_us = (uint32_t)(dt > 0xFFFFFFFFu ? 0xFFFFFFFFu : dt);
+		}
+	}
+	/* Diagnóstico fuerte: antes de que la HLE escriba caché o arena, todas
+	 * las tareas anteriores deben haber sido traducidas y terminadas por el
+	 * RSX. Solo se leen etiquetas ya publicadas; este hilo no toca el FIFO. */
+	if (rdp.texture_wait && n) {
+		uint64_t t0 = 0;
+		struct set *prev = &rdp.sets[(n - 1) % SETS];
+		for (;;) {
+			bool translated = (int32_t)(rdp.translated - n) >= 0;
+			lwsync();
+			uint32_t ft = prev->fence_task;
+			lwsync();
+			if (translated && ft == n && rsxkit_fence_done(prev->fence))
+				break;
+			if (!t0) {
+				t0 = sysGetSystemTime();
+				rdp.stats.tex_waits++;
+				rdp.set_waiting = n;
+				lwsync();
+				if (rdp.wake)
+					rdp.wake();
+			}
+			sysUsleep(50);
+		}
+		if (t0) {
+			rdp.set_waiting = 0;
+			rdp.stats.us_tex_wait += sysGetSystemTime() - t0;
 		}
 	}
 	/* Tareas que el RSX ya terminó: la de cada juego cuya barrera pasó (las
@@ -2259,6 +2288,11 @@ static bool rdp_reads_image(const struct set *s, const struct gfx_result *res, u
 void salsa64_rdp_set_big8_wait(bool wait)
 {
 	rdp.big8_wait = wait;
+}
+
+void salsa64_rdp_set_texture_wait(bool wait)
+{
+	rdp.texture_wait = wait;
 }
 
 /* ¿Hay otra color image en la misma dirección, con otro ancho y de un

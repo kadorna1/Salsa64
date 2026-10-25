@@ -23,6 +23,10 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   sidecar, use ROM-only/MBC1/MBC2/MBC3/MBC5 cartridges, persist their SRAM
   and keep Transfer Pak state in save states (thanks to kadorna1, #45/#46).
 
+### Fixed
+- XBUS RDP lists no longer share decoded-texture cache storage with an
+  in-flight graphics SPE task (`texturas-xbus-viejo` restores the old path).
+
 ## [0.2.12] — 2026-10-26
 
 ### Added

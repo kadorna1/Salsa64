@@ -146,6 +146,8 @@ static uint32_t sync_dpc_run(void *ctx, uint32_t start, uint32_t end, const uint
 	job.dl = start;
 	job.dl_end = end;
 	job.flags = GFX_JOB_DPC | (dmem ? GFX_JOB_XBUS : 0);
+	if (s->nocache)
+		job.flags |= GFX_JOB_NOCACHE;
 	if (s->reset) {
 		job.flags |= GFX_JOB_RESET;
 		s->reset = false;
