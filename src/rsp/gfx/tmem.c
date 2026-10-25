@@ -94,16 +94,12 @@ static void note_load(struct gfx_state *g, uint32_t tmem, uint32_t bytes, uint32
 	l->fmt = g->timg_fmt;
 }
 
-/* El origen de una textura: los campos src_* de gfx_tex, que van seguidos
- * (8 bytes), para armarlo aparte y copiarlo de una vez. */
+/* Origen de una textura, tal como lo registra la carga a TMEM. */
 struct tex_src {
 	uint32_t src_addr;
 	uint16_t src_pitch;
 	uint8_t src_siz, src_fmt;
-} __attribute__((aligned(8)));
-_Static_assert(sizeof(struct tex_src) == 8 &&
-		       offsetof(struct gfx_tex, src_fmt) + 1 - offsetof(struct gfx_tex, src_addr) == 8,
-	       "el origen de una textura son 8 bytes seguidos");
+};
 
 /* De qué carga lee la tile (la más reciente que escribió su inicio en la
  * TMEM con las mismas filas) y dónde está en la RDRAM su texel (0, 0).
@@ -627,7 +623,12 @@ static bool resolve(struct gfx_state *g, const struct gfx_tile *t, unsigned tt, 
 	} else if (!resolve_content(g, t, tt, premul, w, h, x0, y0, once, tex)) {
 		return false;
 	}
-	memcpy(&tex->src_addr, &src, sizeof src);
+	/* Copiar campo por campo: src_addr es un subobjeto uint32_t, no
+	 * un destino de sizeof(struct tex_src), aunque src_* estén contiguos. */
+	tex->src_addr = src.src_addr;
+	tex->src_pitch = src.src_pitch;
+	tex->src_siz = src.src_siz;
+	tex->src_fmt = src.src_fmt;
 #ifdef SALSA64_GFX_TRACE
 	salsa64_gfx_trace_tex(g, t, tex, g->res->textures != before);
 #endif
