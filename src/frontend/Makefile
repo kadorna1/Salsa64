@@ -3,6 +3,10 @@
 PROGRAM := salsa64
 TITLE   := Salsa64
 APPID   := SLSA00064
+ifeq ($(FILTROS_PRUEBA),1)
+TITLE   := Salsa64 Filtros
+APPID   := SLSA00210
+endif
 # App de perfilado (docs/perfilado.md): `make PERFILADO=1 pkg` enciende el
 # registro por omisión y la arma como otra app («Salsa64 perfil»,
 # SLSA00120), en build/salsa64-perfil. La app normal lo lleva apagado.

@@ -13,6 +13,22 @@ Antes de cambiar la caché o agrupar cargas hace falta medir el paquete en la
 consola. Como techo orientativo, la caché redujo hasta 2,4× el tramo de
 cargas de Zelda; no implica la misma mejora total ni el mismo factor aquí.
 
+
+## 2026-10-25 — Caché de la salida CRT (estimación, pendiente PS3)
+
+Los shaders originales y `crt_spe` no cambian; la salida X8R8G8B8 se guarda con el mismo viewport y se copia sin interpolación. Copia: 3 instrucciones, 1 TEX, fp32; los 17 programas anteriores son binarios idénticos. Inventario reproducible: `python3 tools/filtros-inventario.py build/salsa64/obj`; detalle crudo en `build/filtros/`. Añade 7,91 MiB a 1080p y una copia por campo; solo ahorra al repetir imágenes con generación válida. Hipótesis de copia **0,6–1,0 ms**, sin medir: 11,87 MiB lógicos por copia de 1440×1080, más sincronización. No son tiempos nuevos de consola.
+
+| Filtro | Antes completo PS3 (ms) | Nuevo completo estimado (ms) | Promedio antes → después con 50 % repetidos (ms) |
+|---|---:|---:|---:|
+| Máscara | 7,38 | 7,98–8,38 | 4,89–6,19 → 4,29–4,69 |
+| RGB | 9,37 | 9,97–10,37 | 7,09–7,23 → 5,29–5,69 |
+| S-Video | 10,63 | 11,23–11,63 | 7,72–7,86 → 5,92–6,32 |
+| Compuesto | 13,21 | 13,81–14,21 | 9,01–9,15 → 7,21–7,61 |
+| Trinitron | 9,56 | 10,16–10,56 | 7,32 → 5,38–5,78 |
+| Máscara fina / lineal / resplandor | sin medida aislada comparable | cuentas intactas | fina: misma caché; las otras: sin cambio |
+
+Trinitron: las tres ventanas de `build/filtros/ps3-trinitron-3x.log` suman 938 cuadros medidos (510 repetidos): promedio ponderado anterior 7,10 ms → estimado 4,95–5,35 ms (25–30 %). Primera ventana: repetido 5,08 ms; nuevo repetido estimado 0,6–1,0 ms. Para los cables se supone final 4,8–5,08 ms y máscara 2,4–5,0 ms: son intervalos orientativos, no mediciones aisladas nuevas. Con 50 % repetidos, compuesto supera el tope del 10 % (15–21 %); sin repetición empeora. No se cambian precisiones ni se prometen ganancias en todos los juegos. Descartar ante un píxel distinto o ahorro real insuficiente.
+
 ## 2026-10-23 — Pokémon Snap: límite estable de la escala automática (PS3 real)
 
 Revisión `18ea16f`, automática hasta 5×. En la escena de la introducción,

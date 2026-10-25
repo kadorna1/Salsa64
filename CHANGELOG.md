@@ -17,6 +17,9 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 - Builds with GCC 13 and warnings enabled, and the directory scan test no
   longer depends on the file system order (thanks to Manfline).
 
+### Added
+- CRT output cache with an exact on-console A/B self-test and an original-path switch (hardware validation pending).
+
 ### Fixed
 - **Monaco Grand Prix:** no longer freezes after choosing Single when a slow graphics task finishes; SP interrupt delay is capped at one video field.
 - **Midway's Greatest Arcade Hits Volume 1:** arcade games are no longer black; Fast3D Sprite2D commands now render their textured rectangles.

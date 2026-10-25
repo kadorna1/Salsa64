@@ -16,6 +16,14 @@
 - El RDP sí escribe los destinos que cubren el VI; no cambió la presentación ni requiere interruptor.
 - Host: 692 pruebas y tres gfxtest sin fallos; lockstep de cinco juegos y MGAH, 600 campos.
 
+## 2026-10-25 — Caché de salida CRT y comparación exacta
+- Misma aritmética y viewport; salida X8R8G8B8 reutilizada con generación válida.
+- `filtros-sin-optimizar`: ruta anterior; `filtros-autoprueba`: 96 casos propios.
+- Comparación de todos los píxeles RGB, tolerancia cero; cualquier fallo rechaza la caché.
+- Inventario y estimaciones en `docs/perf-log.md`; exactitud y tiempos pendientes de PS3.
+- Host: 691/887841/0; RPCS3: 96/96 a 720p y 1080p, gfxtest 42/42 normal y fase 8.
+- Envoltura gráfica compacta: holguras 1728/1568 B; CRT idéntico, 74688 B.
+
 ## 2026-10-25 — #37, Cruis'n USA supera la pantalla de copyright
 
 - El juego esperaba el evento SI en `80111B00`; el SI inmediato dejaba la

@@ -46,7 +46,7 @@ struct salsa64_filter_src {
 	/* Con has_gen, un número que cambia cada vez que algo escribe en la
 	 * imagen (salsa64_rdp_present_source): con el mismo, la misma textura y
 	 * la misma región, el filtro no rehace sus tablas y solo dibuja su
-	 * pasada final. */
+	 * pasada final (o copia la salida ya calculada con la caché activa). */
 	bool has_gen;
 	uint32_t gen;
 };
@@ -70,6 +70,12 @@ uint32_t salsa64_filters_setup_ms(int f, const struct salsa64_filter_src *src);
  * -pantalla.ppm (el RSX las copia a la memoria principal y otro hilo las
  * escribe). `reduce_passes`: rsxkit_post_reduce_passes (1 o 2). */
 void salsa64_filters_options(bool captures, int reduce_passes);
+
+/* A/B de la caché de salida; no cambia las cuentas de los shaders. */
+void salsa64_filters_optimize(bool on);
+/* Patrones propios, pantalla completa vieja/nueva/repetida, tolerancia cero.
+ * Entre la inicialización del RSX y el menú, sin juego abierto. */
+bool salsa64_filters_selftest(void);
 
 /* La señal y la decodificación de S-Video y compuesto en dos SPEs en lugar
  * del RSX (crt_spe.h); vale desde el próximo cuadro. Si un SPE falla o no

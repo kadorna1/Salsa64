@@ -6404,6 +6404,18 @@ int main(int argc, char **argv)
 	const rsxkit_screen *sc = rsxkit_screen_info();
 	salsa64_log("RSX listo: %ux%u, tele %s%s", sc->width, sc->height, sc->aspect > 1.5f ? "16:9" : "4:3",
 		    vc ? " (video.cfg: 1080)" : "");
+	if (file_exists(SALSA64_DATA_DIR "/filtros-autoprueba")) {
+		bool ok = salsa64_filters_selftest();
+		salsa64_log("RESULTADO filtros: %s", ok ? "OK" : "FALLO");
+		rsxkit_fb_destroy(pres.fb);
+		rsxkit_shutdown();
+		salsa64_log_shutdown();
+		return ok ? 0 : 1;
+	}
+	bool filters_opt = !file_exists(SALSA64_DATA_DIR "/filtros-sin-optimizar") &&
+			   !file_exists(SALSA64_DATA_DIR "/filtros-opt-fallo");
+	salsa64_filters_optimize(filters_opt);
+	salsa64_log("filtros: caché de salida %s", filters_opt ? "activa" : "apagada");
 	rdp_scale_req = menu_scale_limit(video_cfg.scale, video_cfg.resolution);
 	if ((rc = salsa64_rdp_init((uint32_t)rdp_scale_req)) != RSXKIT_OK) {
 		salsa64_log("RESULTADO frontend: FALLO al preparar el RDP (%d)", rc);
