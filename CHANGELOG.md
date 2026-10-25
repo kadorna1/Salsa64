@@ -4,6 +4,12 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
+## [Unreleased]
+
+### Fixed
+- **Cruis'n USA:** no longer freezes on the copyright screen; SI DMA now stays
+  busy until its delayed completion and raises the interrupt afterwards.
+
 ## [0.2.11] — 2026-10-25
 
 ### Added

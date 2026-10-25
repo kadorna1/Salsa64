@@ -189,8 +189,12 @@ static void eeprom_through_si(void)
 	}
 	wr(SI_DRAM_ADDR, 0x3000);
 	wr(SI_PIF_WR64B, PIF_RAM);
+	CPU->cycles += SALSA64_SI_DMA_CYCLES;
+	salsa64_sched_dispatch(&t_n64.sched, CPU->cycles);
 	wr(SI_DRAM_ADDR, 0x3100);
 	wr(SI_PIF_RD64B, PIF_RAM);
+	CPU->cycles += SALSA64_SI_DMA_CYCLES;
+	salsa64_sched_dispatch(&t_n64.sched, CPU->cycles);
 	CHECK_EQ(t_rd32(0x3104), 0x0A010503u);
 	CHECK_EQ(t_rd32(0x3110) >> 16, 0x00FEu);  /* respuesta 0x00 y fin */
 	CHECK_EQ(salsa64_rd32(save.data + 24), 0x11223344u);

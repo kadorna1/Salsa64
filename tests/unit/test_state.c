@@ -165,6 +165,32 @@ static void state_round_trip(void)
 	rom_off();
 }
 
+/* Una transferencia del SI pendiente conserva tanto sus datos fijados como
+ * el instante del evento, y termina una sola vez después de cargar. */
+static void state_si_dma_pending(void)
+{
+	rom_on(0x11223344);
+	t_wr32(0x6000, 0x01040100);
+	t_wr32(0x603C, 0x00000001);
+	salsa64_bus_write32(&t_n64.bus, 0x04800000, 0x6000, ~0u);
+	salsa64_bus_write32(&t_n64.bus, 0x04800010, 0x1FC007C0, ~0u);
+	uint64_t when = t_n64.sched.when[SALSA64_EV_SI_DMA];
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), 0x411);
+	CHECK(save_to(&fa));
+
+	salsa64_n64_reset(&t_n64);
+	char err[128] = "";
+	CHECK(load_from(&fa, err, sizeof err));
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), 0x411);
+	CHECK_EQ(t_n64.sched.when[SALSA64_EV_SI_DMA], when);
+	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram), 0);
+	CPU->cycles = when;
+	salsa64_sched_dispatch(&t_n64.sched, CPU->cycles);
+	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram), 0x01040100);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), SALSA64_SI_STATUS_INTR);
+	rom_off();
+}
+
 /* Estado comprimido (formato 2): se carga igual que uno sin comprimir y
  * deja la máquina idéntica (guardar de nuevo, sin comprimir, da el mismo
  * archivo), ocupa menos y sus bloques incompresibles van tal cual. */
@@ -579,6 +605,7 @@ static void state_filename(void)
 void t_suite_state(void)
 {
 	RUN(state_round_trip);
+	RUN(state_si_dma_pending);
 	RUN(state_zip_round_trip);
 	RUN(state_zip_corrupt);
 	RUN(state_determinism);

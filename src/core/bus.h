@@ -83,6 +83,10 @@ struct salsa64_bus {
 	uint64_t pi_dma_bytes;   /* bytes copiados por DMA del cartucho a la RDRAM (estadística) */
 	uint32_t ri[SALSA64_RI_NREGS];
 	uint32_t si[SALSA64_SI_NREGS];
+	struct salsa64_sched *si_sched;
+	uint32_t si_dma_dram;  /* dirección de la operación en curso, fijada al pedirla */
+	uint8_t si_pending;    /* 1: PIF→RDRAM; 2: RDRAM→PIF; 0: libre */
+	uint8_t si_immediate;  /* comparación: volver al SI sin latencia anterior */
 	uint32_t rdram_regs[SALSA64_RDRAM_NREGS];
 	struct salsa64_pif pif;
 

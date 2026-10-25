@@ -63,6 +63,7 @@ enum salsa64_rec_prof_item {
 	SALSA64_PROF_EV_DP_SYNC,
 	SALSA64_PROF_EV_AI_DMA,
 	SALSA64_PROF_EV_RSP_LLE,
+	SALSA64_PROF_EV_SI_DMA,
 	SALSA64_PROF_EV_MANY,         /* varios vencidos a la vez */
 	/* Lo demás del despachador. */
 	SALSA64_PROF_COMPILE,         /* compilar bloques (también los recortados) */

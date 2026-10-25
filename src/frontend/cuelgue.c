@@ -67,7 +67,7 @@ unsigned cuelgue_state_text(const struct salsa64_n64 *n64, char *out, unsigned s
 	     bus->vi.regs[SALSA64_VI_WIDTH], bus->vi.regs[SALSA64_VI_V_INTR], bus->vi.regs[SALSA64_VI_V_CURRENT]);
 	tput(&b, "VI: H_VIDEO %08x V_VIDEO %08x; PI: STATUS %08x DRAM %08x CART %08x; SI: STATUS %08x DRAM %08x\n",
 	     bus->vi.regs[SALSA64_VI_H_VIDEO], bus->vi.regs[SALSA64_VI_V_VIDEO], bus->pi[SALSA64_PI_STATUS],
-	     bus->pi[SALSA64_PI_DRAM_ADDR], bus->pi[SALSA64_PI_CART_ADDR], bus->si[SALSA64_SI_STATUS],
+	     bus->pi[SALSA64_PI_DRAM_ADDR], bus->pi[SALSA64_PI_CART_ADDR], salsa64_si_read(bus, SALSA64_SI_STATUS << 2),
 	     bus->si[SALSA64_SI_DRAM_ADDR]);
 	tput(&b, "NMI: pendiente %u ciclo %llu; cpu: siguiente %016llx EPC %016llx ErrorEPC %016llx\n",
 	     n64->nmi_pending, (unsigned long long)n64->nmi_at, (unsigned long long)cpu->pc,
@@ -83,6 +83,7 @@ unsigned cuelgue_state_text(const struct salsa64_n64 *n64, char *out, unsigned s
 	tevent(&b, "VI", n64, SALSA64_EV_VI_INTR);
 	tevent(&b, "campo", n64, SALSA64_EV_VI_FIELD);
 	tevent(&b, "AI", n64, SALSA64_EV_AI_DMA);
+	tevent(&b, "SI", n64, SALSA64_EV_SI_DMA);
 	tevent(&b, "Compare", n64, SALSA64_EV_COMPARE);
 	tput(&b, "; RSP: tarea en curso %u, DP retenida %u, tarea recogida %u\n", bus->rsp.busy, bus->rsp.dp_held,
 	     bus->rsp.collected);

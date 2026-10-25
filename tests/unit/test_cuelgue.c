@@ -104,6 +104,9 @@ static void cuelgue_texto(void)
 	bus->rsp.stats.dp_fired = 6;
 	bus->rsp.stats.gfx_nosync = 2;
 	salsa64_sched_set(&t_n64.sched, SALSA64_EV_DP_SYNC, CPU->cycles + 5000);
+	salsa64_bus_write32(bus, 0x04800000, 0x4000, ~0u);
+	salsa64_bus_write32(bus, 0x04800010, 0x1FC007C0, ~0u);
+	CHECK_EQ(salsa64_si_read(bus, SALSA64_SI_STATUS << 2), 0x411);
 	char text[8192];
 	unsigned n = cuelgue_state_text(&t_n64, text, sizeof text);
 	CHECK(n > 100 && n < sizeof text);
@@ -111,6 +114,8 @@ static void cuelgue_texto(void)
 	CHECK(strstr(text, "DP programadas 7, levantadas 6"));
 	CHECK(strstr(text, "sin SYNC_FULL ni corte 2"));
 	CHECK(strstr(text, "DP +5000"));
+	CHECK(strstr(text, "SI: STATUS 00000411"));
+	CHECK(strstr(text, "SI +187500"));
 	CHECK(strstr(text, "tarea -"));
 	CHECK(strstr(text, "eventos del RCP"));
 	/* Un búfer chico se corta sin pasarse. */

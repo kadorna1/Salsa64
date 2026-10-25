@@ -19,6 +19,7 @@ void salsa64_n64_init(struct salsa64_n64 *n64, uint8_t *rdram, uint32_t rdram_si
 	salsa64_vi_init(&n64->bus, &n64->sched);
 	salsa64_rsp_init(&n64->bus, &n64->sched);
 	salsa64_ai_init(&n64->bus, &n64->sched);
+	salsa64_si_init(&n64->bus, &n64->sched);
 	salsa64_vi_start(&n64->bus);
 	n64->nmi_pending = false;
 	n64->nmi_at = 0;

@@ -271,6 +271,10 @@ static void sec_rcp(struct st *s, struct salsa64_bus *b)
 	st_u32s(s, b->ri, SALSA64_RI_NREGS);
 	st_u32s(s, b->si, SALSA64_SI_NREGS);
 	st_u32s(s, b->rdram_regs, SALSA64_RDRAM_NREGS);
+	/* Agregados al final: un estado anterior los carga como cero y deja el
+	 * evento nuevo sin programar. */
+	st_u32(s, &b->si_dma_dram);
+	st_u8(s, &b->si_pending);
 }
 
 static void pad_state(struct st *s, struct salsa64_pad *p)

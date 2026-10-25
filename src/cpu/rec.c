@@ -120,7 +120,7 @@ static unsigned due_event(const struct salsa64_sched *s, uint64_t now)
 	return n == 1 ? ev : SALSA64_PROF_EV_MANY;
 }
 
-_Static_assert(SALSA64_EV_MAX == 8 && SALSA64_PROF_EV_MANY == SALSA64_PROF_EV_STOP + SALSA64_EV_MAX,
+_Static_assert(SALSA64_EV_MAX == 9 && SALSA64_PROF_EV_MANY == SALSA64_PROF_EV_STOP + SALSA64_EV_MAX,
 	       "el perfil cuenta los eventos en el orden de enum salsa64_event");
 _Static_assert(SALSA64_PROF_EXIT_START - SALSA64_PROF_EXIT_LINK == SALSA64_REC_EXIT_START - SALSA64_REC_EXIT_LINK &&
 	       SALSA64_PROF_EXIT_FR - SALSA64_PROF_EXIT_LINK == SALSA64_REC_EXIT_FR - SALSA64_REC_EXIT_LINK,

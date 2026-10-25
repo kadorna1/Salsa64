@@ -7,8 +7,8 @@
  *   MI  completo: modo, versión, interrupciones y máscara → Cause.IP2.
  *   PI  DMA cartucho ↔ RDRAM inmediato, con interrupción; SRAM en save.c.
  *       Sin latencias.
- *   SI  DMA RDRAM ↔ PIF RAM inmediato, con interrupción; comandos joybus
- *       de los controles en pif.c y de la EEPROM en save.c. Falta la latencia.
+ *   SI  DMA RDRAM ↔ PIF RAM diferido, con estado ocupado e interrupción al
+ *       completar; comandos joybus de controles y EEPROM en pif.c/save.c.
  *   SP  bits de SP_STATUS, semáforo y DMA inmediato. El RSP no ejecuta
  *       microcódigo: al arrancarlo se lee la tarea (OSTask) de la DMEM y
  *       las gráficas van a la HLE (rsp.c y el backend de src/rsp/gfx).
@@ -472,7 +472,12 @@ enum salsa64_si_reg {
 	SALSA64_SI_STATUS, SALSA64_SI_NREGS
 };
 
-#define SALSA64_SI_STATUS_INTR 0x1000u
+#define SALSA64_SI_STATUS_INTR      0x1000u
+#define SALSA64_SI_STATUS_DMA_BUSY  0x0001u
+/* Estados transitorios observados durante cada sentido de la operación. */
+#define SALSA64_SI_STATUS_READ      0x0140u
+#define SALSA64_SI_STATUS_WRITE     0x0410u
+#define SALSA64_SI_DMA_CYCLES       187500u  /* aproximadamente 2 ms a 93,75 MHz */
 
 #define SALSA64_RI_NREGS    8
 #define SALSA64_RDRAM_NREGS    16
@@ -571,7 +576,10 @@ uint32_t salsa64_ai_read(struct salsa64_bus *bus, uint32_t reg);
 void salsa64_ai_write(struct salsa64_bus *bus, uint32_t reg, uint32_t value);
 uint32_t salsa64_pi_read(struct salsa64_bus *bus, uint32_t reg);
 void salsa64_pi_write(struct salsa64_bus *bus, uint32_t reg, uint32_t value);
-uint32_t salsa64_si_read(struct salsa64_bus *bus, uint32_t reg);
+uint32_t salsa64_si_read(const struct salsa64_bus *bus, uint32_t reg);
 void salsa64_si_write(struct salsa64_bus *bus, uint32_t reg, uint32_t value);
+void salsa64_si_init(struct salsa64_bus *bus, struct salsa64_sched *sched);
+void salsa64_si_reset(struct salsa64_bus *bus);
+void salsa64_si_set_immediate(struct salsa64_bus *bus, bool immediate);
 
 #endif

@@ -132,15 +132,74 @@ static void pi_dma_raises_interrupt(void)
 
 static void si_dma_to_pif_ram(void)
 {
-	for (unsigned k = 0; k < 64; k += 4)
-		t_wr32(0x4000 + k, 0x10203040u + k);
+	/* Un intercambio de estado del control, que el PIF prepara al terminar la
+	 * escritura y ejecuta al terminar la lectura siguiente. */
+	t_wr32(0x4000, 0x01040100);
+	t_wr32(0x4004, 0x000000FE);
+	t_wr32(0x403C, 0x00000001);
+	struct salsa64_pad pad = { SALSA64_PAD_A, 12, -7, 1 };
+	salsa64_pif_set_pad(&t_n64.bus, 0, &pad);
+	uint64_t start = CPU->cycles;
 	salsa64_bus_write32(&t_n64.bus, 0x04800000, 0x4000, ~0u);
 	salsa64_bus_write32(&t_n64.bus, 0x04800010, 0x1FC007C0, ~0u);
-	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram), 0x10203040);
-	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram + 60), 0x1020307C);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), 0x411);
+	CHECK_EQ(t_n64.bus.mi.intr, 0);
+	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram), 0);
+	/* Cambiar DRAM_ADDR y pedir otra operación mientras está ocupada no
+	 * cambia la que ya estaba en vuelo. */
+	salsa64_bus_write32(&t_n64.bus, 0x04800000, 0x5000, ~0u);
+	salsa64_bus_write32(&t_n64.bus, 0x04800004, 0x1FC007C0, ~0u);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), 0x411);
+	salsa64_sched_dispatch(&t_n64.sched, start + SALSA64_SI_DMA_CYCLES - 1);
+	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram), 0);
+	CHECK_EQ(t_n64.bus.mi.intr, 0);
+	CPU->cycles = start + SALSA64_SI_DMA_CYCLES;
+	salsa64_sched_dispatch(&t_n64.sched, CPU->cycles);
+	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram), 0x01040100);
+	CHECK_EQ(t_n64.bus.pif_ram[63], 0);  /* pif_written ocurrió al completar */
 	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), SALSA64_SI_STATUS_INTR);
 	salsa64_bus_write32(&t_n64.bus, 0x04800018, 0, ~0u);
 	CHECK_EQ(t_n64.bus.mi.intr, 0);
+
+	/* La respuesta tampoco llega a la RDRAM antes de completar la lectura. */
+	start = CPU->cycles;
+	salsa64_bus_write32(&t_n64.bus, 0x04800000, 0x5000, ~0u);
+	salsa64_bus_write32(&t_n64.bus, 0x04800004, 0x1FC007C0, ~0u);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), 0x141);
+	CHECK_EQ(t_rd32(0x5000), 0);
+	salsa64_sched_dispatch(&t_n64.sched, start + SALSA64_SI_DMA_CYCLES - 1);
+	CHECK_EQ(t_rd32(0x5000), 0);
+	CPU->cycles = start + SALSA64_SI_DMA_CYCLES;
+	salsa64_sched_dispatch(&t_n64.sched, CPU->cycles);
+	CHECK_EQ(t_rd32(0x5000), 0x01040180);
+	CHECK_EQ(t_n64.bus.pif_ram[5], 12);
+	CHECK_EQ(t_n64.bus.pif_ram[6], (uint8_t)-7);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), SALSA64_SI_STATUS_INTR);
+	salsa64_bus_write32(&t_n64.bus, 0x04800018, 0, ~0u);
+
+	/* Reiniciar en mitad de otra operación cancela el evento y libera el SI. */
+	salsa64_bus_write32(&t_n64.bus, 0x04800010, 0x1FC007C0, ~0u);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), 0x411);
+	salsa64_n64_reset(&t_n64);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), 0);
+	CHECK_EQ(t_n64.sched.when[SALSA64_EV_SI_DMA], SALSA64_SCHED_NEVER);
+}
+
+static void si_dma_immediate_switch(void)
+{
+	t_wr32(0x6000, 0x10203040);
+	salsa64_si_set_immediate(&t_n64.bus, true);
+	salsa64_bus_write32(&t_n64.bus, 0x04800000, 0x6000, ~0u);
+	salsa64_bus_write32(&t_n64.bus, 0x04800010, 0x1FC007C0, ~0u);
+	CHECK_EQ(salsa64_rd32(t_n64.bus.pif_ram), 0x10203040);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), SALSA64_SI_STATUS_INTR);
+	CHECK_EQ(t_n64.sched.when[SALSA64_EV_SI_DMA], SALSA64_SCHED_NEVER);
+	salsa64_bus_write32(&t_n64.bus, 0x04800018, 0, ~0u);
+	salsa64_bus_write32(&t_n64.bus, 0x04800000, 0x6100, ~0u);
+	salsa64_bus_write32(&t_n64.bus, 0x04800004, 0x1FC007C0, ~0u);
+	CHECK_EQ(t_rd32(0x6100), 0x10203040);
+	CHECK_EQ(salsa64_bus_read32(&t_n64.bus, 0x04800018), SALSA64_SI_STATUS_INTR);
+	salsa64_si_set_immediate(&t_n64.bus, false);
 }
 
 static void sp_status_and_semaphore(void)
@@ -175,5 +234,6 @@ void t_suite_core(void)
 	RUN(mi_version_and_mask);
 	RUN(pi_dma_raises_interrupt);
 	RUN(si_dma_to_pif_ram);
+	RUN(si_dma_immediate_switch);
 	RUN(sp_status_and_semaphore);
 }

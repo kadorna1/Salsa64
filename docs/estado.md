@@ -1,5 +1,14 @@
 # Estado
 
+## 2026-10-25 — #37, Cruis'n USA supera la pantalla de copyright
+
+- El juego esperaba el evento SI en `80111B00`; el SI inmediato dejaba la
+  cola `80146740` sin mensaje. ares conserva `STATUS=0x141/0x411` hasta terminar.
+- El DMA del SI ahora dura unos 2 ms, expone BUSY y copia/ejecuta el PIF antes
+  de levantar la interrupción. `sin-si-diferido` restaura el camino anterior.
+- En el host llega a Golden Gate Park: 1672 tareas gráficas en 3900 campos;
+  el A/B inmediato repite el bloqueo con una sola tarea. Falta probar la PS3.
+
 ## 2026-10-23 — La escala elegida en la pausa queda por juego
 
 - Al cambiar «Escala interna» en «Imagen» se escribe de inmediato su modo

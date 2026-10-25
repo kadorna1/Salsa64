@@ -26,6 +26,12 @@ static uint8_t *ram(void)
 	return t_n64.bus.pif_ram;
 }
 
+static void si_finish(void)
+{
+	CPU->cycles += SALSA64_SI_DMA_CYCLES;
+	salsa64_sched_dispatch(&t_n64.sched, CPU->cycles);
+}
+
 /* Copia `n` bytes al inicio de la PIF RAM (lo demás en 0) con el byte de
  * comandos dado, como lo dejaría una escritura del CPU. */
 static void pif_load(const uint8_t *bytes, unsigned n, uint8_t cmd)
@@ -132,6 +138,7 @@ static void pif_through_si_dma(void)
 
 	salsa64_bus_write32(bus(), SI_DRAM_ADDR, 0x3000, 0xFFFFFFFFu);
 	salsa64_bus_write32(bus(), SI_PIF_WR64B, PIF_RAM, 0xFFFFFFFFu);
+	si_finish();
 	CHECK(salsa64_bus_read32(bus(), SI_STATUS) & SALSA64_SI_STATUS_INTR);
 	CHECK((salsa64_bus_read32(bus(), MI_INTR) >> SALSA64_IRQ_SI) & 1);
 	salsa64_bus_write32(bus(), SI_STATUS, 0, 0xFFFFFFFFu);
@@ -139,6 +146,7 @@ static void pif_through_si_dma(void)
 
 	salsa64_bus_write32(bus(), SI_DRAM_ADDR, 0x3100, 0xFFFFFFFFu);
 	salsa64_bus_write32(bus(), SI_PIF_RD64B, PIF_RAM, 0xFFFFFFFFu);
+	si_finish();
 	CHECK_EQ(t_rd32(0x3100), 0x01040120u);  /* TX RX cmd botones[15:8] */
 	CHECK_EQ(t_rd32(0x3104), 0x100506FEu);  /* botones[7:0] X Y fin */
 	CHECK_EQ(t_rd32(0x313C), 0);            /* byte de comandos ya en 0 */
