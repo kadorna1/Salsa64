@@ -280,8 +280,9 @@ trucos, un aviso lo dice.
 SELECT sobre una ROM abre sus ajustes: **Aspecto**, **Filtro**, **Recorte
 del borde**, **Escala interna** e **Interpolación**, cada uno «Global» (lo de Opciones) o un
 valor propio para ese juego (también se guardan desde «Imagen» en el menú de
-pausa), y **Accesorio** («Controller Pak» o «Ninguno», sin valor global; ver
-«Controller Pak»). Se guardan en `/dev_hdd0/salsa64/juegos/<nombre de la ROM sin
+pausa), y **Accesorio** («Global», «Controller Pak», «Rumble Pak»,
+«Transfer Pak» o «Ninguno»; ver «Accesorios»). Se guardan en
+`/dev_hdd0/salsa64/juegos/<nombre de la ROM sin
 extensión>.cfg`:
 
 ```
@@ -292,7 +293,7 @@ escala = 2          # auto-N | 1 … 5 | global
 escala-estable = ninguna # 1 … 5 | ninguna (techo aprendido de la automática)
 densidad = fina     # normal | fina | global (la de «CRT máscara»)
 interpolacion = geometria  # no | geometria | global
-accesorio = controller-pak # controller-pak | ninguno
+accesorio = controller-pak # global | controller-pak | rumble-pak | transfer-pak | ninguno
 ```
 
 Al abrir el juego, el log dice «imagen: … (con ajustes de este juego)» y
@@ -441,7 +442,7 @@ Pokémon Puzzle League, Pokémon Stadium 1 y 2 y Jet Force Gemini. La SRAM de
 768 Kbit y la de 1 Mbit se reconocen pero todavía no se emulan (el panel
 dice «(sin emular)»).
 
-## Controller Pak
+## Accesorios
 
 Los juegos que guardan en la memoria que se enchufa al control (Ms. Pac-Man,
 por ejemplo) encuentran un Controller Pak de 32 KB en cada control conectado,
@@ -453,11 +454,15 @@ mupen64plus, así que un `.mpk` de ahí se copia con ese nombre y sirve). Se
 escribe unos segundos después de la última escritura del juego, sin tocar
 el disco en cada comando, y al volver al menú o salir.
 
-Para quitarlo en un juego que se porta mal con un accesorio enchufado: SELECT
-sobre la ROM, **Accesorio**: «Controller Pak» (por omisión) o «Ninguno». Se
-guarda en el `.cfg` del juego (`accesorio = controller-pak | ninguno`) y vale
-desde la siguiente vez que se abre. El Rumble Pak y el Transfer Pak no se
-emulan.
+Opciones elige el accesorio inicial de los cuatro controles. SELECT sobre una
+ROM puede heredarlo o fijar otro. En el menú de pausa, **Accesorios** cambia
+cada puerto cuando la emulación ya se detuvo; esa elección dura hasta cerrar
+el juego. Controller Pak sigue siendo la omisión.
+
+El Rumble Pak usa el motor grande del DualShock 3 a plena fuerza y deja
+apagado el motor pequeño. Ambos motores se apagan al pausar, abrir el menú del
+sistema, cambiar de accesorio y durante cualquier cierre, también el forzado.
+El Transfer Pak experimental se describe en `docs/transferpak.md`.
 
 ## Estados guardados
 
@@ -689,7 +694,7 @@ se crean por FTP.
 | Archivo | Formato | Qué hace |
 |---|---|---|
 | `menu.cfg` | Líneas `fondo = si\|no`, `fps = si\|no`, `confirmar = si\|no`, `aspecto = 4:3\|16:9`, `filtro = suave\|nitido\|lineas\|lineas+\|crt-mascara\|crt-rgb\|crt-svideo\|crt-compuesto` , `densidad = normal\|fina`, `idioma = es\|en\|fr\|de\|it\|pt` e `interpolacion = no\|geometria` | Fondo animado del menú, contador de velocidad en el juego, si «Salir» del menú de pausa pregunta antes (sí sin la línea), aspecto, filtro, idioma e interpolación. Lo escriben el menú (Opciones) y SELECT + △ |
-| `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `escala-estable` = `1` a `5` o `ninguna`; `accesorio` = `controller-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM), «Imagen» del menú de pausa y la escala automática cuando aprende un límite estable |
+| `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `escala-estable` = `1` a `5` o `ninguna`; `accesorio` = `global`, `controller-pak`, `rumble-pak`, `transfer-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM), «Imagen» del menú de pausa y la escala automática cuando aprende un límite estable |
 | `descargas.cfg` | `activar = si` y direcciones | Enciende las descargas experimentales (sección «Descargas») |
 | `overscan.cfg` | Uno, dos o cuatro números: `8`, `8 6` o `izq der arr abajo` | Recorte de la imagen en píxeles de la N64 (a 320 × 240) por lado. Por omisión `8 6`; `0` lo apaga; máximo 64. Lo escribe el menú (`0`, `8 6` o `16 12`) |
 | `video.cfg` | `salida = 720` o `1080`; `escala = auto-N`, `auto` o `1` a `5` | Salida de video y escala interna del render de la N64 (se leen al arrancar). `auto-N` ajusta la escala sin pasar N; `auto` conserva la compatibilidad anterior (3× a 720p, 4× a 1080p). Sin archivo: 720p y `auto`. Si la tele o el XMB no aceptan 1080, usa el siguiente modo. Acepta el formato viejo de una línea (`1080` o `720`). Lo escribe el menú con «Resolución» y «Escala interna» |

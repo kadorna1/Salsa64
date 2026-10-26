@@ -245,14 +245,8 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 		if (rumble_pak) {
 			ok = salsa64_mempak_addr_ok(raw);
 			if (ok && (raw & 0xFFE0u) == 0xC000u) {
-				/* El Rumble Pak solo tiene motor on/off; el protocolo escribe 32 bytes. */
-				uint8_t on = 0;
-				for (unsigned i = 0; i < PAK_BLOCK; i++)
-					if (tx[3 + i] != 0) {
-						on = 1;
-						break;
-					}
-				pif->rumble[port] = on;
+				/* El latch binario está en el bit 0 del primer byte del bloque. */
+				pif->rumble[port] = tx[3] & 1u;
 			}
 		} else if (transfer_pak) {
 			ok = salsa64_mempak_addr_ok(raw);

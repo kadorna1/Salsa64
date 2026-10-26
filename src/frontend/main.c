@@ -620,8 +620,10 @@ static void rumble_stop_all(void)
 	padActParam act;
 	memset(&act, 0, sizeof act);
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
-		if (rumble_applied[i] && ioPadSetActDirect(i, &act) == PAD_OK)
-			rumble_applied[i] = 0;
+		/* También se manda cero si el estado local quedó desfasado por una
+		 * desconexión o por un cierre de emergencia. */
+		ioPadSetActDirect(i, &act);
+		rumble_applied[i] = 0;
 	}
 }
 
@@ -1271,17 +1273,15 @@ static int update_pads(uint32_t *buttons)
 		if (sys)
 			last[i] = neutral;
 
-		/* Joybus Rumble Pak is binary on/off. PSL1GHT maps that to both
-		 * DualShock actuators: small motor enabled, large motor at full power. */
+		/* El Rumble Pak de N64 es binario: se representa con el motor grande
+		 * del DualShock 3 a plena fuerza; el pequeño queda siempre apagado. */
 		bool rumble_ui_paused = pause_ctl.dialog || pause_ctl.panel || pause_ctl.menu || pause_ctl.image || pause_ctl.accessory;
 		bool want_rumble = info.status[i] && !sys && !rumble_ui_paused && rumble_wanted[i];
 		if (want_rumble != !!rumble_applied[i]) {
 			padActParam act;
 			memset(&act, 0, sizeof act);
-			if (want_rumble) {
-				act.small_motor = 1;
+			if (want_rumble)
 				act.large_motor = 0xFF;
-			}
 			if (ioPadSetActDirect(i, &act) == PAD_OK)
 				rumble_applied[i] = (uint8_t)want_rumble;
 		}
@@ -4190,6 +4190,12 @@ static void accessory_menu_events(void)
 	int port = pause_ctl.accessory_do;
 	if (port < 0)
 		return;
+	/* Presentación pide la pausa, pero solo emulación puede confirmar que ya
+	 * terminó el campo. Mantener la petición pendiente hasta ese acuse evita
+	 * tocar los registros del Transfer Pak mientras el juego los usa. */
+	lwsync();
+	if (!emu_paused)
+		return;
 	pause_ctl.accessory_do = -1;
 	if ((unsigned)port >= SALSA64_PIF_PORTS)
 		return;
@@ -4625,6 +4631,9 @@ static void profile_close(void)
  * proceso con sys_process_exit, con lo que haya quedado en el log. */
 static void forced_exit(const char *why, unsigned secs)
 {
+	/* Mejor esfuerzo antes de cualquier espera de cierre: no dejar actuadores
+	 * encendidos aunque la emulación o el RSX ya no respondan. */
+	rumble_stop_all();
 	salsa64_log("cierre forzado: %s tras %u s (pc 0x%08llx, ciclos %llu, marca %u, bloque %u); se paran los SPE y se sale",
 		    why, secs, (unsigned long long)n64.cpu.cur_pc, (unsigned long long)n64.cpu.cycles,
 		    n64.cpu.rec_mark, n64.cpu.rec_cur);

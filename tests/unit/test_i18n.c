@@ -128,11 +128,19 @@ static void labels(void)
 
 static void lookup(void)
 {
+	static const char *const accessory_keys[] = {
+		"Accesorio inicial de los cuatro", "controles de N64.", "Controller Pak guarda datos.",
+		"Rumble Pak activa la vibración.", "Transfer Pak carga .gb/.gbc y usa .sav.",
+		"Controller Pak, Rumble Pak, Transfer Pak o ninguno", "Volver al menú",
+		"×  Cambiar      ↑↓  Elegir      ○  Volver",
+	};
 	i18n_set(0);
 	CHECK(!strcmp(tr("Volver"), "Volver"));
 	i18n_set(1);
 	CHECK(!strcmp(tr("Volver"), "Back"));
 	CHECK(!strcmp(tr("Sí"), "Yes"));
+	for (unsigned i = 0; i < sizeof accessory_keys / sizeof accessory_keys[0]; i++)
+		CHECK(strcmp(tr(accessory_keys[i]), accessory_keys[i]) != 0);
 	i18n_set(2);
 	CHECK(!strcmp(tr("Volver"), "Retour"));
 	i18n_set(3);

@@ -352,16 +352,31 @@ static void pif_rumble_pak(void)
 		CHECK_EQ(ram()[5 + i], 0x80);
 	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
 
-	/* 32 bytes no-cero en C000 encienden; 32 ceros apagan el motor. */
+	/* Solo el bit 0 del primer byte del bloque C000 controla el latch. */
 	memset(cmds, 0, sizeof cmds);
 	cmds[0] = 0x23; cmds[1] = 0x01; cmds[2] = 0x03; cmds[3] = 0xC0; cmds[4] = 0x1B;
-	memset(cmds + 5, 0x01, 32); cmds[38] = 0xFE;
+	cmds[38] = 0xFE;
+	cmds[6] = 0xFF; /* otros bytes no encienden */
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	cmds[5] = 0x02; /* tampoco otro bit del primer byte */
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	memset(cmds + 5, 0, 32);
+	cmds[5] = 0x01;
 	pif_load(cmds, 39, 0x01);
 	salsa64_pif_execute(bus());
 	CHECK_EQ(bus()->pif.rumble[0], 1);
 	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
 
-	memset(cmds + 5, 0, 32);
+	cmds[5] = 0;
+	cmds[36] = 0x80; /* bloque mixto con el latch apagado */
 	pif_load(cmds, 39, 0x01);
 	salsa64_pif_execute(bus());
 	CHECK_EQ(bus()->pif.rumble[0], 0);
