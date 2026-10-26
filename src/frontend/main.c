@@ -4193,6 +4193,7 @@ static void accessory_menu_events(void)
 					 : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
 	/* Replacing a Rumble Pak drops its motor state immediately. */
 	n64.bus.pif.rumble[port] = 0;
+	n64.bus.pif.pak_err[port] = 0;
 	rumble_publish();
 	osd_notice(sysGetSystemTime(), "%s", menu_accessory_name(next));
 	salsa64_log("accesorio: control %u -> %s", (unsigned)port + 1, menu_accessory_name(next));
@@ -5082,7 +5083,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 				: configured_accessory == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
 								   : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
 		/* Load every Controller Pak up front so pause-menu swaps work in-place. */
-		mempakfile_open(&mempak_file, &mempak, &n64.bus, rom, SAVES_DIR, 0xFu, salsa64_log);
+		mempakfile_open(&mempak_file, &mempak, &n64.bus, rom, SAVES_DIR,
+				(selftest_on || gfxtest_on || audiotest_on) ? 0u : 0xFu, salsa64_log);
 		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
 			n64.bus.pif.accessory[i] = (uint8_t)accessory;
 			n64.bus.pif.rumble[i] = 0;
