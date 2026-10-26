@@ -3011,7 +3011,7 @@ static void translate(uint32_t n)
 	 * tendrá cuando un dibujo las lea ya viejas (Link en la pantalla de
 	 * equipo de Zelda, 395 tareas después). No se espera: se convierten en
 	 * una traducción posterior, cuando el RSX pasó la barrera. */
-	for (int i = 0; rdp.rdram && rdp.fbfx >= 2 && rdp.copy_color_to_rdram && i < RDP_TARGETS_MAX; i++) {
+	for (int i = 0; rdp.rdram && rdp.fbfx >= 2 && i < RDP_TARGETS_MAX; i++) {
 		if (!drawn[i] || sync_rb[i])
 			continue;
 		int k = mirror_small(i, &drawn_box[i], n, MIRROR_BYTES);
@@ -3058,7 +3058,7 @@ static void translate(uint32_t n)
 	 * alguna vez): ahora, como el RDP, y no al presentarlos. Va después de
 	 * poner las barreras de las copias de arriba (readbacks_finish no debe
 	 * ver una sin barrera). */
-	for (int i = 0; rdp.rdram && rdp.fbfx >= 2 && i < RDP_TARGETS_MAX; i++) {
+	for (int i = 0; rdp.rdram && rdp.fbfx >= 2 && rdp.copy_color_to_rdram && i < RDP_TARGETS_MAX; i++) {
 		uint32_t rows = drawn_box[i].y1 < rdp.tg.t[i].lh ? drawn_box[i].y1 : rdp.tg.t[i].lh;
 		if (drawn[i] && !sync_rb[i] && rdp_targets_mirror_at_task_end(&rdp.tg, i))
 			frame_mirror(i, rows, true);
