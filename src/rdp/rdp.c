@@ -1802,7 +1802,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 				alias = true;
 		}
 		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" :
-			 profile_refresh ? "spans CPU desde RDRAM" :
+			 profile_refresh ? "CopyColorFromRDRAM forzado" :
 			 dma_updated ? "RDRAM tras DMA" : alias ? "cebada (otro ancho)" : "viva");
 		if (stale) {
 			prime(i, true);
@@ -1827,7 +1827,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
 			LOGN(20, "gfx: color image %06x/%u recargada desde RDRAM (DMA; tarea anterior %u)",
 			     rdp.tg.t[i].addr, rdp.tg.t[i].width, rdp.tg.t[i].last_task);
-		} else if (alias) {
+		} else if (alias && !rdp.copy_color_from_rdram) {
 			/* Con la misma RDRAM que en el último cebado entero, solo las
 			 * filas dibujadas encima desde entonces (Leon). */
 			const struct rdp_target *t = &rdp.tg.t[i];
