@@ -242,7 +242,8 @@ static void status_bits(void)
 	CHECK_EQ(pak_read(1, 0x8000, data), 0xFF);
 	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
 	CHECK_EQ(pad_status(1), 0x01);
-	CHECK_EQ(pak_read(1, 0x8000, data), salsa64_joybus_crc8(data, 32));
+	uint8_t rumble_crc = pak_read(1, 0x8000, data);
+	CHECK_EQ(rumble_crc, salsa64_joybus_crc8(data, 32));
 	for (unsigned i = 0; i < 32; i++)
 		CHECK_EQ(data[i], 0x80);
 	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
