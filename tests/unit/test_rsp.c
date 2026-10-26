@@ -617,6 +617,23 @@ static void rsp_detect_gbi(void)
 
 	CHECK_EQ(detect("RSP SW Version: 2.0X"), SALSA64_GBI_F3D);
 
+	/* Cruis'n USA Rev 2 may have a different code CRC but keeps the generic
+	 * Fast3D SW-version string. Its ROM title must select the USA overrides. */
+	{
+		const uint8_t *old_rom = t_n64.bus.rom;
+		uint32_t old_rom_size = t_n64.bus.rom_size;
+		uint8_t rom[0x40] = { 0 };
+		memcpy(rom + 0x20, "CRUIS'N USA", sizeof "CRUIS'N USA" - 1);
+		t_n64.bus.rom = rom;
+		t_n64.bus.rom_size = sizeof rom;
+		CHECK_EQ(detect("RSP SW Version: 2.0X"), SALSA64_GBI_F3D_CRUISN_USA);
+		memset(rom + 0x20, 0, 20);
+		memcpy(rom + 0x20, "SUPER MARIO 64", sizeof "SUPER MARIO 64" - 1);
+		CHECK_EQ(detect("RSP SW Version: 2.0X"), SALSA64_GBI_F3D);
+		t_n64.bus.rom = old_rom;
+		t_n64.bus.rom_size = old_rom_size;
+	}
+
 	/* The 2 in F3DEX2 is part of the name, not the microcode version. */
 	{
 		const uint8_t *old_rom = t_n64.bus.rom;

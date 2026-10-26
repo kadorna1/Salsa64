@@ -478,6 +478,28 @@ enum salsa64_gbi salsa64_rsp_detect_gbi(const struct salsa64_bus *bus, const str
 	return detect_gbi(bus, task, &nonear);
 }
 
+/* Cruis'n USA revisions can ship different Fast3D code CRCs while retaining
+ * the generic "RSP SW Version: 2.0" data string. Use the ROM internal title
+ * only for this otherwise-ambiguous Fast3D signature; keep other games on F3D. */
+static bool rom_title_cruisn_usa(const struct salsa64_bus *bus)
+{
+	static const char wanted[] = "CRUISNUSA";
+	if (!bus->rom || bus->rom_size < 0x34)
+		return false;
+	unsigned n = 0;
+	for (unsigned i = 0; i < 20 && n < sizeof wanted - 1; i++) {
+		unsigned char ch = bus->rom[0x20 + i];
+		if (ch >= 'a' && ch <= 'z')
+			ch = (unsigned char)(ch - 'a' + 'A');
+		if (ch >= 'A' && ch <= 'Z') {
+			if (ch != wanted[n])
+				return false;
+			n++;
+		}
+	}
+	return n == sizeof wanted - 1;
+}
+
 /* Cruis'n Exotica shares the F3DEX2 2.08 signature but uses SPECIAL_1
  * for counted display-list calls. Restrict this extension to its ROM title. */
 static bool rom_title_cruisn_exotica(const struct salsa64_bus *bus)
@@ -570,9 +592,11 @@ static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct s
 			return SALSA64_GBI_F3DEX;
 		return SALSA64_GBI_UNKNOWN;
 	}
-	/* Fast3D (Super Mario 64 y los primeros juegos) no trae ese texto. */
+	/* Fast3D-family ucodes use this string for multiple revisions. Cruis'n
+	 * USA Rev 2 is not necessarily covered by Rev 1's code CRC, so identify
+	 * this known title before falling back to ordinary F3D. */
 	if (find(p, end, "RSP SW Version: 2.0"))
-		return SALSA64_GBI_F3D;
+		return rom_title_cruisn_usa(bus) ? SALSA64_GBI_F3D_CRUISN_USA : SALSA64_GBI_F3D;
 	return SALSA64_GBI_UNKNOWN;
 }
 

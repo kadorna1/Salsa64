@@ -662,9 +662,15 @@ static void spu_start(void *ctx, const struct salsa64_task *task, enum salsa64_g
 	static bool profile_logged[32];
 	if ((unsigned)gbi < sizeof profile_logged / sizeof profile_logged[0] && !profile_logged[gbi]) {
 		char ucode_text[96];
+		uint32_t crc_bytes = 0, crc_words = 0, crc_data = 0;
+		bool have_crc = salsa64_rsp_ucode_ident(s->bus, task->ucode, task->ucode_size,
+						       task->ucode_data, task->ucode_data_size,
+						       &crc_bytes, &crc_words, &crc_data);
 		salsa64_rsp_ucode_text(s->bus, task->ucode_data, ucode_text, sizeof ucode_text);
-		salsa64_log("RSP: graphics profile gbi=%u, ucode=\"%s\", code=%08x+%x data=%08x+%x",
-			    (unsigned)gbi, ucode_text, task->ucode, task->ucode_size, task->ucode_data, task->ucode_data_size);
+		salsa64_log("RSP: graphics profile gbi=%u, ucode=\\"%s\\", code=%08x+%x crc=%08x/%08x data=%08x+%x data_crc=%08x",
+			    (unsigned)gbi, ucode_text, task->ucode, task->ucode_size,
+			    have_crc ? crc_bytes : 0, have_crc ? crc_words : 0, task->ucode_data, task->ucode_data_size,
+			    have_crc ? crc_data : 0);
 		profile_logged[gbi] = true;
 	}
 	if (!need_image(s, gbi)) {
