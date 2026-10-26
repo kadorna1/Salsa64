@@ -374,6 +374,7 @@ static struct salsa64_save save;
 static struct savefile save_file;
 static struct salsa64_mempak mempak;
 static struct mempakfile mempak_file;
+static struct transferpakfile transferpak_files[SALSA64_PIF_PORTS];
 static uint8_t *rdram;
 static volatile int running;    /* la sesión de juego sigue */
 static volatile int emu_done;   /* el hilo de emulación salió de su bucle */
