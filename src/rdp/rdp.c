@@ -1361,10 +1361,15 @@ static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile)
 	rdp.tb.copy += tb_now() - t0;
 	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1, RSXKIT_RGBA5551) != RSXKIT_OK)
 		return false;
-	/* A pre-draw refresh can be overwritten by the RDP later in this task.
-	 * Keep its CopyColorFromRDRAM baseline unchanged until VI presentation. */
-	if (commit_profile && rdp.copy_color_from_rdram)
+	/* The baseline describes RDRAM bytes already uploaded to RSX. RDP
+	 * draws later in this task change the surface, not RDRAM, so keep the
+	 * baseline committed to avoid reapplying stale pixels on the next task. */
+	if (commit_profile && rdp.copy_color_from_rdram) {
 		rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, t->addr + y0 * line, t->addr + y1 * line);
+		/* Only a full-image prime proves the whole CPU-owned surface synced. */
+		if (y0 == 0 && y1 == t->lh)
+			rdp_targets_rdram_uploaded(&rdp.tg, i);
+	}
 	rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
 	rdp.stats.primes++;
 	rdp.surf_gen[i] = ++rdp.gen_seq;
@@ -1502,9 +1507,9 @@ static uint32_t profile_cpu_rows_count(int i, uint32_t *first_row,
  * is 128 bytes (64 RGBA5551 pixels); refreshing an entire row would replace
  * RSX-only background pixels in that row with stale RDRAM contents.
  *
- * commit_profile is false at target acquisition, because the RDP may draw
- * over these pixels later in the same task. VI presentation passes true so
- * the baseline advances only after the CPU-written spans are restored. */
+ * On every successful span upload, commit the RDRAM baseline. Subsequent
+ * RSX draws do not change RDRAM, so the same bytes must not be uploaded again
+ * over those newer RSX pixels. CPU writes that happen later still differ. */
 static uint32_t prime_profile_cpu_spans(int i, bool commit_profile)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
@@ -1588,6 +1593,10 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile)
 	if (any) {
 		rdp.bound_t = -1;
 		rdp.surf_gen[i] = ++rdp.gen_seq;
+		/* Partial uploads restore RSX ownership only when every changed
+		 * span was copied successfully. */
+		if (commit_profile && rdp.copy_color_from_rdram && !profile_cpu_rows_changed(i))
+			rdp_targets_rdram_uploaded(&rdp.tg, i);
 	}
 	return regions;
 }
