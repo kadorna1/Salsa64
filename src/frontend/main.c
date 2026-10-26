@@ -200,6 +200,7 @@
 #include "savefile.h"
 #include "scale_auto.h"
 #include "mempakfile.h"
+#include "transferpakfile.h"
 #include "screenshot.h"
 #include "selftest.h"
 #include "selftest_audio.h"
