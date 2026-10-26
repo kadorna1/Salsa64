@@ -821,6 +821,24 @@ static void menu_controls(void)
 	CHECK_EQ(m.page, MENU_PAGE_OPTIONS);
 }
 
+static void menu_accessory_option(void)
+{
+	struct menu m;
+	nav_setup(&m, 2, 0);
+	menu_input(&m, 0, 0);
+	m.page = MENU_PAGE_OPTIONS;
+	m.opt = MENU_OPT_ACCESSORY;
+	CHECK_EQ(m.set.accessory, MENU_ACC_PAK);
+	CHECK_EQ(menu_input(&m, RIGHT, 10), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_NONE);
+	menu_input(&m, 0, 20);
+	CHECK_EQ(menu_input(&m, CROSS, 30), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_RUMBLE);
+	menu_input(&m, 0, 40);
+	CHECK_EQ(menu_input(&m, LEFT, 50), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_NONE);
+}
+
 static void menu_game_page(void)
 {
 	struct menu m;
@@ -947,6 +965,15 @@ static void menu_game_page(void)
 	n = menu_game_format(&m.game, buf, sizeof buf);
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	/* Global → Controller Pak and back: games can inherit or pin an accessory. */
+	m.game.accessory = -1;
+	m.game_sel = MENU_GAME_ACCESSORY;
+	menu_input(&m, 0, 179);
+	CHECK_EQ(menu_input(&m, RIGHT, 180), MENU_GAME_CHANGED);
+	CHECK_EQ(m.game.accessory, MENU_ACC_PAK);
+	menu_input(&m, 0, 181);
+	CHECK_EQ(menu_input(&m, LEFT, 182), MENU_GAME_CHANGED);
+	CHECK_EQ(m.game.accessory, -1);
 	const char *junk = "aspecto = 5:4\nfiltro = raro\nrecorte = x\nescala = 9\nescala-estable = 9\n";
 	menu_game_parse(&back, junk, strlen(junk));
 	CHECK_EQ(back.aspect, -1);
@@ -1157,6 +1184,9 @@ static void menu_options_page(void)
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
 	CHECK_EQ(m.opt, MENU_OPT_LANG);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_ACCESSORY);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
 	CHECK_EQ(m.opt, MENU_OPT_CONFIRM);
@@ -2174,6 +2204,7 @@ void t_suite_menu(void)
 	RUN(menu_video_file);
 	RUN(menu_pages);
 	RUN(menu_options_page);
+	RUN(menu_accessory_option);
 	RUN(menu_game_page);
 	RUN(menu_density);
 	RUN(menu_controls);
