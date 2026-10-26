@@ -4197,7 +4197,10 @@ static void accessory_menu_events(void)
 	int next = (current + delta + MENU_ACCS) % MENU_ACCS;
 	n64.bus.pif.accessory[port] = next == MENU_ACC_NONE ? SALSA64_PIF_ACCESSORY_NONE
 					 : next == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
+					 : next == MENU_ACC_TRANSFER ? SALSA64_PIF_ACCESSORY_TRANSFER_PAK
 					 : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
+	/* Swapping accessories resets the Transfer Pak control registers. */
+	salsa64_transferpak_reset(&n64.bus.pif.transferpak_state[port]);
 	/* Replacing a Rumble Pak drops its motor state immediately. */
 	n64.bus.pif.rumble[port] = 0;
 	n64.bus.pif.pak_err[port] = 0;
