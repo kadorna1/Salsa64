@@ -299,6 +299,29 @@ static void sec_pif(struct st *s, struct salsa64_bus *b)
 		pad_state(s, &p->sent[i]);
 	st_u32s(s, p->reads, SALSA64_PIF_PORTS);
 	st_raw(s, b->pif_ram, SALSA64_PIF_RAM_SIZE);
+	/* Transfer Pak registers are machine state; cartridge ROM/RAM pointers
+	 * remain owned by the frontend and are reattached when a game opens. */
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+		struct salsa64_transferpak_state *t = &p->transferpak_state[i];
+		st_u8(s, &t->power);
+		st_u8(s, &t->bank);
+		st_u8(s, &t->cart_enabled);
+		st_u8(s, &t->reset_state);
+		st_u8(s, &t->ram_enabled);
+		st_u8(s, &t->mbc1_rom_low);
+		st_u8(s, &t->mbc1_bank_high);
+		st_u8(s, &t->mbc1_mode);
+		st_u8(s, &t->mbc2_rom_bank);
+		st_u8(s, &t->mbc3_rom_bank);
+		st_u8(s, &t->mbc3_ram_bank);
+		st_u8(s, &t->mbc3_latch_prev);
+		st_u8(s, &t->mbc5_rom_low);
+		st_u8(s, &t->mbc5_rom_high);
+		st_u8(s, &t->mbc5_ram_bank);
+		st_raw(s, t->rtc, sizeof t->rtc);
+		st_raw(s, t->rtc_latched, sizeof t->rtc_latched);
+		st_u8(s, &t->rtc_latched_valid);
+	}
 }
 
 /* FlashRAM: el estado del chip (sus datos van en CART). Con versión propia:
