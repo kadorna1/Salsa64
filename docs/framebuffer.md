@@ -156,6 +156,16 @@ anterior, el error se acumulaba (en el host, sin retraso, la estela salía
 hasta 17 niveles más oscura; en la PS3, además, con el tramado del RSX:
 un tablero de ajedrez).
 
+**CopyColorFromRDRAM y presentación del VI.** En el perfil de Dr. Mario 64, la
+compatibilidad también se comprueba al presentar el campo: el CPU puede
+modificar el framebuffer en la RDRAM después de la última tarea gráfica, sin
+que vuelva a ejecutarse `get_target`. Si el destino del VI tiene líneas que
+difieren de la huella estable de la RDRAM, esas líneas se suben al RSX justo
+antes de presentarlo. Para no borrar esas escrituras entre campos, el espejo
+automático del framebuffer principal RSX → RDRAM se desactiva solo para ese
+perfil; siguen activos los demás efectos de framebuffer (render a textura,
+manejo de profundidad y copias auxiliares ya solicitadas).
+
 **Sin tramado en las copias.** `rsxkit_target_read` escribe la superficie
 de 16 bits (R5G6B5) con el *dithering* del RSX apagado: si está encendido,
 suma un patrón fijo por posición antes de redondear, y una imagen que

@@ -4968,8 +4968,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	title_compact[title_compact_len] = '\0';
 	bool dr_mario64 = strstr(title_compact, "DRMARIO64") != NULL;
 	salsa64_rdp_copy_color_from_rdram(dr_mario64);
+	/* GLideN64's Dr. Mario profile disables the automatic main-framebuffer
+	 * copy-back while keeping framebuffer-info and texture/depth handling on.
+	 * This is separate from fbfx, which controls several unrelated effects. */
+	salsa64_rdp_copy_color_to_rdram(!dr_mario64);
 	if (dr_mario64)
-		salsa64_log("compatibilidad: CopyColorFromRDRAM activo para Dr. Mario 64");
+		salsa64_log("compatibilidad: Dr. Mario 64 CopyColorFromRDRAM activo; espejo automático del framebuffer principal desactivado");
 	salsa64_log("ROM %s \"%s\", %u bytes, %s, entrada 0x%08X, TV %s", source, title, rom_size,
 		    boot_info.kind == SALSA64_BOOT_ELF ? "ELF (IPL3 libre)" : "carga plana", boot_info.entry,
 		    boot_info.tv == SALSA64_TV_PAL ? "PAL" : boot_info.tv == SALSA64_TV_MPAL ? "MPAL" : "NTSC");

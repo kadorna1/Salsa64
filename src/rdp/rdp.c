@@ -328,6 +328,7 @@ static struct {
 	/* Efectos de framebuffer (docs/framebuffer.md). */
 	int fbfx;                    /* 0 apagado, 1 render a textura, 2 también copias */
 	bool copy_color_from_rdram;  /* perfil por juego: repoblar destinos desde RDRAM */
+	bool copy_color_to_rdram;    /* espejo automático del framebuffer principal */
 	bool aa_edges;               /* salsa64_rdp_aa_edges */
 	bool target_alpha;           /* salsa64_rdp_target_alpha */
 	uint8_t *rdram;              /* la RDRAM emulada (NULL: sin copias ni cebado) */
@@ -507,6 +508,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.rb = rdp.cache + CACHE_BYTES;
 	rdp.rb_off = rdp.cache_off + CACHE_BYTES;
 	rdp.fbfx = 2;
+	rdp.copy_color_to_rdram = true;
 	rdp.aa_edges = false;  /* experimental: engordaba los modelos en la PS3 */
 	rdp.ready = true;
 	return RSXKIT_OK;
@@ -541,6 +543,11 @@ void salsa64_rdp_copy_color_from_rdram(bool on)
 	if (rdp.copy_color_from_rdram != on)
 		profile_guard_reset();
 	rdp.copy_color_from_rdram = on;
+}
+
+void salsa64_rdp_copy_color_to_rdram(bool on)
+{
+	rdp.copy_color_to_rdram = on;
 }
 
 int salsa64_rdp_interp(int mode, float t)
@@ -3004,7 +3011,7 @@ static void translate(uint32_t n)
 	 * tendrá cuando un dibujo las lea ya viejas (Link en la pantalla de
 	 * equipo de Zelda, 395 tareas después). No se espera: se convierten en
 	 * una traducción posterior, cuando el RSX pasó la barrera. */
-	for (int i = 0; rdp.rdram && rdp.fbfx >= 2 && i < RDP_TARGETS_MAX; i++) {
+	for (int i = 0; rdp.rdram && rdp.fbfx >= 2 && rdp.copy_color_to_rdram && i < RDP_TARGETS_MAX; i++) {
 		if (!drawn[i] || sync_rb[i])
 			continue;
 		int k = mirror_small(i, &drawn_box[i], n, MIRROR_BYTES);
@@ -3126,7 +3133,7 @@ static void frame_mirror(int slot, uint32_t rows, bool wait)
 		fence_wait(rdp.frame.fence);
 		readbacks_finish(false);
 	}
-	if (rdp.frame.used || !rdp.rdram || rdp.fbfx < 2 || !rdp.surf[slot] || t->bpp != 2 || t->lw > RB_MAX_W ||
+	if (rdp.frame.used || !rdp.rdram || rdp.fbfx < 2 || !rdp.copy_color_to_rdram || !rdp.surf[slot] || t->bpp != 2 || t->lw > RB_MAX_W ||
 	    rows > RB_MAX_H || !rows || t->addr + t->width * 2 * rows > rdp.rdram_size ||
 	    !rdp_targets_mirror_wanted(&rdp.tg, slot))
 		return;
@@ -3366,6 +3373,25 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 	rdp_targets_present(&rdp.tg, f, field, &p);
 	if (p.slot < 0 || !rdp.surf[p.slot] || !p.w || !p.h)
 		return false;
+	/* GLideN64 applies CopyColorFromRDRAM at the VI update as well as when
+	 * a framebuffer is first created. CPU-written pixels can arrive after
+	 * the last RDP task, so get_target() alone is too early to notice them.
+	 * Re-upload only rows that differ from the stable RDRAM baseline, just
+	 * before presenting the VI-selected target. */
+	if (rdp.copy_color_from_rdram) {
+		if (profile_cpu_rows_changed(p.slot)) {
+			uint32_t rows = prime_profile_cpu_rows(p.slot);
+			if (rows) {
+				rdp.profile_prime_task[p.slot] = rdp.tg.task;
+				rdp.surf_dirty[p.slot] = true;
+				LOGN(40, "gfx: VI CopyColorFromRDRAM %06x/%u: %u CPU-modified rows uploaded before presentation",
+				     rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width, rows);
+			}
+		} else {
+			LOGN(1, "gfx: VI CopyColorFromRDRAM active for %06x/%u; first VI check found no changed rows",
+			     rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width);
+		}
+	}
 	rdp.last_p = p;
 	rdp.stats.age_sum += p.age;
 	if (p.age > rdp.stats.age_max)
