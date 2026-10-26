@@ -40,6 +40,12 @@
 #define SALSA64_PIF_PORTS    4
 #define SALSA64_PIF_CHANNELS 5  /* 4 puertos + cartucho */
 
+enum salsa64_pif_accessory {
+	SALSA64_PIF_ACCESSORY_CONTROLLER_PAK,
+	SALSA64_PIF_ACCESSORY_NONE,
+	SALSA64_PIF_ACCESSORY_RUMBLE_PAK,
+};
+
 /* Botones en la respuesta del comando 0x01, el bit más alto primero. */
 enum salsa64_pad_button {
 	SALSA64_PAD_A       = 0x8000,
@@ -69,6 +75,8 @@ struct salsa64_pad {
 
 struct salsa64_pif {
 	struct salsa64_pad pads[SALSA64_PIF_PORTS];
+	uint8_t accessory[SALSA64_PIF_PORTS]; /* enum salsa64_pif_accessory */
+	uint8_t rumble[SALSA64_PIF_PORTS];    /* latch del motor, 0 apagado, 1 encendido */
 	int8_t handshake[SALSA64_PIF_CHANNELS];  /* posición del byte TX de cada canal, -1 si no hay */
 	uint8_t parsed;                          /* hay intercambios listos para ejecutar */
 	bool challenge6105;                      /* el CIC del cartucho es el 6105: la PIF contesta su desafío */

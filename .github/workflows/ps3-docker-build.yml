@@ -1,0 +1,63 @@
+name: PS3 Docker frontend build (diagnostic)
+
+# Diagnostic retry after fixing the global accessory-settings accessor.
+# Use the project's published toolchain image instead of rebuilding GCC/binutils.
+on:
+  push:
+    branches:
+      - feature/rumble-pak-support
+    paths:
+      - .github/workflows/ps3-docker-build.yml
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  ps3-frontend:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select the existing PS3 toolchain image
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/kadorna1/salsa64-toolchain:10ba33a3a3733eaa"
+          echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "Reusing published toolchain image: $IMAGE"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the existing PS3 toolchain image
+        run: docker pull "$SALSA64_IMAGE"
+
+      - name: Compile and package the PS3 frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/logs
+          tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/ps3-frontend-build.log
+          test -s build/salsa64/salsa64.pkg
+
+      - name: Upload diagnostic logs and build outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: salsa64-ps3-docker-build
+          path: |
+            build/logs/*.log
+            build/salsa64/*.pkg
+            build/salsa64/*.elf
+            build/salsa64/*.self
+          if-no-files-found: warn
+          retention-days: 7
