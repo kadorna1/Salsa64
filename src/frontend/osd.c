@@ -247,7 +247,7 @@ void osd_accessory_menu_draw(const struct osd_accessory_menu *m, float lw, float
 				       cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
 	}
 	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.4f,
-		       tr("←→ / ×  Cambiar     ↑↓  Elegir     ○  Volver"), 1.4f, 0xC8C8C8FF, 0);
+		       tr("×  Cambiar     ↑↓  Elegir     ○  Volver"), 1.4f, 0xC8C8C8FF, 0);
 	rsxkit_ui_end();
 }
 
