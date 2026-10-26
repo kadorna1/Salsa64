@@ -327,6 +327,15 @@ bool rdp_targets_readback(struct rdp_targets *s, int slot, bool force, bool cpu_
 	return true;
 }
 
+/* CopyColorFromRDRAM has reconciled CPU-owned bytes with the RSX surface.
+ * The surface can again be sampled as a texture, while normal freshness rules
+ * still decide what to do with old targets. */
+void rdp_targets_rdram_uploaded(struct rdp_targets *s, int slot)
+{
+	if (slot >= 0 && slot < RDP_TARGETS_MAX && s->t[slot].used)
+		s->t[slot].cpu_owned = false;
+}
+
 bool rdp_targets_mirror_wanted(const struct rdp_targets *s, int slot)
 {
 	return slot >= 0 && slot < RDP_TARGETS_MAX && s->t[slot].used && !s->t[slot].mirrored;
