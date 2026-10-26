@@ -925,8 +925,8 @@ static void menu_game_page(void)
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_GEOMETRY);
 	back.interp = -1;
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_OFF);  /* la de Opciones */
-	/* Accesorio: Controller Pak por omisión, «ninguno» se guarda y se lee. */
-	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	/* Por omisión el accesorio hereda de Opciones; las elecciones explícitas van al archivo del juego. */
+	CHECK_EQ(back.accessory, -1);
 	m.game.accessory = MENU_ACC_NONE;
 	n = menu_game_format(&m.game, buf, sizeof buf);
 	CHECK(strstr(buf, "accesorio = ninguno") != NULL);
@@ -982,6 +982,7 @@ static void menu_game_page(void)
 	st.filter = MENU_FILTER_SCAN_SOFT;
 	st.lang = MENU_LANG_DE;
 	st.interp = MENU_INTERP_GEOMETRY;
+	st.accessory = MENU_ACC_RUMBLE;
 	n = menu_settings_format(&st, buf, sizeof buf);
 	CHECK(n > 0 && n < (int)sizeof buf);
 	struct menu_settings st2;
@@ -991,6 +992,7 @@ static void menu_game_page(void)
 	CHECK_EQ(st2.filter, MENU_FILTER_SCAN_SOFT);
 	CHECK_EQ(st2.lang, MENU_LANG_DE);
 	CHECK_EQ(st2.interp, MENU_INTERP_GEOMETRY);
+	CHECK_EQ(st2.accessory, MENU_ACC_RUMBLE);
 }
 
 static void menu_options_page(void)
