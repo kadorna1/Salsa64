@@ -1054,8 +1054,9 @@ static void targets_cpu_guard(void)
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, FB >> RDP_GUARD_SHIFT));
 	CHECK(!rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	CHECK(rdp_guard_hash(guard_ram) != 0);
-	/* Termina la tarea que dibujó el cuadro: huellas de sus filas. */
+	/* Task guard and stable profile baseline are deliberately independent. */
 	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
+	rdp_guard_profile_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
 	uint32_t l0 = FB >> RDP_GUARD_SHIFT, l1 = (FB + LINE * ROWS - 1) >> RDP_GUARD_SHIFT;
 	for (uint32_t l = l0; l <= l1; l++)
 		CHECK(rdp_guard_ok(&guard_t, guard_ram, l));
@@ -1065,10 +1066,15 @@ static void targets_cpu_guard(void)
 	CHECK(!rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
 	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	CHECK(!rdp_target_row_cpu_changed(&row_target, 84, &guard_t, guard_ram, sizeof guard_ram));
+	/* A later task overwrites the transient guard with changed RDRAM. It must
+	 * not erase the stable profile baseline or hide the CPU write. */
+	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
+	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) + 1));
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) - 1));
 	/* Al restaurar el byte, la fila vuelve a coincidir con la huella. */
 	guard_ram[dl] = 0;
+	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
 	CHECK(!rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	uint32_t la = dl & ~(RDP_GUARD_LINE - 1);

@@ -534,8 +534,12 @@ void salsa64_rdp_fbfx(int level)
 	rdp.fbfx = level < 0 ? 0 : level > 2 ? 2 : level;
 }
 
+static void profile_guard_reset(void);
+
 void salsa64_rdp_copy_color_from_rdram(bool on)
 {
+	if (rdp.copy_color_from_rdram != on)
+		profile_guard_reset();
 	rdp.copy_color_from_rdram = on;
 }
 
@@ -603,7 +607,12 @@ bool salsa64_rdp_last_present(struct salsa64_rdp_present_info *out)
 }
 
 static uint32_t find_black(uint32_t lo, uint32_t hi);
-static struct rdp_guard guard;  /* huellas de la guarda contra el CPU (más abajo) */
+static struct rdp_guard guard;  /* guardas tardías y baseline de CopyColorFromRDRAM */
+
+static void profile_guard_reset(void)
+{
+	memset(guard.profile, 0, sizeof guard.profile);
+}
 
 void salsa64_rdp_rdram_written(uint32_t pa, uint32_t len, bool gfx_in_flight)
 {
@@ -1010,7 +1019,7 @@ static inline uint32_t rb_pitch(uint32_t bpp, uint32_t lw)
 
 /* ---- Guarda contra el CPU y vigilante (rdp_guard, targets.h) ---- */
 
-/* `guard`: 512 KB en el BSS (docs/memory-budget.md), declarada arriba. */
+/* `guard`: 768 KB en el BSS (docs/memory-budget.md): dos guardas y un baseline por perfil. */
 
 void salsa64_rdp_guard(bool on, uint32_t watch_lo, uint32_t watch_hi)
 {
@@ -1100,6 +1109,15 @@ static bool guard_row(uint32_t d0, uint32_t d1, bool ok[ROW_LINES], uint32_t *sk
 
 static void guard_wrote(uint32_t d0, uint32_t d1, const bool *ok)
 {
+	if (d1 > d0 && rdp.copy_color_from_rdram && rdp.rdram) {
+		uint32_t l0 = d0 >> RDP_GUARD_SHIFT, l1 = (d1 - 1) >> RDP_GUARD_SHIFT;
+		for (uint32_t l = l0; l <= l1 && l - l0 < ROW_LINES; l++) {
+			if (rdp.guard_off || !ok || ok[l - l0]) {
+				uint32_t lo = l << RDP_GUARD_SHIFT;
+				rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, lo, lo + RDP_GUARD_LINE);
+			}
+		}
+	}
 	if (rdp.guard_off)
 		return;
 	uint32_t l0 = d0 >> RDP_GUARD_SHIFT, l1 = (d1 - 1) >> RDP_GUARD_SHIFT;
@@ -1330,6 +1348,10 @@ static bool prime_rows(int i, uint32_t y0, uint32_t y1)
 	rdp.tb.copy += tb_now() - t0;
 	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1, RSXKIT_RGBA5551) != RSXKIT_OK)
 		return false;
+	/* Keep the profile baseline separate from task-end guard hashes. Only
+	 * successful RDRAM->RSX uploads establish what the surface now contains. */
+	if (rdp.copy_color_from_rdram)
+		rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, t->addr + y0 * line, t->addr + y1 * line);
 	rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
 	rdp.stats.primes++;
 	rdp.surf_gen[i] = ++rdp.gen_seq;

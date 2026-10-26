@@ -406,26 +406,26 @@ bool rdp_target_dma_updated(const struct rdp_target *t, const struct rdp_dma_rin
  * le pisaba sus datos con el cuadro, que en negro es 0x0001 en RGBA5551: la
  * lista salía llena de 0x00010001 y el CPU saltaba a 0x00010001.
  *
- * Una huella por línea de 128 bytes: `base` la pone el hilo de emulación al
- * terminar cada tarea, en las filas que sus dibujos pueden tocar (la RDRAM
- * aún sin la copia); `wrote`, el hilo de presentación tras escribir una copia
- * en la línea. Una línea se puede copiar si no hay huella (0) o si su
- * contenido es el de una de las dos: si no, algo que no es el RDP (el CPU,
- * casi siempre) la cambió desde que terminó la tarea, y esa línea se salta.
- * Las dos tablas tienen un solo escritor cada una; una carrera entre los dos
- * hilos solo puede saltar una línea de más en una copia. */
+ * Huellas por línea de 128 bytes. `base` la escribe el hilo de emulación
+ * al terminar una tarea; `wrote`, el de presentación después de una copia
+ * tardía. `profile` conserva un baseline independiente para CopyColorFromRDRAM:
+ * las huellas de tareas cambian continuamente y no sirven para recordar una
+ * escritura CPU entre el dibujo y el uso siguiente de la superficie. */
 #define RDP_GUARD_SHIFT 7
 #define RDP_GUARD_LINE  (1u << RDP_GUARD_SHIFT)
 #define RDP_GUARD_LINES ((8u << 20) >> RDP_GUARD_SHIFT)
 struct rdp_guard {
 	uint32_t base[RDP_GUARD_LINES];
 	uint32_t wrote[RDP_GUARD_LINES];
+	uint32_t profile[RDP_GUARD_LINES];
 };
 /* Huella de 128 bytes alineados (nunca 0). */
 uint32_t rdp_guard_hash(const uint8_t *line);
 void rdp_guard_clear(struct rdp_guard *g);
 /* Hilo de emulación: huella de las líneas de [lo, hi) (recortado a `size`). */
 void rdp_guard_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, uint32_t lo, uint32_t hi);
+/* Baseline estable del perfil CopyColorFromRDRAM, independiente de las guardas tardías. */
+void rdp_guard_profile_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, uint32_t lo, uint32_t hi);
 /* ¿Se puede escribir la línea `line` (dirección >> RDP_GUARD_SHIFT)? */
 static inline bool rdp_guard_ok(const struct rdp_guard *g, const uint8_t *rdram, uint32_t line)
 {
@@ -440,8 +440,8 @@ static inline void rdp_guard_wrote(struct rdp_guard *g, const uint8_t *rdram, ui
 {
 	g->wrote[line] = rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT));
 }
-/* True when any guard line overlapping this 16-bit target row has changed
- * since the last RDP-task/readback snapshot (normally a CPU pixel write). */
+/* True when any initialized profile-baseline line overlapping this 16-bit
+ * target row has changed since it was last uploaded/read back. */
 bool rdp_target_row_cpu_changed(const struct rdp_target *t, uint32_t row, const struct rdp_guard *g,
 				const uint8_t *rdram, uint32_t rdram_size);
 

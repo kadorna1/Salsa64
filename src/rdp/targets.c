@@ -749,10 +749,29 @@ void rdp_guard_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, ui
 		g->base[l] = rdp_guard_hash(rdram + (l << RDP_GUARD_SHIFT));
 }
 
-/* A CPU-modified row is uploaded only if one of its guard lines no longer
- * matches either the task-end RDRAM snapshot or a later readback we wrote.
- * Guard lines are absolute RDRAM 128-byte spans, so unaligned row strides
- * conservatively mark both rows when one guard line overlaps both. */
+/* Baseline used by CopyColorFromRDRAM. Unlike `base`/`wrote`, this snapshot
+ * is updated only when data is uploaded to a target or our own readback writes
+ * RDRAM. A later task-end guard therefore cannot absorb a CPU change before
+ * the target is reused. */
+void rdp_guard_profile_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, uint32_t lo, uint32_t hi)
+{
+	if (!g || !rdram)
+		return;
+	if (hi > size)
+		hi = size;
+	uint32_t limit = RDP_GUARD_LINES << RDP_GUARD_SHIFT;
+	if (hi > limit)
+		hi = limit;
+	if (lo >= hi)
+		return;
+	for (uint32_t l = lo >> RDP_GUARD_SHIFT; l <= (hi - 1) >> RDP_GUARD_SHIFT; l++)
+		g->profile[l] = rdp_guard_hash(rdram + (l << RDP_GUARD_SHIFT));
+}
+
+/* A CPU-modified row is uploaded only if a previously initialized profile
+ * baseline no longer matches. Guard lines are absolute 128-byte spans, so
+ * unaligned row strides conservatively mark adjacent rows when they overlap
+ * the same line. */
 bool rdp_target_row_cpu_changed(const struct rdp_target *t, uint32_t row, const struct rdp_guard *g,
 				const uint8_t *rdram, uint32_t rdram_size)
 {
@@ -771,9 +790,11 @@ bool rdp_target_row_cpu_changed(const struct rdp_target *t, uint32_t row, const 
 		return false;
 	if (last >= RDP_GUARD_LINES)
 		last = RDP_GUARD_LINES - 1;
-	for (uint32_t line = first; line <= last; line++)
-		if (!rdp_guard_ok(g, rdram, line))
+	for (uint32_t line = first; line <= last; line++) {
+		uint32_t baseline = g->profile[line];
+		if (baseline && rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT)) != baseline)
 			return true;
+	}
 	return false;
 }
 
