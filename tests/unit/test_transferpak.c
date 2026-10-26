@@ -3,9 +3,14 @@
  */
 #include "test.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "core/transferpak.h"
+#include "frontend/transferpakfile.h"
 
 #define GB_BANK 0x4000u
 
@@ -144,6 +149,76 @@ static void transferpak_mbc2_nibble_ram(void)
 	CHECK_EQ(test_ram[0], 0x0B);
 }
 
+static void transferpak_file_save_round_trip(void)
+{
+	if (!t_tmp_dir) {
+		CHECK(false);
+		return;
+	}
+	char source[256], gb_path[260], sav_path[260];
+	snprintf(source, sizeof source, "%s/transferpak-test.z64", t_tmp_dir);
+	snprintf(gb_path, sizeof gb_path, "%s.gb", source);
+	snprintf(sav_path, sizeof sav_path, "%s.sav", source);
+	FILE *n64 = fopen(source, "wb");
+	CHECK(n64 != NULL);
+	if (!n64)
+		return;
+	CHECK_EQ(fclose(n64), 0);
+
+	make_rom(0x03, 0x02);
+	FILE *gb = fopen(gb_path, "wb");
+	CHECK(gb != NULL);
+	if (!gb) {
+		remove(source);
+		return;
+	}
+	CHECK_EQ(fwrite(test_rom, 1, sizeof test_rom, gb), sizeof test_rom);
+	CHECK_EQ(fclose(gb), 0);
+
+	struct salsa64_pif pif;
+	struct transferpakfile file;
+	memset(&pif, 0, sizeof pif);
+	transferpakfile_open(&file, &pif, 0, source, NULL);
+	/* A logger is required to accept a companion ROM; open again below with
+	 * a real quiet logger, keeping a NULL-logger case from being mistaken for
+	 * a successfully initialized cartridge. */
+	CHECK(pif.transferpak[0] == &file.cart);
+	transferpakfile_close(&file);
+
+	/* Variadic callback matches the frontend's normal save logger. */
+	void quiet_log(const char *fmt, ...)
+	{
+		(void)fmt;
+	}
+	transferpakfile_open(&file, &pif, 0, source, quiet_log);
+	CHECK(file.cart.rom != NULL);
+	CHECK_EQ(file.cart.ram_size, 8u * 1024u);
+	CHECK_EQ(file.cart.ram[0], 0xFF);
+	CHECK(pif.transferpak[0] == &file.cart);
+
+	/* Exercise deferred staging and the .sav sidecar, then reload it. */
+	file.cart.ram[0] = 0x42;
+	file.cart.dirty = 1;
+	file.cart.writes = 1;
+	file.seen_writes = 1;
+	file.last_write_us = 100;
+	transferpakfile_stage(&file, 2000100);
+	CHECK(file.pending);
+	CHECK(!file.cart.dirty);
+	transferpakfile_write_staged(&file, 2000100);
+	CHECK(!file.pending);
+	CHECK(access(sav_path, F_OK) == 0);
+	transferpakfile_close(&file);
+
+	transferpakfile_open(&file, &pif, 0, source, quiet_log);
+	CHECK(file.cart.rom != NULL);
+	CHECK_EQ(file.cart.ram[0], 0x42);
+	transferpakfile_close(&file);
+	remove(sav_path);
+	remove(gb_path);
+	remove(source);
+}
+
 static void transferpak_rejects_bad_cartridges(void)
 {
 	struct salsa64_transferpak_cart cart;
@@ -161,5 +236,6 @@ void t_suite_transferpak(void)
 	RUN(transferpak_power_status_and_banking);
 	RUN(transferpak_mbc1_banking_and_sram);
 	RUN(transferpak_mbc2_nibble_ram);
+	RUN(transferpak_file_save_round_trip);
 	RUN(transferpak_rejects_bad_cartridges);
 }
