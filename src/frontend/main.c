@@ -2742,7 +2742,8 @@ static void present_overlay(uint64_t now)
 		am.sel = pause_ctl.accessory_sel;
 		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
 			int a = n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_NONE ? MENU_ACC_NONE
-				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
+				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE
+				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_TRANSFER_PAK ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
 			am.value[i] = menu_accessory_name(a);
 		}
 		osd_accessory_menu_draw(&am, ui_lw, ui_lh);
