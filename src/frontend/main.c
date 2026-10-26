@@ -5099,6 +5099,13 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 				fbfx = 2;
 			fclose(ff);
 		}
+		/* GLideN64's Dr. Mario 64 profile combines CopyColorFromRDRAM=1
+		 * with CopyColorToRDRAM=0. Keep render-to-texture enabled, but don't
+		 * read the RSX target back over the CPU-updated pixels in RDRAM. */
+		if (dr_mario64 && fbfx > 0) {
+			fbfx = 1;
+			salsa64_log("compatibilidad: Dr. Mario 64 desactiva las copias RSX -> RDRAM");
+		}
 		salsa64_rdp_fbfx(fbfx);
 		salsa64_log("efectos de framebuffer: %s", fbfx <= 0 ? "apagados" : fbfx == 1 ? "render a textura" :
 								"render a textura y copias a la RDRAM");
