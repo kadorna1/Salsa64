@@ -667,7 +667,7 @@ static void spu_start(void *ctx, const struct salsa64_task *task, enum salsa64_g
 						       task->ucode_data, task->ucode_data_size,
 						       &crc_bytes, &crc_words, &crc_data);
 		salsa64_rsp_ucode_text(s->bus, task->ucode_data, ucode_text, sizeof ucode_text);
-		salsa64_log("RSP: graphics profile gbi=%u, ucode=\\"%s\\", code=%08x+%x crc=%08x/%08x data=%08x+%x data_crc=%08x",
+		salsa64_log("RSP: graphics profile gbi=%u, ucode=\"%s\", code=%08x+%x crc=%08x/%08x data=%08x+%x data_crc=%08x",
 			    (unsigned)gbi, ucode_text, task->ucode, task->ucode_size,
 			    have_crc ? crc_bytes : 0, have_crc ? crc_words : 0, task->ucode_data, task->ucode_data_size,
 			    have_crc ? crc_data : 0);
