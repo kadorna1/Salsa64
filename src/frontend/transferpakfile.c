@@ -76,13 +76,12 @@ static bool write_save(struct transferpakfile *f, const uint8_t *data, uint32_t 
 	if (!f->path[0] || !len)
 		return true;
 	bool ok = write_file(f->tmp, data, len);
-	if (ok) {
-		remove(f->path);
-		if (rename(f->tmp, f->path) != 0) {
-			ok = write_file(f->path, data, len);
-			if (ok)
-				remove(f->tmp);
-		}
+	if (ok && rename(f->tmp, f->path) != 0) {
+		/* Some filesystems may refuse replacement; retain the fallback,
+		 * but do not remove the previous save until the temporary file exists. */
+		ok = write_file(f->path, data, len);
+		if (ok)
+			remove(f->tmp);
 	}
 	if (!ok) {
 		if (!f->failed)
@@ -207,7 +206,7 @@ void transferpakfile_close(struct transferpakfile *f)
 		return;
 	/* The game/worker is stopped before close. Prefer current RAM to any older
 	 * staged copy, so writes after the last stage are not lost. */
-	if (f->cart.ram && f->cart.ram_size && f->cart.dirty && f->path[0]) {
+	if (f->cart.ram && f->cart.ram_size && (f->cart.dirty || f->pending) && f->path[0]) {
 		(void)write_save(f, f->cart.ram, f->cart.ram_size, f->cart.writes - f->saved_writes, "al salir");
 		f->cart.dirty = 0;
 	}
