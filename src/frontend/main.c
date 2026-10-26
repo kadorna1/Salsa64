@@ -5428,6 +5428,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		beat.pres_at = "guardado";
 		savefile_write_staged(&save_file, now);
 		mempakfile_write_staged(&mempak_file, now);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_write_staged(&transferpak_files[i], now);
 		profile_write_step(now);
 		/* Con el sistema encima (su menú, un aviso), el sistema dibuja lo
 		 * suyo en cada flip de la aplicación: el último cuadro se sigue
