@@ -40,7 +40,7 @@
 #define CIMG_PA    0x10000u /* color image y z image: solo las direcciones */
 #define ZIMG_PA    0x18000u
 
-enum fam { FAM_F3D, FAM_F3DEX, FAM_F3DWR, FAM_F3DBETA, FAM_F3DEX2, FAM_ACCLAIM, FAM_F5, FAM_INDY };
+enum fam { FAM_F3D, FAM_F3DEX, FAM_F3DWR, FAM_F3DBETA, FAM_F3D_CRUISN, FAM_F3DEX2, FAM_ACCLAIM, FAM_F5, FAM_INDY };
 
 struct b {
 	uint8_t *ram;
@@ -196,7 +196,7 @@ static void texrect(struct b *b, unsigned tile, unsigned x0, unsigned y0, unsign
 		return;
 	}
 	dl(b, 0xE4000000u | (x1 << 2) << 12 | y1 << 2, tile << 24 | (x0 << 2) << 12 | y0 << 2);
-	if (b->fam == FAM_F3DBETA) {
+	if (b->fam == FAM_F3DBETA || b->fam == FAM_F3D_CRUISN) {
 		dl(b, 0xB3000000u, 0);
 		dl(b, 0xB2000000u, (copy ? 4u << 10 : 1u << 10) << 16 | 1u << 10);
 	} else {
@@ -221,6 +221,9 @@ uint32_t gfx_selftest_build(uint8_t *ram, uint32_t gbi, uint32_t seed)
 		break;
 	case SALSA64_GBI_F3DBETA:
 		b.fam = FAM_F3DBETA;
+		break;
+	case SALSA64_GBI_F3D_CRUISN_USA:
+		b.fam = FAM_F3D_CRUISN;
 		break;
 	case SALSA64_GBI_F3DWR:
 		b.fam = FAM_F3DWR;

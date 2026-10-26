@@ -101,6 +101,7 @@ enum salsa64_gbi {
 	SALSA64_GBI_F3DPD,    /* Perfect Dark: Fast3D de Rare, vértices con color por índice */
 	SALSA64_GBI_F3DEXBG,  /* Conker: F3DEX2 con G_TRI4, normales aparte y luces puntuales */
 	SALSA64_GBI_F3DWR,    /* Wave Race 64: Fast3D 2.0D con índices de vértice ×5 y G_QUAD en 0xB5 */
+	SALSA64_GBI_F3D_CRUISN_USA, /* Cruis'n USA: índices Fast3D normales, opcodes beta B2–B4 */
 	SALSA64_GBI_F3DDKR,   /* Diddy Kong Racing: Fast3D de Rare con matrices, vértices y triángulos por DMA */
 	SALSA64_GBI_F3DJFG,   /* Jet Force Gemini y Mickey's Speedway USA: el de DKR con otro conteo de vértices */
 	SALSA64_GBI_S2DEX1,   /* S2DEX 1.x suelto (Yoshi's Story): los mismos objetos con los opcodes de la primera generación */
@@ -109,7 +110,7 @@ enum salsa64_gbi {
 	SALSA64_GBI_TURBO3D, /* listas de objetos de Dark Rift */
 	SALSA64_GBI_TURBO3D_F3D, /* su Fast3D acompañante, en la misma imagen */
 	SALSA64_GBI_F3DEX2ACCLAIM, /* variante de F3DEX2 con luces compactas y bit de iluminación propio */
-	SALSA64_GBI_F3DBETA, /* Cruis'n USA: mapa de comandos Fast3D beta */
+	SALSA64_GBI_F3DBETA, /* Familia Fast3D beta con índices de vértice ×5 */
 	SALSA64_GBI_F3DEX2_CRUISN, /* Cruis'n Exotica: G_SPECIAL_1 ejecuta una lista contada */
 };
 

@@ -84,7 +84,7 @@ void gfx_run(struct gfx_state *g, const struct gfx_job *job, struct gfx_result *
 #if GFX_HAS(S2DEX)
 	g->chain_ex = 0;
 #endif
-	gfx_ucode_reload(g, job->ucode, job->gbi == SALSA64_GBI_F3D || job->gbi == SALSA64_GBI_F3DBETA ||
+	gfx_ucode_reload(g, job->ucode, job->gbi == SALSA64_GBI_F3D || job->gbi == SALSA64_GBI_F3D_CRUISN_USA || job->gbi == SALSA64_GBI_F3DBETA ||
 					 job->gbi == SALSA64_GBI_F3DEX ||
 					 job->gbi == SALSA64_GBI_F3DPD || job->gbi == SALSA64_GBI_F3DWR ||
 					 job->gbi == SALSA64_GBI_F3DDKR || job->gbi == SALSA64_GBI_F3DJFG ||
@@ -120,6 +120,7 @@ void gfx_run(struct gfx_state *g, const struct gfx_job *job, struct gfx_result *
 		case SALSA64_GBI_TURBO3D_F3D:
 #endif
 		case SALSA64_GBI_F3D:
+		case SALSA64_GBI_F3D_CRUISN_USA:
 		case SALSA64_GBI_F3DBETA:
 		case SALSA64_GBI_F3DEX:
 		case SALSA64_GBI_F3DWR:

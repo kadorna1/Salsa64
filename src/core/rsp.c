@@ -409,7 +409,7 @@ static const struct {
 } ucode_crcs_w[] = {
 	{ 0x2BDCFC8Au, SALSA64_GBI_TURBO3D, false }, /* Dark Rift: medido también en la PS3 */
 	{ 0x77195A68u, SALSA64_GBI_TURBO3D_F3D, false }, /* Fast3D del mismo juego */
-	{ 0xD3AB59B2u, SALSA64_GBI_F3DBETA, false }, /* Cruis'n USA: Fast3D beta */
+	{ 0xD3AB59B2u, SALSA64_GBI_F3D_CRUISN_USA, false }, /* Cruis'n USA: Fast3D con opcodes beta, índices normales */
 	{ 0x8D91244Fu, SALSA64_GBI_F3DDKR, false },  /* Diddy Kong Racing (USA, rev. 1: el mismo de arriba) */
 	{ 0x6E6FC893u, SALSA64_GBI_F3DDKR, false },  /* Diddy Kong Racing (otra versión: sin respaldo para probarlo) */
 	{ 0xBDE9D1FBu, SALSA64_GBI_F3DJFG, false },  /* Jet Force Gemini y Mickey's Speedway USA: sin respaldo */
@@ -551,7 +551,13 @@ static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct s
 		if (starts_with(q, end, "F3DEXBG"))
 			return SALSA64_GBI_F3DEXBG;
 		bool zex = starts_with(q, end, "F3DZEX");
+		/* Primero saltar el nombre (F3DEX2.fifo, F3DZEX.NoN, etc.).
+		 * El "2" de F3DEX2 no es la versión: "2.08" aparece después del espacio. */
 		const uint8_t *v = q;
+		while (v < end && *v && *v != ' ')
+			v++;
+		while (v < end && *v == ' ')
+			v++;
 		while (v < end && *v && !(v[0] >= '0' && v[0] <= '9' && v + 1 < end && v[1] == '.'))
 			v++;
 		if (v < end && *v == '2') {
@@ -679,7 +685,7 @@ void salsa64_rsp_start(struct salsa64_bus *bus)
 		bool hle_gfx = task.type == SALSA64_TASK_GFX && valid && rsp->gfx &&
 			       (gbi == SALSA64_GBI_F3DEX2 || gbi == SALSA64_GBI_F3DZEX2 ||
 				gbi == SALSA64_GBI_F3DEX2_CRUISN || gbi == SALSA64_GBI_F3DEX2ACCLAIM ||
-				gbi == SALSA64_GBI_F3D || gbi == SALSA64_GBI_F3DBETA ||
+				gbi == SALSA64_GBI_F3D || gbi == SALSA64_GBI_F3D_CRUISN_USA || gbi == SALSA64_GBI_F3DBETA ||
 				gbi == SALSA64_GBI_F3DEX || gbi == SALSA64_GBI_F3DWR || gbi == SALSA64_GBI_F3DPD ||
 				gbi == SALSA64_GBI_F3DDKR || gbi == SALSA64_GBI_F3DJFG || gbi == SALSA64_GBI_F3DEXBG ||
 				gbi == SALSA64_GBI_F5ROGUE || gbi == SALSA64_GBI_F5INDY ||

@@ -3019,8 +3019,24 @@ static void gfx_cruisn_exotica_counted_dlist(void)
 	CHECK_EQ(res.dl_errors, 0);
 }
 
-/* Cruis'n USA beta: B3=HALF_1, B4=PERSPNORM y B2=HALF_CONT. */
+/* Cruis'n USA: índices Fast3D normales, pero B3=HALF_1, B4=PERSPNORM
+ * y B2=HALF_CONT. */
 static void gfx_cruisn_usa_beta_half_commands(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3D_CRUISN_USA;
+	dl(0xB3000000u, 0xFA000000u);
+	dl(0xB4000000u, 0xDEADBEEFu);
+	dl(0xB2000000u, 0xAABBCCDDu);
+	dl(0xB8000000u, 0);
+
+	run();
+	CHECK_EQ(gs.prim, 0xAABBCCDDu);
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+}
+
+static void gfx_f3dbeta_half_commands(void)
 {
 	start();
 	job_gbi = SALSA64_GBI_F3DBETA;
@@ -3095,4 +3111,5 @@ void t_suite_gfx(void)
 	RUN(gfx_f3dex2_othermode_copy);
 	RUN(gfx_cruisn_exotica_counted_dlist);
 	RUN(gfx_cruisn_usa_beta_half_commands);
+	RUN(gfx_f3dbeta_half_commands);
 }

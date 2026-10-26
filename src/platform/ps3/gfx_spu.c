@@ -264,7 +264,7 @@ static void log_words(const char *what, const uint8_t *spe, const uint8_t *ppe, 
 
 static int check_lists(spukit_worker *w, int img, struct detail_window *detail)
 {
-	static const uint32_t gbis[] = { SALSA64_GBI_F3D,    SALSA64_GBI_F3DBETA, SALSA64_GBI_F3DEX,  SALSA64_GBI_F3DWR,
+	static const uint32_t gbis[] = { SALSA64_GBI_F3D,    SALSA64_GBI_F3D_CRUISN_USA, SALSA64_GBI_F3DBETA, SALSA64_GBI_F3DEX,  SALSA64_GBI_F3DWR,
 					 SALSA64_GBI_F3DPD,  SALSA64_GBI_F3DDKR, SALSA64_GBI_F3DJFG,
 					 SALSA64_GBI_S2DEX1, SALSA64_GBI_F3DEX2, SALSA64_GBI_F3DZEX2,
 					 SALSA64_GBI_S2DEX,  SALSA64_GBI_F3DEX2_CRUISN, SALSA64_GBI_F3DEXBG,
@@ -658,6 +658,16 @@ static bool need_image(struct salsa64_gfx_spu *s, uint32_t gbi)
 static void spu_start(void *ctx, const struct salsa64_task *task, enum salsa64_gbi gbi)
 {
 	struct salsa64_gfx_spu *s = ctx;
+	/* Una línea por perfil y sesión: permite confirmar en el log de PS3 qué
+	 * microcódigo se seleccionó, sin inundarlo con una línea por cuadro. */
+	static bool profile_logged[32];
+	if ((unsigned)gbi < sizeof profile_logged / sizeof profile_logged[0] && !profile_logged[gbi]) {
+		char ucode_text[96];
+		salsa64_rsp_ucode_text(s->bus, task->ucode_data, ucode_text, sizeof ucode_text);
+		salsa64_log("RSP: perfil gráfico gbi=%u, microcódigo=\"%s\", código=%08x+%x datos=%08x+%x",
+			    (unsigned)gbi, ucode_text, task->ucode, task->ucode_size, task->ucode_data, task->ucode_data_size);
+		profile_logged[gbi] = true;
+	}
 	if (!need_image(s, gbi)) {
 		/* Sin SPE: la tarea termina cortada (spu_finish), con su DP. */
 		memset(&s->job, 0, sizeof s->job);

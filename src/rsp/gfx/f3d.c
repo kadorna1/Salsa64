@@ -212,6 +212,7 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 #else
 	const bool ex = g->job->gbi == SALSA64_GBI_F3DEX;
 #endif
+	const bool beta_ops = g->job->gbi == SALSA64_GBI_F3DBETA || g->job->gbi == SALSA64_GBI_F3D_CRUISN_USA;
 	const bool wr = g->job->gbi == SALSA64_GBI_F3DWR || g->job->gbi == SALSA64_GBI_F3DBETA;
 	const unsigned kind = ex ? IDX_X2 : wr ? IDX_X5 : IDX_X10;
 	uint32_t w0, w1;
@@ -291,12 +292,12 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 			break;
 		case G_RDPHALF_1:
 			/* B4 es G_PERSPNORM en Cruis'n USA beta, no HALF_1. */
-			if (g->job->gbi != SALSA64_GBI_F3DBETA)
+			if (!beta_ops)
 				g->rdphalf1 = w1;
 			break;
 		case G_RDPHALF_2:
 			/* B3 es HALF_1 en Cruis'n USA beta. */
-			if (g->job->gbi == SALSA64_GBI_F3DBETA) {
+			if (beta_ops) {
 				g->rdphalf1 = w1;
 				break;
 			}
@@ -309,7 +310,7 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 			break;
 		case G_TEXRECT:
 		case G_TEXRECTFLIP:
-			if (g->job->gbi == SALSA64_GBI_F3DBETA)
+			if (beta_ops)
 				gfx_dl_texrect(g, w0, w1, G_RDPHALF_2 | G_MODIFYVTX << 8,
 					       G_MODIFYVTX | G_MODIFYVTX << 8);
 			else {

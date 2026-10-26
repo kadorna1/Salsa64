@@ -92,6 +92,7 @@ static inline int gfx_spe0_image(uint32_t gbi)
 		return GFX_SPE0_TURBO3D;
 #endif
 	case SALSA64_GBI_F3D:
+	case SALSA64_GBI_F3D_CRUISN_USA:
 	case SALSA64_GBI_F3DBETA:
 	case SALSA64_GBI_F3DEX:
 	case SALSA64_GBI_F3DWR:
