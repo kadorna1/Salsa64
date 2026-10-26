@@ -84,7 +84,8 @@ void gfx_run(struct gfx_state *g, const struct gfx_job *job, struct gfx_result *
 #if GFX_HAS(S2DEX)
 	g->chain_ex = 0;
 #endif
-	gfx_ucode_reload(g, job->ucode, job->gbi == SALSA64_GBI_F3D || job->gbi == SALSA64_GBI_F3DEX ||
+	gfx_ucode_reload(g, job->ucode, job->gbi == SALSA64_GBI_F3D || job->gbi == SALSA64_GBI_F3D_CRUISN_USA || job->gbi == SALSA64_GBI_F3DBETA ||
+					 job->gbi == SALSA64_GBI_F3DEX ||
 					 job->gbi == SALSA64_GBI_F3DPD || job->gbi == SALSA64_GBI_F3DWR ||
 					 job->gbi == SALSA64_GBI_F3DDKR || job->gbi == SALSA64_GBI_F3DJFG ||
 					 (GFX_HAS(TURBO3D) && (job->gbi == SALSA64_GBI_TURBO3D ||
@@ -119,6 +120,8 @@ void gfx_run(struct gfx_state *g, const struct gfx_job *job, struct gfx_result *
 		case SALSA64_GBI_TURBO3D_F3D:
 #endif
 		case SALSA64_GBI_F3D:
+		case SALSA64_GBI_F3D_CRUISN_USA:
+		case SALSA64_GBI_F3DBETA:
 		case SALSA64_GBI_F3DEX:
 		case SALSA64_GBI_F3DWR:
 			if (GFX_HAS(F3D))
@@ -153,6 +156,10 @@ void gfx_run(struct gfx_state *g, const struct gfx_job *job, struct gfx_result *
 			 * interrumpe igual (como cuando la HLE no lo conocía). */
 			res->flags |= GFX_RES_FOREIGN_END;
 #endif
+			break;
+		case SALSA64_GBI_F3DEX2_CRUISN:
+			if (GFX_HAS(F3DEX2))
+				gfx_dl_f3dex2(g, NULL);
 			break;
 		case SALSA64_GBI_F3DEXBG:
 			if (GFX_HAS(F3DEXBG))

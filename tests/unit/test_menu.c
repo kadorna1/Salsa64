@@ -358,6 +358,8 @@ static void menu_scan_dir(void)
 	memset(l, 0, romlist_memory_bytes());
 	CHECK_EQ(romlist_scan_dir(l, dir, dir, NULL, 0), 3);
 	CHECK_EQ(l->count, 5); /* ROMs, carpeta y subcarpeta */
+	/* readdir() no define el orden: el menú ordena la lista tras escanearla. */
+	romlist_sort(l, ROMLIST_ORDER_TITLE);
 	CHECK_EQ(l->e[0].kind, ROMLIST_DIRECTORY);
 	memset(l, 0, romlist_memory_bytes());
 	CHECK_EQ(romlist_scan_dir(l, sub, dir, NULL, 0), 0);

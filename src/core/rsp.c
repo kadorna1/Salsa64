@@ -410,6 +410,7 @@ static const struct {
 } ucode_crcs_w[] = {
 	{ 0x2BDCFC8Au, SALSA64_GBI_TURBO3D, false }, /* Dark Rift: medido también en la PS3 */
 	{ 0x77195A68u, SALSA64_GBI_TURBO3D_F3D, false }, /* Fast3D del mismo juego */
+	{ 0xD3AB59B2u, SALSA64_GBI_F3D_CRUISN_USA, false }, /* Cruis'n USA: Fast3D con opcodes beta, índices normales */
 	{ 0x8D91244Fu, SALSA64_GBI_F3DDKR, false },  /* Diddy Kong Racing (USA, rev. 1: el mismo de arriba) */
 	{ 0x6E6FC893u, SALSA64_GBI_F3DDKR, false },  /* Diddy Kong Racing (otra versión: sin respaldo para probarlo) */
 	{ 0xBDE9D1FBu, SALSA64_GBI_F3DJFG, false },  /* Jet Force Gemini y Mickey's Speedway USA: sin respaldo */
@@ -477,6 +478,28 @@ enum salsa64_gbi salsa64_rsp_detect_gbi(const struct salsa64_bus *bus, const str
 	return detect_gbi(bus, task, &nonear);
 }
 
+/* La firma del microcódigo de Cruis'n Exotica coincide con F3DEX2 2.08,
+ * pero ese juego usa G_SPECIAL_1 como llamada a display list contada.
+ * El título de la ROM limita esta desviación del F3DEX2 estándar. */
+static bool rom_title_cruisn_exotica(const struct salsa64_bus *bus)
+{
+	static const char wanted[] = "CRUISNEXOTICA";
+	if (!bus->rom || bus->rom_size < 0x34)
+		return false;
+	unsigned n = 0;
+	for (unsigned i = 0; i < 20 && n < sizeof wanted - 1; i++) {
+		unsigned char c = bus->rom[0x20 + i];
+		if (c >= 'a' && c <= 'z')
+			c = (unsigned char)(c - 'a' + 'A');
+		if (c >= 'A' && c <= 'Z') {
+			if (c != wanted[n])
+				return false;
+			n++;
+		}
+	}
+	return n == sizeof wanted - 1;
+}
+
 static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct salsa64_task *task, bool *nonear)
 {
 	*nonear = false;
@@ -507,6 +530,11 @@ static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct s
 	if (find(p, end, "Salsa64 GBI Fast3D"))
 		return SALSA64_GBI_F3D;
 
+	/* Perfiles conocidos por CRC antes de analizar el nombre/version genérico. */
+	enum salsa64_gbi by_crc = gbi_by_crc(bus, task, nonear);
+	if (by_crc != SALSA64_GBI_UNKNOWN)
+		return by_crc;
+
 	/* "RSP Gfx ucode <nombre> fifo|xbus <versión> ...": la versión 2.x es
 	 * la segunda generación (F3DEX2 y familia). */
 	const uint8_t *q = find(p, end, "RSP Gfx ucode ");
@@ -524,21 +552,26 @@ static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct s
 		if (starts_with(q, end, "F3DEXBG"))
 			return SALSA64_GBI_F3DEXBG;
 		bool zex = starts_with(q, end, "F3DZEX");
+		/* Primero saltar el nombre (F3DEX2.fifo, F3DZEX.NoN, etc.).
+		 * El "2" de F3DEX2 no es la versión: "2.08" aparece después del espacio. */
 		const uint8_t *v = q;
+		while (v < end && *v && *v != ' ')
+			v++;
+		while (v < end && *v == ' ')
+			v++;
 		while (v < end && *v && !(v[0] >= '0' && v[0] <= '9' && v + 1 < end && v[1] == '.'))
 			v++;
-		if (v < end && *v == '2')
+		if (v < end && *v == '2') {
+			if (!zex && v + 3 < end && v[1] == '.' && v[2] == '0' && v[3] == '8' &&
+			    rom_title_cruisn_exotica(bus))
+				return SALSA64_GBI_F3DEX2_CRUISN;
 			return zex ? SALSA64_GBI_F3DZEX2 : SALSA64_GBI_F3DEX2;
+		}
 		/* 1.x y la 0.9x anterior (Mario Kart 64): primera generación. */
 		if (v < end && (*v == '1' || *v == '0'))
 			return SALSA64_GBI_F3DEX;
 		return SALSA64_GBI_UNKNOWN;
 	}
-	/* Los que se conocen por el CRC de su código van antes que el texto
-	 * genérico: la variante de Wave Race también dice "2.0". */
-	enum salsa64_gbi by_crc = gbi_by_crc(bus, task, nonear);
-	if (by_crc != SALSA64_GBI_UNKNOWN)
-		return by_crc;
 	/* Fast3D (Super Mario 64 y los primeros juegos) no trae ese texto. */
 	if (find(p, end, "RSP SW Version: 2.0"))
 		return SALSA64_GBI_F3D;
@@ -652,7 +685,8 @@ void salsa64_rsp_start(struct salsa64_bus *bus)
 	if (rsp->lle && rsp->lle_mode != SALSA64_LLE_OFF && rsp->sched) {
 		bool hle_gfx = task.type == SALSA64_TASK_GFX && valid && rsp->gfx &&
 			       (gbi == SALSA64_GBI_F3DEX2 || gbi == SALSA64_GBI_F3DZEX2 ||
-				gbi == SALSA64_GBI_F3DEX2ACCLAIM || gbi == SALSA64_GBI_F3D ||
+				gbi == SALSA64_GBI_F3DEX2_CRUISN || gbi == SALSA64_GBI_F3DEX2ACCLAIM ||
+				gbi == SALSA64_GBI_F3D || gbi == SALSA64_GBI_F3D_CRUISN_USA || gbi == SALSA64_GBI_F3DBETA ||
 				gbi == SALSA64_GBI_F3DEX || gbi == SALSA64_GBI_F3DWR || gbi == SALSA64_GBI_F3DPD ||
 				gbi == SALSA64_GBI_F3DDKR || gbi == SALSA64_GBI_F3DJFG || gbi == SALSA64_GBI_F3DEXBG ||
 				gbi == SALSA64_GBI_F5ROGUE || gbi == SALSA64_GBI_F5INDY ||

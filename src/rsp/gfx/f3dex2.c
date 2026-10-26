@@ -100,15 +100,60 @@ static void do_movemem(struct gfx_state *g, uint32_t w0, uint32_t w1)
 	}
 }
 
+/* Una SPECIAL_1 con conteo define un límite sobre su propia lista, no
+ * sobre las listas hijas llamadas desde ella. Mantener una pila permite
+ * anidar llamadas contadas sin consumir el presupuesto del padre. */
+struct counted_dl_frame {
+	int return_sp;
+	int list_sp;
+	uint32_t return_pc;
+	uint32_t remaining;
+	bool expired;
+};
+
+static void counted_dl_after_command(struct gfx_state *g, int command_sp,
+				     struct counted_dl_frame *frames, unsigned *depth)
+{
+	for (unsigned i = 0; i < *depth; i++) {
+		struct counted_dl_frame *f = &frames[i];
+		if (command_sp == f->list_sp && f->remaining) {
+			f->remaining--;
+			if (!f->remaining)
+				f->expired = true;
+		}
+	}
+	/* Resuelve primero las listas interiores. Si la última orden contada
+	 * llamó a otra lista, esa hija debe terminar antes de volver al padre. */
+	while (*depth) {
+		struct counted_dl_frame *f = &frames[*depth - 1];
+		if (g->dl_sp <= f->return_sp) {
+			(*depth)--; /* llegó a ENDDL sin agotar el conteo */
+			continue;
+		}
+		if (f->expired && g->dl_sp <= f->list_sp) {
+			g->dl_sp = f->return_sp;
+			g->dl_pc = f->return_pc;
+			(*depth)--;
+			continue;
+		}
+		break;
+	}
+}
+
 void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 {
 	struct gfx_result *res = g->res;
 	const bool zex = g->job->gbi == SALSA64_GBI_F3DZEX2;
 	uint32_t w0, w1;
+	struct counted_dl_frame counted[GFX_DL_STACK];
+	unsigned counted_depth = 0;
 
 	while (gfx_dl_next(g, &w0, &w1)) {
-		if (hook && hook(g, w0, w1))
+		int command_sp = g->dl_sp;
+		if (hook && hook(g, w0, w1)) {
+			counted_dl_after_command(g, command_sp, counted, &counted_depth);
 			continue;
+		}
 		uint32_t op = w0 >> 24;
 		switch (op) {
 		case G_VTX: {
@@ -204,6 +249,24 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 		case 0x00:  /* G_NOOP */
 		case G_SPNOOP:
 		case G_SPECIAL_1:
+			/* Solo Cruis'n Exotica usa SPECIAL_1 como llamada contada. */
+			if (g->job->gbi == SALSA64_GBI_F3DEX2_CRUISN && (w0 & 0xFF)) {
+				if (counted_depth >= GFX_DL_STACK) {
+					res->dl_errors++;
+					return;
+				}
+				struct counted_dl_frame f = {
+					.return_sp = g->dl_sp,
+					.return_pc = g->dl_pc,
+					.remaining = w0 & 0xFF,
+					.expired = false,
+				};
+				if (!gfx_dl_call(g, w1, false))
+					return;
+				f.list_sp = g->dl_sp;
+				counted[counted_depth++] = f;
+			}
+			break;
 		case G_SPECIAL_2:
 		case G_SPECIAL_3:
 			break;
@@ -237,5 +300,7 @@ void gfx_dl_f3dex2(struct gfx_state *g, gfx_cmd_hook hook)
 			}
 			break;
 		}
+		/* Una palabra de comando, no los datos inline de TEXRECT. */
+		counted_dl_after_command(g, command_sp, counted, &counted_depth);
 	}
 }
