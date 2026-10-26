@@ -2227,6 +2227,29 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 	int slot;
 	uint32_t x0, y0;
 	enum rdp_texsrc src = rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
+	/* CopyColorFromRDRAM also applies when a live color image is sampled as
+	 * a texture. CPU writes can update that RDRAM image after its last draw,
+	 * without another get_target() for it or a VI presentation of that target.
+	 * Refresh here before handing the RSX surface to the texture sampler. */
+	if ((src == RDP_TEXSRC_RSX || src == RDP_TEXSRC_SELF) && slot >= 0 && rdp.surf[slot] &&
+	    rdp.copy_color_from_rdram && profile_cpu_rows_changed(slot)) {
+		uint32_t regions = prime_profile_cpu_spans(slot, true);
+		if (regions) {
+			rdp.profile_prime_task[slot] = rdp.tg.task;
+			rdp.surf_dirty[slot] = true;
+			/* A SELF texture may already have a cached copy of this surface. */
+			if (rdp.scratch_slot == slot) {
+				rdp.scratch_slot = -1;
+				memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+			}
+			LOGN(40, "gfx: CopyColorFromRDRAM uploaded %u CPU spans to %06x/%u before texture sampling (task %u)",
+			     regions, rdp.tg.t[slot].addr, rdp.tg.t[slot].width, rdp.tg.task);
+		}
+		/* If a span could not be synchronized, sample the current RDRAM copy
+		 * rather than returning a known-stale RSX texture. */
+		if (profile_cpu_rows_changed(slot))
+			return false;
+	}
 	if ((src != RDP_TEXSRC_RSX && src != RDP_TEXSRC_SELF) || !rdp.surf[slot])
 		return false;
 	const struct rdp_target *tg = &rdp.tg.t[slot];
