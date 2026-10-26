@@ -1,7 +1,7 @@
 name: PS3 Docker frontend build (diagnostic)
 
-# One-shot trigger for the accessory PR. Use the project's published toolchain
-# image instead of rebuilding GCC/binutils on every diagnostic run.
+# Diagnostic retry after fixing the global accessory-settings accessor.
+# Use the project's published toolchain image instead of rebuilding GCC/binutils.
 on:
   push:
     branches:
