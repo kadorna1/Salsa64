@@ -478,7 +478,8 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 			lang_key[s->lang >= 0 && s->lang < MENU_LANGS ? s->lang : 0],
 			interp_key[s->interp == MENU_INTERP_GEOMETRY],
 			s->rom_order == MENU_ROM_ORDER_FILENAME ? "archivo" : "titulo",
-			s->accessory == MENU_ACC_NONE ? "ninguno" : s->accessory == MENU_ACC_RUMBLE ? "rumble-pak" : "controller-pak");
+			s->accessory == MENU_ACC_NONE ? "ninguno" : s->accessory == MENU_ACC_RUMBLE ? "rumble-pak"
+				: s->accessory == MENU_ACC_TRANSFER ? "transfer-pak" : "controller-pak");
 }
 
 bool menu_settings_cfg_differs(const struct menu_settings *a, const struct menu_settings *b)
