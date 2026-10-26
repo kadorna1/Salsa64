@@ -318,7 +318,8 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 		} else if (!strcmp(key, "accesorio")) {
 			g->accessory = !strcmp(val, "global") ? -1
 					: !strcmp(val, "ninguno") ? MENU_ACC_NONE
-					: !strcmp(val, "rumble-pak") ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
+					: !strcmp(val, "rumble-pak") ? MENU_ACC_RUMBLE
+					: !strcmp(val, "transfer-pak") ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
 		}
 	}
 	salsa64_padmap_parse(&g->controls, text, len, NULL, 0);
