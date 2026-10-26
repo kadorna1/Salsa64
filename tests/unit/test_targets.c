@@ -1110,6 +1110,30 @@ static void targets_cpu_guard(void)
 	CHECK_EQ(guard_t.base[sizeof guard_ram >> RDP_GUARD_SHIFT], 0);
 }
 
+/* CopyColorFromRDRAM: once a changed span is uploaded, its RDRAM baseline
+ * is committed so the same CPU pixels are not copied over later RSX draws. */
+static void targets_profile_baseline_commit(void)
+{
+	const uint32_t FB = 0x6b300, LINE = 1280, ROWS = 240;
+	memset(guard_ram, 0, sizeof guard_ram);
+	rdp_guard_clear(&guard_t);
+	struct rdp_target row_target = { .used = true, .addr = FB, .width = 640, .bpp = 2, .lh = ROWS };
+	rdp_guard_profile_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
+
+	uint32_t dl = FB + 85 * LINE + 0x58;
+	guard_ram[dl] = 0xDE; /* CPU updates one pixel in RDRAM. */
+	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
+
+	/* Simulate successful upload of the changed 128-byte guard span. */
+	uint32_t lo = dl & ~(RDP_GUARD_LINE - 1);
+	rdp_guard_profile_mark(&guard_t, guard_ram, sizeof guard_ram, lo, lo + RDP_GUARD_LINE);
+	CHECK(!rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
+
+	/* A later CPU write still differs from the committed baseline. */
+	guard_ram[dl + 2] = 0xAB;
+	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
+}
+
 static void targets_frame_mirror(void)
 {
 	const uint32_t A = 0x38f800, B = 0x3b5000, C = 0x3da800, LINE = 640;
@@ -1213,6 +1237,7 @@ void t_suite_targets(void)
 	RUN(targets_dma_ring);
 	RUN(targets_dma_refresh_detection);
 	RUN(targets_cpu_guard);
+	RUN(targets_profile_baseline_commit);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);
 	RUN(targets_present_interlaced);
