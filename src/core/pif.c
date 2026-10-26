@@ -183,7 +183,7 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 	case JB_RESET:
 		reply[0] = PAD_ID_HI;
 		reply[1] = PAD_ID_LO;
-		if (mp)
+		if (mp && !rumble_pak)
 			mp->cmd_status++;
 		reply[2] = pak ? (uint8_t)(PAD_PAK | (pif->pak_err[port] ? PAD_PAK_CRC : 0)) : PAD_NO_PAK;
 		return 3;
@@ -221,7 +221,8 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 		}
 		if (!ok)
 			memset(reply, 0, PAK_BLOCK);
-		pak_count(mp, pak, ok, raw, false);
+		if (!rumble_pak)
+			pak_count(mp, controller_pak, ok, raw, false);
 		pif->pak_err[port] = pak && !ok;
 		reply[PAK_BLOCK] = ok ? salsa64_joybus_crc8(reply, PAK_BLOCK) : 0xFF;
 		return PAK_BLOCK + 1;
@@ -247,7 +248,8 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 		} else if (controller_pak) {
 			ok = salsa64_mempak_write(mp, port, raw, tx + 3);
 		}
-		pak_count(mp, pak, ok, raw, true);
+		if (!rumble_pak)
+			pak_count(mp, controller_pak, ok, raw, true);
 		pif->pak_err[port] = pak && !ok;
 		uint8_t crc = salsa64_joybus_crc8(tx + 3, PAK_BLOCK);
 		reply[0] = ok ? crc : (uint8_t)~crc;
