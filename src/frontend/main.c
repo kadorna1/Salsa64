@@ -4194,7 +4194,8 @@ static void accessory_menu_events(void)
 	/* Replacing a Rumble Pak drops its motor state immediately. */
 	n64.bus.pif.rumble[port] = 0;
 	n64.bus.pif.pak_err[port] = 0;
-	rumble_publish();
+	/* The emulation thread owns rumble_box's seqlock writer. The UI already
+	 * stops physical motors while this pause page is open. */
 	osd_notice(sysGetSystemTime(), "%s", menu_accessory_name(next));
 	salsa64_log("accesorio: control %u -> %s", (unsigned)port + 1, menu_accessory_name(next));
 }
