@@ -1312,10 +1312,10 @@ static void readbacks_finish(bool wait)
 /* Ceba la superficie de la ranura con lo que hay en la RDRAM (lo que el
  * CPU dibujó o dejó ahí): la N64 siempre dibuja encima de la memoria. Solo
  * color images de 16 bits que caben en el búfer de cebado. */
-static bool prime_rows(int i, uint32_t y0, uint32_t y1);
-static void prime(int i)
+static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile);
+static void prime(int i, bool commit_profile)
 {
-	(void)prime_rows(i, 0, ~0u);
+	(void)prime_rows(i, 0, ~0u, commit_profile);
 }
 
 /* Suma de muestras (32 bits cada 64 bytes) de la RDRAM [lo, hi). */
@@ -1333,7 +1333,7 @@ static uint32_t rdram_sum(uint32_t lo, uint32_t hi)
 }
 
 /* El cebado de las filas [y0, y1) (y1 = ~0u: todas). */
-static bool prime_rows(int i, uint32_t y0, uint32_t y1)
+static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
 	if (!rdp.rdram || rdp.fbfx < 1 || t->bpp != 2 || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
@@ -1361,9 +1361,9 @@ static bool prime_rows(int i, uint32_t y0, uint32_t y1)
 	rdp.tb.copy += tb_now() - t0;
 	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1, RSXKIT_RGBA5551) != RSXKIT_OK)
 		return false;
-	/* Keep the profile baseline separate from task-end guard hashes. Only
-	 * successful RDRAM->RSX uploads establish what the surface now contains. */
-	if (rdp.copy_color_from_rdram)
+	/* A pre-draw refresh can be overwritten by the RDP later in this task.
+	 * Keep its CopyColorFromRDRAM baseline unchanged until VI presentation. */
+	if (commit_profile && rdp.copy_color_from_rdram)
 		rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, t->addr + y0 * line, t->addr + y1 * line);
 	rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
 	rdp.stats.primes++;
