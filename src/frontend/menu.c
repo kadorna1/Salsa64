@@ -247,6 +247,8 @@ void menu_settings_parse(struct menu_settings *s, const char *text, size_t len)
 				s->accessory = MENU_ACC_PAK;
 			else if (!strcmp(val, "rumble-pak"))
 				s->accessory = MENU_ACC_RUMBLE;
+			else if (!strcmp(val, "transfer-pak"))
+				s->accessory = MENU_ACC_TRANSFER;
 			else if (!strcmp(val, "ninguno"))
 				s->accessory = MENU_ACC_NONE;
 		}
