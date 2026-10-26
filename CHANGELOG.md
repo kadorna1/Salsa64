@@ -17,6 +17,9 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 - Builds with GCC 13 and warnings enabled, and the directory scan test no
   longer depends on the file system order (thanks to Manfline).
 
+### Changed
+- CRT cache now reuses screen buffers without copying complete frames; on-console self-test checks 192 cases with a one-level RGB tolerance.
+
 ### Added
 - CRT output cache with an exact on-console A/B self-test and an original-path switch (hardware validation pending).
 

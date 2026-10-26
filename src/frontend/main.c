@@ -2396,7 +2396,10 @@ static bool filter_announce(uint64_t now)
  * filtro…», ya está: se quita el aviso. */
 static bool filter_draw(rsxkit_rect *r)
 {
-	bool ok = salsa64_filters_draw(flt.cur, &flt.src, r);
+	struct salsa64_filter_src src = flt.src;
+	/* El sistema puede escribir en los búferes presentados. */
+	src.screen_busy = pause_ctl.system || pause_ctl.drawing || pause_ctl.intercepted;
+	bool ok = salsa64_filters_draw(flt.cur, &src, r);
 	if (flt.announced) {
 		flt.announced = false;
 		osd_notice_clear();

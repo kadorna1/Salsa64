@@ -16,6 +16,14 @@
 - El RDP sí escribe los destinos que cubren el VI; no cambió la presentación ni requiere interruptor.
 - Host: 692 pruebas y tres gfxtest sin fallos; lockstep de cinco juegos y MGAH, 600 campos.
 
+## 2026-10-25 — Filtros, segunda ronda: salida directa
+- La final dibuja en pantalla; los repetidos leen el búfer anterior, sin reserva extra.
+- UI/sistema invalidan la caché; `filtros-sin-optimizar` conserva la ruta original.
+- Autoprueba: 192 casos, máximo RGB ≤1; verifica cero copias en cuadros completos.
+- Host 691/887841/0; RPCS3 720p/1080p 192/192, máximo 0; pendientes tiempos PS3.
+- `crt_spe` idéntico, holgura 74688 B; shaders originales idénticos.
+- Variante fp16 descartada tras dos fallos de ensamblado H→R; detalle en `docs/perf-log.md`.
+
 ## 2026-10-25 — Caché de salida CRT y comparación exacta
 - Misma aritmética y viewport; salida X8R8G8B8 reutilizada con generación válida.
 - `filtros-sin-optimizar`: ruta anterior; `filtros-autoprueba`: 96 casos propios.

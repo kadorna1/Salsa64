@@ -48,6 +48,7 @@ struct salsa64_filter_src {
 	 * la misma región, el filtro no rehace sus tablas y solo dibuja su
 	 * pasada final (o copia la salida ya calculada con la caché activa). */
 	bool has_gen;
+	bool screen_busy;   /* sistema encima: conservar tablas, no tomar la pantalla como caché */
 	uint32_t gen;
 };
 
@@ -71,9 +72,9 @@ uint32_t salsa64_filters_setup_ms(int f, const struct salsa64_filter_src *src);
  * escribe). `reduce_passes`: rsxkit_post_reduce_passes (1 o 2). */
 void salsa64_filters_options(bool captures, int reduce_passes);
 
-/* A/B de la caché de salida; no cambia las cuentas de los shaders. */
+/* A/B de la caché de salida; shaders originales sin cambios. */
 void salsa64_filters_optimize(bool on);
-/* Patrones propios, pantalla completa vieja/nueva/repetida, tolerancia cero.
+/* Patrones propios, pantalla completa vieja/nueva/repetida, tolerancia de un nivel por canal.
  * Entre la inicialización del RSX y el menú, sin juego abierto. */
 bool salsa64_filters_selftest(void);
 

@@ -54,9 +54,9 @@ for filt in ('mascara', 'mascara-fina', 'rgb', 'svideo', 'compuesto', 'trinitron
             row(filt, 'crt_tube_lines_b'+grid, 1440, 237)
         row(filt, 'crt_tube_final', 1440, 1080, bpp=4, reads=4*8+4*8)
     if (obj / 'crt_copy.fpo').exists():
-        row(filt, 'crt_copy', 1440, 1080, bpp=4, tex_bpp=4)
-print('Caché nueva: 1920x1080 X8R8G8B8 = 7.910 MiB reservados, solo se escribe/lee el rectángulo.')
-print('Imagen repetida vieja: solo final. Nueva: solo crt_copy. Imagen nueva: cadena original + copia.')
+        row(filt+' (solo repetido válido)', 'crt_copy', 1440, 1080, bpp=4, tex_bpp=4)
+print('Caché: vista del búfer presentado; cero bytes adicionales y cero copias en cuadros completos.')
+print('Imagen repetida vieja: solo final. Nueva: crt_copy si sigue válida; con UI, final original. Imagen nueva: cadena original.')
 print('Sin cambiar: luz lineal/resplandor, decodificación SPE y filtros sencillos de presentación.')
 print('\nProgramas auxiliares y sencillos (sin cambios):')
 for path in sorted((root / 'build/rsxkit/obj').glob('*.fpo')):

@@ -13,6 +13,30 @@ Antes de cambiar la caché o agrupar cargas hace falta medir el paquete en la
 consola. Como techo orientativo, la caché redujo hasta 2,4× el tramo de
 cargas de Zelda; no implica la misma mejora total ni el mismo factor aquí.
 
+## 2026-10-25 — Filtros, segunda ronda: eliminar la copia del cuadro completo
+
+Primera ronda, PS3/Diddy Kong Racing/Trinitron/1440×1080 desde 320×237 a 3×: promedio 7,48→6,74 ms, pero completo 10,24→11,78 ms; repetido ≈1,4 ms. Esa regresión descarta la primera propuesta. Logs: `build/ps3-filtros-opt/` y `build/ps3-filtros-sin/`.
+La segunda escribe la final directamente en el búfer de pantalla. El repetido lee el anterior antes de sobrescribirlo; cada copia renueva la referencia. **Cero copias en completos y cero memoria adicional** (antes 7,91 MiB). UI/FPS, avisos, sistema o un búfer redibujado invalidan la referencia: se rehace la final. La generación de entrada sigue siendo obligatoria.
+
+| Filtro / pasada | Antes → después, instrucciones/TEX | Tiempo anterior PS3 → estimación segunda ronda |
+|---|---|---|
+| Todos / reducir H + V (3×) | 17/3 + 15/3 → igual | Trinitron 1,3–1,8 ms → igual |
+| Todos / lineal + resplandor | 12/1 + 31/12 → igual | Trinitron ≈1,1 ms → igual |
+| Máscara normal y fina / tesela, puntos, final | 58/0, 143/10, 33/7 → igual | Sin nueva medida aislada; mismo trabajo |
+| RGB / señal, decodifica, líneas A/B, final | 31/1, 49/9, 51/2+26/2, 44/5 → igual | Sin nueva medida aislada; mismo trabajo |
+| S-Video / señal, decodifica, líneas A/B, final | 31/1, 103/27, 51/2+26/2, 44/5 → igual | Sin nueva medida aislada; mismo trabajo |
+| Compuesto / señal y decodifica ×2, líneas A/B, final | 31/1 y 103/27 ×2, 58/3+31/3, 44/5 → igual | Sin nueva medida aislada; mismo trabajo |
+| Trinitron / líneas A/B | 85/5 + 58/5 → igual | ≈2,9 ms → igual |
+| Trinitron / final | 44/5 → igual | 5,4–6,0 ms → igual |
+| Todos / copia en completo | 3/1 → eliminada | No se aisló; delta completo observado +1,54 ms → se elimina su causa |
+| Todos / repetido válido | 3/1 → igual | ≈1,4 ms → ≈1,4 ms, pendiente PS3 |
+| Trinitron / completo total | cadena original + copia → cadena original | 11,78 ms → objetivo ≤10,24 ms; estimación, no medición |
+
+El inventario actualizado (`tools/filtros-inventario.py`, salida en `build/filtros2/inventario.txt`) conserva tamaños, formatos y tráfico por pasada. Completo: ahorra 11,87 MiB lógicos de copia; repetido: 11,87 MiB, sin contar cachés. Los sencillos y el SPE no cambian.
+Se detuvo la variante fp16 del tubo tras dos fallos (máximo 255): el GLSL y el microcódigo muestran fuentes H ensambladas como R en POW/EX2/LG2. Se conservan los dos ensayos en `build/filtros2/`; **no están en el binario entregado**. No se alcanzó la optimización aritmética: ahorro estimado de shaders entregados 0 %, por debajo del tope del 10 %; no se amplió a otros shaders. La espiral de 12 muestras del resplandor no es separable en dos ejes sin cambiar su núcleo.
+Verificación: host completo 691 pruebas/887841 comprobaciones/0 fallos; 17 shaders originales y `crt_spe` binarios idénticos, holgura CRT 74688 B. Autoprueba ampliada a 192 casos (los 96 originales más generación nueva, copias encadenadas e invalidación): RGB máximo ≤1, cuenta diferencias y exige exactamente cero copias en completos y una en repetidos válidos. RPCS3 720p y 1080p: 192/192 por salida, máximo cero; sus tiempos no representan la consola.
+Guion PS3: crear `filtros-autoprueba` en `/dev_hdd0/salsa64`, abrir **Salsa64 Filtros / SLSA00210**, esperar la salida y guardar `salsa64.log`; exigir 192/192 y `RESULTADO filtros: OK`. Renombrar la bandera a `.off`; si hay `filtros-opt-fallo` de una prueba anterior, conservarlo hasta revisar el resultado y después renombrarlo. Sin contador FPS ni avisos, jugar Diddy Kong Racing 2 min en el mismo tramo con Trinitron/3×, sin y con `filtros-sin-optimizar`, guardando cada log antes de abrir otra vez. Repetir con F-Zero X o SM64 en el castillo sin cuadros repetidos; comparar completos, no solo promedios. Probar también abrir/cerrar pausa y botón PS: no deben quedar textos en la imagen. Rechazar máximo ≥2 o completos más lentos; no integrar sin esta confirmación.
+
 
 ## 2026-10-25 — Caché de la salida CRT (estimación, pendiente PS3)
 
