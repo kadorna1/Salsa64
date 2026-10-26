@@ -200,6 +200,7 @@
 #include "savefile.h"
 #include "scale_auto.h"
 #include "mempakfile.h"
+#include "transferpakfile.h"
 #include "screenshot.h"
 #include "selftest.h"
 #include "selftest_audio.h"
@@ -373,6 +374,7 @@ static struct salsa64_save save;
 static struct savefile save_file;
 static struct salsa64_mempak mempak;
 static struct mempakfile mempak_file;
+static struct transferpakfile transferpak_files[SALSA64_PIF_PORTS];
 static uint8_t *rdram;
 static volatile int running;    /* la sesión de juego sigue */
 static volatile int emu_done;   /* el hilo de emulación salió de su bucle */
@@ -2245,6 +2247,8 @@ static void emu_thread(void *arg)
 			pacer_advance(&pacer, cycles);
 		savefile_stage(&save_file, t1);
 		mempakfile_stage(&mempak_file, t1);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_stage(&transferpak_files[i], t1);
 		if (rprof.on && ++rprof.fold_fields >= PROFILE_FOLD_FIELDS) {
 			salsa64_rec_profile_fold(&rec);  /* entre campos, fuera del código generado */
 			rprof.fold_fields = 0;
@@ -2738,7 +2742,8 @@ static void present_overlay(uint64_t now)
 		am.sel = pause_ctl.accessory_sel;
 		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
 			int a = n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_NONE ? MENU_ACC_NONE
-				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
+				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE
+				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_TRANSFER_PAK ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
 			am.value[i] = menu_accessory_name(a);
 		}
 		osd_accessory_menu_draw(&am, ui_lw, ui_lh);
@@ -4187,11 +4192,15 @@ static void accessory_menu_events(void)
 		return;
 	int delta = pause_ctl.accessory_arg < 0 ? -1 : 1;
 	int current = n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_NONE ? MENU_ACC_NONE
-		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
+		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE
+		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_TRANSFER_PAK ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
 	int next = (current + delta + MENU_ACCS) % MENU_ACCS;
 	n64.bus.pif.accessory[port] = next == MENU_ACC_NONE ? SALSA64_PIF_ACCESSORY_NONE
 					 : next == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
+					 : next == MENU_ACC_TRANSFER ? SALSA64_PIF_ACCESSORY_TRANSFER_PAK
 					 : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
+	/* Swapping accessories resets the Transfer Pak control registers. */
+	salsa64_transferpak_reset(&n64.bus.pif.transferpak_state[port]);
 	/* Replacing a Rumble Pak drops its motor state immediately. */
 	n64.bus.pif.rumble[port] = 0;
 	n64.bus.pif.pak_err[port] = 0;
@@ -4718,6 +4727,8 @@ static void rsx_stuck_exit(const char *why, const rsxkit_wait_info *wi)
 	if (emu_live) {
 		savefile_write_staged(&save_file, ~0ull);  /* lo diferido que no llegó al disco */
 		mempakfile_write_staged(&mempak_file, ~0ull);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_write_staged(&transferpak_files[i], ~0ull);
 		if (emu_paused || emu_done) {
 			savefile_flush(&save_file);
 			mempakfile_flush(&mempak_file);
@@ -4864,6 +4875,8 @@ static void game_close(void)
 		    n64.bus.vi.fields, emu_stats.fields, emu_stats.dropped, emu_stats.no_slot);
 	savefile_close(&save_file);
 	mempakfile_close(&mempak_file);
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+		transferpakfile_close(&transferpak_files[i]);
 	salsa64_log("cierre: guardado escrito y desconectado");
 	/* audio_out: cierre (con el hilo de emulación ya terminado). */
 	audio_out_shutdown();
@@ -5087,16 +5100,21 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 			(selftest_on || gfxtest_on || audiotest_on || configured_accessory == MENU_ACC_NONE)
 				? SALSA64_PIF_ACCESSORY_NONE
 				: configured_accessory == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
+								   : configured_accessory == MENU_ACC_TRANSFER ? SALSA64_PIF_ACCESSORY_TRANSFER_PAK
 								   : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
 		/* Load every Controller Pak up front so pause-menu swaps work in-place. */
 		mempakfile_open(&mempak_file, &mempak, &n64.bus, rom, SAVES_DIR,
 				(selftest_on || gfxtest_on || audiotest_on) ? 0u : 0xFu, salsa64_log);
 		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+			transferpakfile_open(&transferpak_files[i], &n64.bus.pif, i, source, salsa64_log);
+			salsa64_transferpak_reset(&n64.bus.pif.transferpak_state[i]);
 			n64.bus.pif.accessory[i] = (uint8_t)accessory;
 			n64.bus.pif.rumble[i] = 0;
 		}
 		if (accessory == SALSA64_PIF_ACCESSORY_RUMBLE_PAK)
 			salsa64_log("accesorio: Rumble Pak emulado en los cuatro controles");
+		else if (accessory == SALSA64_PIF_ACCESSORY_TRANSFER_PAK)
+			salsa64_log("accesorio: Transfer Pak emulado en los cuatro controles");
 		rumble_publish();
 	}
 
@@ -5422,6 +5440,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		beat.pres_at = "guardado";
 		savefile_write_staged(&save_file, now);
 		mempakfile_write_staged(&mempak_file, now);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_write_staged(&transferpak_files[i], now);
 		profile_write_step(now);
 		/* Con el sistema encima (su menú, un aviso), el sistema dibuja lo
 		 * suyo en cada flip de la aplicación: el último cuadro se sigue

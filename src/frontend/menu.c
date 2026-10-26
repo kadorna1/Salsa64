@@ -247,6 +247,8 @@ void menu_settings_parse(struct menu_settings *s, const char *text, size_t len)
 				s->accessory = MENU_ACC_PAK;
 			else if (!strcmp(val, "rumble-pak"))
 				s->accessory = MENU_ACC_RUMBLE;
+			else if (!strcmp(val, "transfer-pak"))
+				s->accessory = MENU_ACC_TRANSFER;
 			else if (!strcmp(val, "ninguno"))
 				s->accessory = MENU_ACC_NONE;
 		}
@@ -316,7 +318,8 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 		} else if (!strcmp(key, "accesorio")) {
 			g->accessory = !strcmp(val, "global") ? -1
 					: !strcmp(val, "ninguno") ? MENU_ACC_NONE
-					: !strcmp(val, "rumble-pak") ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
+					: !strcmp(val, "rumble-pak") ? MENU_ACC_RUMBLE
+					: !strcmp(val, "transfer-pak") ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
 		}
 	}
 	salsa64_padmap_parse(&g->controls, text, len, NULL, 0);
@@ -338,7 +341,8 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 			g->density >= 0 && g->density < MENU_DENSITIES ? density_key[g->density] : "global",
 			g->interp >= 0 && g->interp < MENU_INTERPS ? interp_key[g->interp] : "global",
 			g->accessory < 0 ? "global" : g->accessory == MENU_ACC_NONE ? "ninguno"
-				: g->accessory == MENU_ACC_RUMBLE ? "rumble-pak" : "controller-pak");
+				: g->accessory == MENU_ACC_RUMBLE ? "rumble-pak"
+				: g->accessory == MENU_ACC_TRANSFER ? "transfer-pak" : "controller-pak");
 	if (n < 0 || (size_t)n >= size)
 		return -1;
 	int k = salsa64_padmap_format(&g->controls, buf + n, size - (size_t)n, 1);
@@ -377,7 +381,8 @@ int menu_game_interp(const struct menu_settings *s, const struct menu_game *g)
 const char *menu_accessory_name(int accessory)
 {
 	return tr(accessory == MENU_ACC_NONE ? "Ninguno"
-		  : accessory == MENU_ACC_RUMBLE ? "Rumble Pak" : "Controller Pak");
+		  : accessory == MENU_ACC_RUMBLE ? "Rumble Pak"
+		  : accessory == MENU_ACC_TRANSFER ? "Transfer Pak" : "Controller Pak");
 }
 
 const char *menu_interp_name(int interp)
@@ -473,7 +478,8 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 			lang_key[s->lang >= 0 && s->lang < MENU_LANGS ? s->lang : 0],
 			interp_key[s->interp == MENU_INTERP_GEOMETRY],
 			s->rom_order == MENU_ROM_ORDER_FILENAME ? "archivo" : "titulo",
-			s->accessory == MENU_ACC_NONE ? "ninguno" : s->accessory == MENU_ACC_RUMBLE ? "rumble-pak" : "controller-pak");
+			s->accessory == MENU_ACC_NONE ? "ninguno" : s->accessory == MENU_ACC_RUMBLE ? "rumble-pak"
+				: s->accessory == MENU_ACC_TRANSFER ? "transfer-pak" : "controller-pak");
 }
 
 bool menu_settings_cfg_differs(const struct menu_settings *a, const struct menu_settings *b)
@@ -1692,7 +1698,8 @@ static void panel(const struct menu *m, float W, float H, float a)
 							    "× sí, ○ sigue jugando.", "Con «No», sale directo.",
 							    "Se guarda en menu.cfg.", NULL, NULL };
 		static const char *const accessory_text[] = { "Accesorio inicial de los cuatro", "controles de N64.", NULL,
-							       "Controller Pak guarda datos.", "Rumble Pak activa la vibración.", NULL,
+							       "Controller Pak guarda datos.", "Rumble Pak activa la vibración.",
+							       "Transfer Pak carga .gb/.gbc y usa .sav.", NULL,
 							       "Se guarda en menu.cfg.", NULL, NULL };
 		const char *const order_text[] = { tr("Orden de los juegos de la lista."), NULL,
 						   tr("Se guarda en menu.cfg."), NULL, NULL };
@@ -1869,7 +1876,7 @@ static void options_column(const struct menu *m, float x, float W, float H, floa
 	struct row fps = { "Mostrar FPS", "Velocidad en una esquina del juego", 2, "#", 0, m->set.fps ? "Sí" : "No" };
 	struct row confirm = { "Confirmar al salir", "START + SELECT pregunta antes", 2, "?", 0,
 			       m->set.confirm ? "Sí" : "No" };
-	struct row accessory = { "Accesorio del control", "Controller Pak, Rumble Pak o ninguno", 2, "●", 0,
+	struct row accessory = { "Accesorio del control", "Controller Pak, Rumble Pak, Transfer Pak o ninguno", 2, "●", 0,
 				  menu_accessory_name(m->set.accessory) };
 	struct row order = { "Orden de la lista", "Título de cabecera o nombre de archivo", 2, "↑", 0,
 			     m->set.rom_order == MENU_ROM_ORDER_FILENAME ? tr("Nombre de archivo") : tr("Título de cabecera") };
