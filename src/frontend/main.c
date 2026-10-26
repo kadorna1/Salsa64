@@ -5028,7 +5028,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	/* Yoshi's Story (NYS, todas las regiones) lee sus capas de fondo CI8 desde la RDRAM: espera sus copias. */
 	salsa64_rdp_set_big8_wait(rom[0x3B] == 'N' && rom[0x3C] == 'Y' && rom[0x3D] == 'S');
 	{
-		/* Un Controller Pak en cada control, salvo que el juego pida «Ninguno» (en las pruebas, ninguno). */
+		/* Accesorio por juego: Controller Pak (por omisión), Rumble Pak o ninguno. */
 		struct menu_game gc;
 		menu_game_default(&gc);
 		if (source && !(selftest_on || gfxtest_on || audiotest_on))

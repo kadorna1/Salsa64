@@ -367,8 +367,8 @@ int menu_game_interp(const struct menu_settings *s, const struct menu_game *g)
 
 const char *menu_accessory_name(int accessory)
 {
-	return accessory == MENU_ACC_NONE ? "Ninguno"
-		: accessory == MENU_ACC_RUMBLE ? "Rumble Pak" : "Controller Pak";
+	return tr(accessory == MENU_ACC_NONE ? "Ninguno"
+		  : accessory == MENU_ACC_RUMBLE ? "Rumble Pak" : "Controller Pak");
 }
 
 const char *menu_interp_name(int interp)
