@@ -176,7 +176,7 @@ static uint8_t gb_read(struct salsa64_transferpak_state *s, const struct salsa64
 }
 
 static void gb_mapper_write(struct salsa64_transferpak_state *s,
-			    const struct salsa64_transferpak_cart *c, uint16_t addr, uint8_t value)
+			    struct salsa64_transferpak_cart *c, uint16_t addr, uint8_t value)
 {
 	if (!c || !c->rom)
 		return;
@@ -260,8 +260,8 @@ static void gb_mapper_write(struct salsa64_transferpak_state *s,
 	 * bytes; preserving the entire block is essential for SRAM data. */
 	if (c->ram[offset] != value) {
 		c->ram[offset] = value;
-		((struct salsa64_transferpak_cart *)c)->dirty = 1;
-		((struct salsa64_transferpak_cart *)c)->writes++;
+		c->dirty = 1;
+		c->writes++;
 	}
 }
 
