@@ -4722,6 +4722,8 @@ static void rsx_stuck_exit(const char *why, const rsxkit_wait_info *wi)
 	if (emu_live) {
 		savefile_write_staged(&save_file, ~0ull);  /* lo diferido que no llegó al disco */
 		mempakfile_write_staged(&mempak_file, ~0ull);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_write_staged(&transferpak_files[i], ~0ull);
 		if (emu_paused || emu_done) {
 			savefile_flush(&save_file);
 			mempakfile_flush(&mempak_file);
