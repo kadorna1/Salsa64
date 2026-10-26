@@ -59,6 +59,7 @@ void menu_settings_default(struct menu_settings *s)
 	s->density = MENU_DENSITY_NORMAL;
 	s->interp = MENU_INTERP_OFF;
 	s->rom_order = MENU_ROM_ORDER_TITLE;
+	s->accessory = MENU_ACC_PAK;
 	s->lang = MENU_LANG_ES;
 }
 
@@ -241,6 +242,13 @@ void menu_settings_parse(struct menu_settings *s, const char *text, size_t len)
 				s->rom_order = MENU_ROM_ORDER_TITLE;
 			else if (!strcmp(val, "archivo"))
 				s->rom_order = MENU_ROM_ORDER_FILENAME;
+		} else if (!strcmp(key, "accesorio")) {
+			if (!strcmp(val, "controller-pak"))
+				s->accessory = MENU_ACC_PAK;
+			else if (!strcmp(val, "rumble-pak"))
+				s->accessory = MENU_ACC_RUMBLE;
+			else if (!strcmp(val, "ninguno"))
+				s->accessory = MENU_ACC_NONE;
 		}
 	}
 }
@@ -251,7 +259,7 @@ void menu_game_default(struct menu_game *g)
 {
 	g->aspect = g->filter = g->overscan = g->scale = g->density = g->interp = -1;
 	g->stable_scale = 0;
-	g->accessory = MENU_ACC_PAK;
+	g->accessory = -1;
 	salsa64_padmap_inherit(&g->controls);
 }
 
@@ -306,7 +314,8 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 				if (!strcmp(val, interp_key[v]))
 					g->interp = v;
 		} else if (!strcmp(key, "accesorio")) {
-			g->accessory = !strcmp(val, "ninguno") ? MENU_ACC_NONE
+			g->accessory = !strcmp(val, "global") ? -1
+					: !strcmp(val, "ninguno") ? MENU_ACC_NONE
 					: !strcmp(val, "rumble-pak") ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
 		}
 	}
@@ -328,7 +337,7 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 			g->stable_scale >= 1 && g->stable_scale <= MENU_SCALE_MAX ? scale[g->stable_scale] : "ninguna",
 			g->density >= 0 && g->density < MENU_DENSITIES ? density_key[g->density] : "global",
 			g->interp >= 0 && g->interp < MENU_INTERPS ? interp_key[g->interp] : "global",
-			g->accessory == MENU_ACC_NONE ? "ninguno"
+			g->accessory < 0 ? "global" : g->accessory == MENU_ACC_NONE ? "ninguno"
 				: g->accessory == MENU_ACC_RUMBLE ? "rumble-pak" : "controller-pak");
 	if (n < 0 || (size_t)n >= size)
 		return -1;
@@ -457,13 +466,14 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 			"# Ajustes del menú de Salsa64\n# aspecto = 4:3|16:9; filtro = suave|nitido|lineas|lineas+|crt-…; "
 			"densidad = normal|fina; idioma = es|en|fr|de|it|pt; interpolacion = no|geometria; orden = titulo|archivo\n"
 			"fondo = %s\nfps = %s\nconfirmar = %s\naspecto = %s\nfiltro = %s\ndensidad = %s\nidioma = %s\n"
-			"interpolacion = %s\norden = %s\n",
+			"interpolacion = %s\norden = %s\naccesorio = %s\n",
 			s->waves ? "si" : "no", s->fps ? "si" : "no", s->confirm ? "si" : "no",
 			s->aspect == MENU_ASPECT_16_9 ? "16:9" : "4:3",
 			filter_key(s->filter), density_key[s->density == MENU_DENSITY_FINE],
 			lang_key[s->lang >= 0 && s->lang < MENU_LANGS ? s->lang : 0],
 			interp_key[s->interp == MENU_INTERP_GEOMETRY],
-			s->rom_order == MENU_ROM_ORDER_FILENAME ? "archivo" : "titulo");
+			s->rom_order == MENU_ROM_ORDER_FILENAME ? "archivo" : "titulo",
+			s->accessory == MENU_ACC_NONE ? "ninguno" : s->accessory == MENU_ACC_RUMBLE ? "rumble-pak" : "controller-pak");
 }
 
 bool menu_settings_cfg_differs(const struct menu_settings *a, const struct menu_settings *b)
@@ -693,6 +703,11 @@ static enum menu_action options_buttons(struct menu *m, uint32_t pressed)
 		m->set.confirm = !m->set.confirm;
 		return MENU_SETTINGS;
 	}
+	if (m->opt == MENU_OPT_ACCESSORY && (pressed & change)) {
+		int delta = pressed & BIT(SALSA64_DS3_LEFT) ? -1 : 1;
+		m->set.accessory = (m->set.accessory + delta + MENU_ACCS) % MENU_ACCS;
+		return MENU_SETTINGS;
+	}
 	if (m->opt == MENU_OPT_ROM_ORDER && (pressed & change)) {
 		m->set.rom_order = m->set.rom_order == MENU_ROM_ORDER_TITLE ? MENU_ROM_ORDER_FILENAME : MENU_ROM_ORDER_TITLE;
 		return MENU_SETTINGS;
@@ -827,9 +842,11 @@ static enum menu_action game_buttons(struct menu *m, uint32_t pressed)
 	}
 	if (m->game_sel == MENU_GAME_CONTROLS)
 		return pressed & BIT(SALSA64_DS3_CROSS) ? MENU_CONTROLS : MENU_NONE;
-	if (m->game_sel == MENU_GAME_ACCESSORY) {  /* accesorios cíclicos, sin «Global» */
+	if (m->game_sel == MENU_GAME_ACCESSORY) {  /* Global → accesorio explícito → … → Global */
 		int delta = pressed & BIT(SALSA64_DS3_LEFT) ? -1 : 1;
-		m->game.accessory = (m->game.accessory + delta + MENU_ACCS) % MENU_ACCS;
+		int slot = m->game.accessory + 1;  /* 0 = Global; 1..MENU_ACCS = accesorio */
+		slot = (slot + delta + MENU_ACCS + 1) % (MENU_ACCS + 1);
+		m->game.accessory = slot - 1;
 		return MENU_GAME_CHANGED;
 	}
 	/* Global → valor 0 → ... → último → Global (izquierda, al revés). */
@@ -1379,7 +1396,7 @@ static const char *game_value(const struct menu *m, int row)
 		return m->game.scale < 0 ? "Global" : menu_scale_name(m->game.scale, m->set.resolution, buf, sizeof buf);
 	}
 	case MENU_GAME_INTERP:   return m->game.interp < 0 ? "Global" : menu_interp_name(m->game.interp);
-	case MENU_GAME_ACCESSORY: return menu_accessory_name(m->game.accessory);
+	case MENU_GAME_ACCESSORY: return m->game.accessory < 0 ? "Global" : menu_accessory_name(m->game.accessory < 0 ? m->set.accessory : m->game.accessory);
 	case MENU_GAME_CONTROLS: return "Configurar";
 	}
 	return NULL;
@@ -1414,7 +1431,7 @@ static void game_panel(const struct menu *m, float px, float py, float pw, float
 				: i == MENU_GAME_SCALE	 ? menu_scale_name(s, m->set.resolution, sbuf, sizeof sbuf)
 				: i == MENU_GAME_INTERP ? menu_interp_name(menu_game_interp(&m->set, &m->game))
 				: i == MENU_GAME_CONTROLS ? tr("Configurar")
-							  : menu_accessory_name(m->game.accessory);
+							  : menu_accessory_name(m->game.accessory < 0 ? m->set.accessory : m->game.accessory);
 		stext(x, y, names[i], 1.3f, C_DIM, ca, 0);
 		stext(x, y + 16.0f, v, dscale, m->game_sel == i ? C_ACCENT : C_TEXT, ca, lmax);
 		y += step;
@@ -1674,6 +1691,9 @@ static void panel(const struct menu *m, float W, float H, float a)
 		static const char *const confirm_text[] = { "START + SELECT en el juego", "pregunta antes de salir:",
 							    "× sí, ○ sigue jugando.", "Con «No», sale directo.",
 							    "Se guarda en menu.cfg.", NULL, NULL };
+		static const char *const accessory_text[] = { "Accesorio inicial de los cuatro", "controles de N64.", NULL,
+							       "Controller Pak guarda datos.", "Rumble Pak activa la vibración.", NULL,
+							       "Se guarda en menu.cfg.", NULL, NULL };
 		const char *const order_text[] = { tr("Orden de los juegos de la lista."), NULL,
 						   tr("Se guarda en menu.cfg."), NULL, NULL };
 		/* Escala interna: tamaño y texto dependen del valor. */
@@ -1703,6 +1723,7 @@ static void panel(const struct menu *m, float W, float H, float a)
 				    : m->opt == MENU_OPT_INTERP ? "Interpolación"
 				    : m->opt == MENU_OPT_FPS ? "Mostrar FPS"
 					    : m->opt == MENU_OPT_CONFIRM ? "Confirmar al salir"
+					    : m->opt == MENU_OPT_ACCESSORY ? "Accesorio del control"
 					    : m->opt == MENU_OPT_ROM_ORDER ? "Orden de la lista"
 					    : m->opt == MENU_OPT_REFRESH ? "Actualizar lista" : "Volver";
 		const char *const *text = m->opt == MENU_OPT_WAVES ? waves_text
@@ -1720,6 +1741,7 @@ static void panel(const struct menu *m, float W, float H, float a)
 					  : m->opt == MENU_OPT_INTERP ? interp_text
 					  : m->opt == MENU_OPT_FPS ? fps_text
 					  : m->opt == MENU_OPT_CONFIRM ? confirm_text
+					  : m->opt == MENU_OPT_ACCESSORY ? accessory_text
 					  : m->opt == MENU_OPT_ROM_ORDER ? order_text : back_text;
 		const char *value = m->opt == MENU_OPT_WAVES ? (m->set.waves ? "Sí" : "No")
 				    : m->opt == MENU_OPT_OVERSCAN ? overscan_name(m->set.overscan)
@@ -1732,6 +1754,7 @@ static void panel(const struct menu *m, float W, float H, float a)
 				    : m->opt == MENU_OPT_INTERP ? menu_interp_name(m->set.interp)
 				    : m->opt == MENU_OPT_FPS ? (m->set.fps ? "Sí" : "No")
 				    : m->opt == MENU_OPT_CONFIRM ? (m->set.confirm ? "Sí" : "No")
+				    : m->opt == MENU_OPT_ACCESSORY ? menu_accessory_name(m->set.accessory)
 				    : m->opt == MENU_OPT_ROM_ORDER ? (m->set.rom_order == MENU_ROM_ORDER_FILENAME ? tr("Nombre de archivo") : tr("Título de cabecera")) : NULL;
 		stext(x, y, title, tscale, 0xFFFFFFu, ca, tmax);
 		y += 56.0f;
@@ -1846,6 +1869,8 @@ static void options_column(const struct menu *m, float x, float W, float H, floa
 	struct row fps = { "Mostrar FPS", "Velocidad en una esquina del juego", 2, "#", 0, m->set.fps ? "Sí" : "No" };
 	struct row confirm = { "Confirmar al salir", "START + SELECT pregunta antes", 2, "?", 0,
 			       m->set.confirm ? "Sí" : "No" };
+	struct row accessory = { "Accesorio del control", "Controller Pak, Rumble Pak o ninguno", 2, "●", 0,
+				  menu_accessory_name(m->set.accessory) };
 	struct row order = { "Orden de la lista", "Título de cabecera o nombre de archivo", 2, "↑", 0,
 			     m->set.rom_order == MENU_ROM_ORDER_FILENAME ? tr("Nombre de archivo") : tr("Título de cabecera") };
 	struct row refresh = { "Actualizar lista", "Volver a leer las carpetas de ROMs", 2, "○", 0, NULL };
@@ -1864,6 +1889,7 @@ static void options_column(const struct menu *m, float x, float W, float H, floa
 	draw_row(&interp, (float)opt_row(m, MENU_OPT_INTERP) - m->opt_pos, x, W, H, a);
 	draw_row(&fps, (float)opt_row(m, MENU_OPT_FPS) - m->opt_pos, x, W, H, a);
 	draw_row(&confirm, (float)opt_row(m, MENU_OPT_CONFIRM) - m->opt_pos, x, W, H, a);
+	draw_row(&accessory, (float)opt_row(m, MENU_OPT_ACCESSORY) - m->opt_pos, x, W, H, a);
 	draw_row(&lang, (float)opt_row(m, MENU_OPT_LANG) - m->opt_pos, x, W, H, a);
 	draw_row(&order, (float)opt_row(m, MENU_OPT_ROM_ORDER) - m->opt_pos, x, W, H, a);
 	draw_row(&refresh, (float)opt_row(m, MENU_OPT_REFRESH) - m->opt_pos, x, W, H, a);
