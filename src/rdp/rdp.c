@@ -316,6 +316,8 @@ static struct {
 	uint32_t alias_sum[RDP_TARGETS_MAX];
 	bool alias_full[RDP_TARGETS_MAX];
 	struct rdp_box alias_dirty[RDP_TARGETS_MAX];
+	/* A changed RDRAM row is uploaded at most once per target per task. */
+	uint32_t profile_prime_task[RDP_TARGETS_MAX];
 	unsigned ppe_wr_next;
 	int bound_t;                 /* ranura ligada, o -1 */
 	struct depth *bound_d;
@@ -674,6 +676,7 @@ static void release_targets(void)
 	/* La tabla de destinos, vacía. Sus contadores de texturas siguen: el
 	 * log los resta entre informes y, al cargar un estado, salían negativos. */
 	uint32_t tex_rsx = rdp.tg.tex_rsx, tex_rdram = rdp.tg.tex_rdram, tex_self = rdp.tg.tex_self;
+	memset(rdp.profile_prime_task, 0, sizeof rdp.profile_prime_task);
 	rdp_targets_init(&rdp.tg);
 	rdp.tg.tex_rsx = tex_rsx;
 	rdp.tg.tex_rdram = tex_rdram;
@@ -1042,7 +1045,9 @@ static uint32_t find_black(uint32_t lo, uint32_t hi)
  * de la tarea. */
 static void guard_mark_task(const struct set *s, const struct gfx_result *res)
 {
-	if (!rdp.rdram || rdp.fbfx < 2 || rdp.guard_off)
+	/* CopyColorFromRDRAM needs task-end snapshots even when normal readbacks
+	 * are disabled through fbfx.cfg. */
+	if (!rdp.rdram || (rdp.fbfx < 2 && !rdp.copy_color_from_rdram) || rdp.guard_off)
 		return;
 	uint64_t t0 = tb_now();
 	uint32_t addr = 0, line = 0, y0 = ~0u, y1 = 0, off = 0;
@@ -1276,10 +1281,10 @@ static void readbacks_finish(bool wait)
 /* Ceba la superficie de la ranura con lo que hay en la RDRAM (lo que el
  * CPU dibujó o dejó ahí): la N64 siempre dibuja encima de la memoria. Solo
  * color images de 16 bits que caben en el búfer de cebado. */
-static void prime_rows(int i, uint32_t y0, uint32_t y1);
+static bool prime_rows(int i, uint32_t y0, uint32_t y1);
 static void prime(int i)
 {
-	prime_rows(i, 0, ~0u);
+	(void)prime_rows(i, 0, ~0u);
 }
 
 /* Suma de muestras (32 bits cada 64 bytes) de la RDRAM [lo, hi). */
@@ -1297,18 +1302,18 @@ static uint32_t rdram_sum(uint32_t lo, uint32_t hi)
 }
 
 /* El cebado de las filas [y0, y1) (y1 = ~0u: todas). */
-static void prime_rows(int i, uint32_t y0, uint32_t y1)
+static bool prime_rows(int i, uint32_t y0, uint32_t y1)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
 	if (!rdp.rdram || rdp.fbfx < 1 || t->bpp != 2 || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
-		return;
+		return false;
 	uint32_t line = t->width * 2, bytes = line * t->lh;
 	if (t->addr + bytes > rdp.rdram_size)
-		return;
+		return false;
 	if (y1 > t->lh)
 		y1 = t->lh;
 	if (y0 >= y1)
-		return;
+		return false;
 	/* Búfer de la rotación: si el RSX aún no leyó el cebado que lo usó, se
 	 * espera su barrera (casi nunca: son PRIME_BUFS). */
 	unsigned k = rdp.prime_next;
@@ -1323,15 +1328,15 @@ static void prime_rows(int i, uint32_t y0, uint32_t y1)
 	for (uint32_t y = y0; y < y1; y++)
 		memcpy(dst + y * pitch, rdp.rdram + t->addr + y * line, t->lw * 2);
 	rdp.tb.copy += tb_now() - t0;
-	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1, RSXKIT_RGBA5551) ==
-	    RSXKIT_OK) {
-		rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
-		rdp.stats.primes++;
-		rdp.surf_gen[i] = ++rdp.gen_seq;
-		/* La barrera va tras el blit: pasada, el RSX ya leyó el búfer. */
-		rdp.prime_fence[k] = rsxkit_fence();
-		rdp.prime_next = (k + 1) % PRIME_BUFS;
-	}
+	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1, RSXKIT_RGBA5551) != RSXKIT_OK)
+		return false;
+	rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
+	rdp.stats.primes++;
+	rdp.surf_gen[i] = ++rdp.gen_seq;
+	/* La barrera va tras el blit: pasada, el RSX ya leyó el búfer. */
+	rdp.prime_fence[k] = rsxkit_fence();
+	rdp.prime_next = (k + 1) % PRIME_BUFS;
+	return true;
 }
 
 /* Suelta el scratch (se vuelve a crear cuando un dibujo lo pida). */
@@ -1397,6 +1402,38 @@ static bool make_room(uint32_t bytes, int keep)
 static inline uint32_t alias_rows(const struct rdp_target *t)
 {
 	return t->box.y1 ? t->box.y1 : t->lh;
+}
+
+/* Any guard-line change inside a reused image is a candidate CPU update.
+ * The actual upload is limited to changed rows so untouched RSX background
+ * pixels remain resident in the surface. */
+static bool profile_cpu_rows_changed(int i)
+{
+	const struct rdp_target *t = &rdp.tg.t[i];
+	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || t->bpp != 2 ||
+	    t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+		return false;
+	for (uint32_t y = 0; y < t->lh; y++)
+		if (rdp_target_row_cpu_changed(t, y, &guard, rdp.rdram, rdp.rdram_size))
+			return true;
+	return false;
+}
+
+/* Upload contiguous bands of rows whose RDRAM guard lines changed. */
+static uint32_t prime_profile_cpu_rows(int i)
+{
+	const struct rdp_target *t = &rdp.tg.t[i];
+	uint32_t rows = 0, y = 0;
+	while (y < t->lh) {
+		while (y < t->lh && !rdp_target_row_cpu_changed(t, y, &guard, rdp.rdram, rdp.rdram_size))
+			y++;
+		uint32_t y0 = y;
+		while (y < t->lh && rdp_target_row_cpu_changed(t, y, &guard, rdp.rdram, rdp.rdram_size))
+			y++;
+		if (y0 < y && prime_rows(i, y0, y))
+			rows += y - y0;
+	}
+	return rows;
 }
 
 /* La última tarea en que el PPE escribió en la RDRAM [lo, hi) en lugar del
@@ -1581,7 +1618,8 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 		/* CopyColorFromRDRAM del perfil de Dr. Mario 64 cubre también
 		 * escrituras CPU que no pasan por el anillo de DMA. Otros juegos solo
 		 * fuerzan la recarga cuando sí hubo un DMA posterior al último dibujo. */
-		bool profile_refresh = rdp.fbfx >= 1 && rdp.copy_color_from_rdram && rdp.tg.t[i].bpp == 2;
+		bool profile_refresh = rdp.fbfx >= 1 && rdp.profile_prime_task[i] != rdp.tg.task &&
+				       profile_cpu_rows_changed(i);
 		bool dma_updated = rdp.fbfx >= 1 && rdp_target_dma_updated(&rdp.tg.t[i], &rdp.dma);
 		bool rdram_refresh = profile_refresh || dma_updated;
 		/* La misma memoria dibujada después con otro ancho (Resident Evil 2:
@@ -1607,21 +1645,33 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 				alias = true;
 		}
 		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" :
-			 profile_refresh ? "RDRAM por perfil" :
+			 profile_refresh ? "filas CPU desde RDRAM" :
 			 dma_updated ? "RDRAM tras DMA" : alias ? "cebada (otro ancho)" : "viva");
 		if (stale) {
 			prime(i);
+			if (profile_refresh)
+				rdp.profile_prime_task[i] = rdp.tg.task;  /* ya se cebó entera */
 			rdp.alias_full[i] = false;
 		} else if (rdram_refresh) {
-			/* El contenido de RDRAM manda sobre la versión RSX. El perfil
-			 * por juego replica EnableCopyColorFromRDRAM; la detección DMA
-			 * evita perder escrituras de los puertos PI/SP/SI en otros juegos. */
-			prime(i);
+			/* CopyColorFromRDRAM solo actualiza filas que cambiaron desde la
+			 * huella de fin de tarea. El DMA sigue pidiendo el cebado entero. */
+			if (profile_refresh && !dma_updated) {
+				uint32_t rows = prime_profile_cpu_rows(i);
+				if (rows || !profile_cpu_rows_changed(i))
+					rdp.profile_prime_task[i] = rdp.tg.task;
+				if (rows)
+					LOGN(20, "gfx: color image %06x/%u: %u filas CPU recargadas desde RDRAM",
+					     rdp.tg.t[i].addr, rdp.tg.t[i].width, rows);
+			} else {
+				prime(i);
+				if (profile_refresh)
+					rdp.profile_prime_task[i] = rdp.tg.task;
+				LOGN(20, "gfx: color image %06x/%u recargada desde RDRAM (%s; tarea anterior %u)",
+				     rdp.tg.t[i].addr, rdp.tg.t[i].width,
+				     dma_updated ? "DMA" : "perfil del juego", rdp.tg.t[i].last_task);
+			}
 			rdp.alias_full[i] = false;
 			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
-			LOGN(20, "gfx: color image %06x/%u recargada desde RDRAM (%s; tarea anterior %u)",
-			     rdp.tg.t[i].addr, rdp.tg.t[i].width,
-			     profile_refresh ? "perfil del juego" : "DMA", rdp.tg.t[i].last_task);
 		} else if (alias) {
 			/* Con la misma RDRAM que en el último cebado entero, solo las
 			 * filas dibujadas encima desde entonces (Leon). */

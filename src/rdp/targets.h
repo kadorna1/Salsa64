@@ -440,6 +440,10 @@ static inline void rdp_guard_wrote(struct rdp_guard *g, const uint8_t *rdram, ui
 {
 	g->wrote[line] = rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT));
 }
+/* True when any guard line overlapping this 16-bit target row has changed
+ * since the last RDP-task/readback snapshot (normally a CPU pixel write). */
+bool rdp_target_row_cpu_changed(const struct rdp_target *t, uint32_t row, const struct rdp_guard *g,
+				const uint8_t *rdram, uint32_t rdram_size);
 
 /* Un relleno sobre una color image alta que se reparte entre los destinos
  * existentes (rdp_targets_inside) no llega a los que se creen después:

@@ -749,6 +749,34 @@ void rdp_guard_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, ui
 		g->base[l] = rdp_guard_hash(rdram + (l << RDP_GUARD_SHIFT));
 }
 
+/* A CPU-modified row is uploaded only if one of its guard lines no longer
+ * matches either the task-end RDRAM snapshot or a later readback we wrote.
+ * Guard lines are absolute RDRAM 128-byte spans, so unaligned row strides
+ * conservatively mark both rows when one guard line overlaps both. */
+bool rdp_target_row_cpu_changed(const struct rdp_target *t, uint32_t row, const struct rdp_guard *g,
+				const uint8_t *rdram, uint32_t rdram_size)
+{
+	if (!t || !g || !rdram || !t->used || t->bpp != 2 || !t->width || row >= t->lh)
+		return false;
+	uint64_t row_bytes = (uint64_t)t->width * t->bpp;
+	uint64_t lo64 = (uint64_t)t->addr + (uint64_t)row * row_bytes;
+	uint64_t hi64 = lo64 + row_bytes;
+	if (lo64 >= rdram_size || hi64 <= lo64)
+		return false;
+	if (hi64 > rdram_size)
+		hi64 = rdram_size;
+	uint32_t first = (uint32_t)(lo64 >> RDP_GUARD_SHIFT);
+	uint32_t last = (uint32_t)((hi64 - 1) >> RDP_GUARD_SHIFT);
+	if (first >= RDP_GUARD_LINES)
+		return false;
+	if (last >= RDP_GUARD_LINES)
+		last = RDP_GUARD_LINES - 1;
+	for (uint32_t line = first; line <= last; line++)
+		if (!rdp_guard_ok(g, rdram, line))
+			return true;
+	return false;
+}
+
 int rdp_targets_inside(const struct rdp_targets *s, uint32_t addr, uint32_t width, uint32_t bpp, uint32_t rows,
 		       int slots[RDP_TARGETS_MAX], uint32_t first_row[RDP_TARGETS_MAX])
 {
