@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "src/rdp/**"
+      - "src/frontend/**"
       - "src/rsp/gfx/**"
       - "tests/**"
       - "tools/**"
