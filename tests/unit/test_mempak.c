@@ -234,6 +234,19 @@ static void status_bits(void)
 {
 	plug();
 	CHECK_EQ(pad_status(0), 0x01);  /* hay pak */
+	/* El tipo es por puerto: el mismo juego puede alternar Pak, sin accesorio
+	 * y Rumble Pak mientras está en marcha. */
+	uint8_t data[32];
+	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_NONE;
+	CHECK_EQ(pad_status(1), 0x02);
+	CHECK_EQ(pak_read(1, 0x8000, data), 0xFF);
+	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
+	CHECK_EQ(pad_status(1), 0x01);
+	CHECK_EQ(pak_read(1, 0x8000, data), salsa64_joybus_crc8(data, 32));
+	for (unsigned i = 0; i < 32; i++)
+		CHECK_EQ(data[i], 0x80);
+	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
+	CHECK_EQ(pad_status(1), 0x01);
 	mp.present[2] = 0;
 	CHECK_EQ(pad_status(2), 0x02);  /* sin pak */
 	CHECK_EQ(pad_status(1), 0x01);
