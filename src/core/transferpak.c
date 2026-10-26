@@ -267,8 +267,13 @@ static void gb_mapper_write(struct salsa64_transferpak_state *s,
 
 static uint8_t status(const struct salsa64_transferpak_state *s, const struct salsa64_transferpak_cart *c)
 {
-	return (uint8_t)((s->power ? 0x80 : 0) | (!c || !c->rom ? 0x40 : 0) |
-			 (s->cart_enabled ? 0x01 : 0) | ((s->reset_state & 3u) << 2));
+	/* With power off the complete register window reads as zero. When powered,
+	 * no-cartridge is its own status value rather than a power/status OR. */
+	if (!s->power)
+		return 0;
+	if (!c || !c->rom)
+		return 0x40;
+	return (uint8_t)(0x80 | (s->cart_enabled ? 0x01 : 0) | ((s->reset_state & 3u) << 2));
 }
 
 void salsa64_transferpak_read(struct salsa64_transferpak_state *s, const struct salsa64_transferpak_cart *c,
