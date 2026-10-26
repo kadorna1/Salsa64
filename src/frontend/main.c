@@ -4870,6 +4870,8 @@ static void game_close(void)
 		    n64.bus.vi.fields, emu_stats.fields, emu_stats.dropped, emu_stats.no_slot);
 	savefile_close(&save_file);
 	mempakfile_close(&mempak_file);
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+		transferpakfile_close(&transferpak_files[i]);
 	salsa64_log("cierre: guardado escrito y desconectado");
 	/* audio_out: cierre (con el hilo de emulación ya terminado). */
 	audio_out_shutdown();
