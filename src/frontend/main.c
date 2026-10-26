@@ -562,6 +562,13 @@ static struct {
 	volatile uint32_t pressed[SALSA64_PIF_PORTS];
 } pad_box;
 
+/* The emulation thread publishes the Rumble Pak latch; only the presentation
+ * thread calls libpad's actuator API alongside the normal pad polling. */
+static struct {
+	volatile uint32_t seq;
+	uint8_t on[SALSA64_PIF_PORTS];
+} rumble_box;
+
 static uint16_t pad_published[SALSA64_PIF_PORTS];
 
 static void pads_publish(const struct salsa64_pad pads[SALSA64_PIF_PORTS])
@@ -576,6 +583,29 @@ static void pads_publish(const struct salsa64_pad pads[SALSA64_PIF_PORTS])
 		if (rise)
 			__sync_fetch_and_or(&pad_box.pressed[i], rise);
 		pad_published[i] = pads[i].buttons;
+	}
+}
+
+static void rumble_publish(void)
+{
+	rumble_box.seq++;
+	lwsync();
+	memcpy(rumble_box.on, n64.bus.pif.rumble, sizeof rumble_box.on);
+	lwsync();
+	rumble_box.seq++;
+}
+
+static void rumble_snapshot(uint8_t on[SALSA64_PIF_PORTS])
+{
+	for (;;) {
+		uint32_t s1 = rumble_box.seq;
+		if (s1 & 1)
+			continue;
+		lwsync();
+		memcpy(on, rumble_box.on, SALSA64_PIF_PORTS);
+		lwsync();
+		if (rumble_box.seq == s1)
+			return;
 	}
 }
 
@@ -603,6 +633,7 @@ static void pads_apply(void)
 			pads[i].buttons |= (uint16_t)__sync_fetch_and_and(&pad_box.pressed[i], 0);
 		salsa64_pif_set_pad(&n64.bus, i, &pads[i]);
 	}
+	rumble_publish();
 }
 
 /* Flancos de lo que el PIF entregó al juego (respuestas de estado): los
@@ -1174,6 +1205,7 @@ static int update_pads(uint32_t *buttons)
 		[0 ... SALSA64_PIF_PORTS - 1] = { 0, 128, 128, 128, 128 },
 	};
 	static uint8_t present[SALSA64_PIF_PORTS];
+	static uint8_t rumble_applied[SALSA64_PIF_PORTS];
 	static uint32_t stick[SALSA64_PIF_PORTS];
 	const struct salsa64_ds3 neutral = { 0, 128, 128, 128, 128 };
 	struct salsa64_pad pads[SALSA64_PIF_PORTS];
@@ -1197,6 +1229,8 @@ static int update_pads(uint32_t *buttons)
 	if (intercepted != pause_ctl.intercepted)
 		salsa64_log("mandos: %s", intercepted ? "los tiene el sistema" : "de vuelta del sistema");
 	bool sys = intercepted || pausectl_overlay(&pause_ctl);
+	uint8_t rumble_wanted[SALSA64_PIF_PORTS];
+	rumble_snapshot(rumble_wanted);
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
 		if (present[i] != !!info.status[i]) {
 			present[i] = !!info.status[i];
@@ -1207,6 +1241,20 @@ static int update_pads(uint32_t *buttons)
 			last[i] = ds3_from(&data);
 		if (sys)
 			last[i] = neutral;
+
+		/* Joybus Rumble Pak is binary on/off. PSL1GHT maps that to both
+		 * DualShock actuators: small motor enabled, large motor at full power. */
+		bool want_rumble = info.status[i] && !sys && rumble_wanted[i];
+		if (want_rumble != !!rumble_applied[i]) {
+			padActParam act;
+			memset(&act, 0, sizeof act);
+			if (want_rumble) {
+				act.small_motor = 1;
+				act.large_motor = 0xFF;
+			}
+			if (ioPadSetActDirect(i, &act) == PAD_OK)
+				rumble_applied[i] = (uint8_t)want_rumble;
+		}
 		raw[i] = info.status[i] ? last[i].buttons : 0;
 		stick[i] = info.status[i] ? stick_dirs(stick[i], last[i].lx - 128, last[i].ly - 128) : 0;
 		pad_stick_dirs |= stick[i];
@@ -4742,6 +4790,9 @@ static void mem_close_report(const struct mem_close_in *in)
 static void game_close(void)
 {
 	struct mem_close_in mem_in = { cajanegra_reserved(), (uint32_t)salsa64_rdp_interp_bytes() };
+	/* Never leave a motor latched across game changes or a return to the menu. */
+	memset(n64.bus.pif.rumble, 0, sizeof n64.bus.pif.rumble);
+	rumble_publish();
 	cajanegra_shutdown(10000000);
 	states_shutdown(10000000);  /* un estado a medio escribir se termina antes de soltar nada */
 	salsa64_filters_release();
@@ -4967,9 +5018,21 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		menu_game_default(&gc);
 		if (source && !(selftest_on || gfxtest_on || audiotest_on))
 			game_cfg_read(source, &gc);
+		enum salsa64_pif_accessory accessory =
+			(selftest_on || gfxtest_on || audiotest_on || gc.accessory == MENU_ACC_NONE)
+				? SALSA64_PIF_ACCESSORY_NONE
+				: gc.accessory == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
+									   : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
 		mempakfile_open(&mempak_file, &mempak, &n64.bus, rom, SAVES_DIR,
-				gc.accessory == MENU_ACC_NONE || selftest_on || gfxtest_on || audiotest_on ? 0u : 0xFu,
+				accessory == SALSA64_PIF_ACCESSORY_CONTROLLER_PAK ? 0xFu : 0u,
 				salsa64_log);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+			n64.bus.pif.accessory[i] = (uint8_t)accessory;
+			n64.bus.pif.rumble[i] = 0;
+		}
+		if (accessory == SALSA64_PIF_ACCESSORY_RUMBLE_PAK)
+			salsa64_log("accesorio: Rumble Pak emulado en los cuatro controles");
+		rumble_publish();
 	}
 
 	rec.opts = SALSA64_REC_OPT_PIN;  /* +7 % en nemu64-test (docs/perf-log.md) */

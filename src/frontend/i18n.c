@@ -168,6 +168,8 @@ static const struct entry table[] = {
 	{ "Controles", { "Controls", "Commandes", "Steuerung", "Controlli", "Controles" } },
 	{ "Controller Pak",
 	  { "Controller Pak", "Controller Pak", "Controller Pak", "Controller Pak", "Controller Pak" } },
+	{ "Rumble Pak",
+	  { "Rumble Pak", "Rumble Pak", "Rumble Pak", "Rumble Pak", "Rumble Pak" } },
 	{ "Cruceta abajo", { "D-pad down", "Bas de la croix", "Steuerkreuz unten", "Croce giù", "Baixo do direcional" } },
 	{ "Cruceta arriba", { "D-pad up", "Haut de la croix", "Steuerkreuz oben", "Croce su", "Cima do direcional" } },
 	{ "Cruceta derecha", { "D-pad right", "Droite de la croix", "Steuerkreuz rechts", "Croce destra", "Direita do direcional" } },

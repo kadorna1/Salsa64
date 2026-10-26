@@ -937,6 +937,16 @@ static void menu_game_page(void)
 	CHECK(strstr(buf, "accesorio = controller-pak") != NULL);
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	m.game.accessory = MENU_ACC_RUMBLE;
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	CHECK(strstr(buf, "accesorio = rumble-pak") != NULL);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.accessory, MENU_ACC_RUMBLE);
+	CHECK(!strcmp(menu_accessory_name(MENU_ACC_RUMBLE), "Rumble Pak"));
+	m.game.accessory = MENU_ACC_PAK;
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.accessory, MENU_ACC_PAK);
 	const char *junk = "aspecto = 5:4\nfiltro = raro\nrecorte = x\nescala = 9\nescala-estable = 9\n";
 	menu_game_parse(&back, junk, strlen(junk));
 	CHECK_EQ(back.aspect, -1);
