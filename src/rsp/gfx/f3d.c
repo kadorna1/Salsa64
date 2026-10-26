@@ -212,8 +212,13 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 #else
 	const bool ex = g->job->gbi == SALSA64_GBI_F3DEX;
 #endif
-	const bool beta_ops = g->job->gbi == SALSA64_GBI_F3DBETA || g->job->gbi == SALSA64_GBI_F3D_CRUISN_USA;
-	const bool wr = g->job->gbi == SALSA64_GBI_F3DWR || g->job->gbi == SALSA64_GBI_F3DBETA;
+	/* Cruis'n USA is Fast3D with the beta perspective-normalize / RDP-half
+	 * overrides, not the complete F3DBETA command map. In particular B1 must
+	 * not be decoded as the beta TRI2 command (see GLideN64's CRC profile
+	 * D3AB59B2: F3D + fast3DPerspNorm). */
+	const bool beta_ops = g->job->gbi == SALSA64_GBI_F3DBETA;
+	const bool persp_ops = beta_ops || g->job->gbi == SALSA64_GBI_F3D_CRUISN_USA;
+	const bool wr = g->job->gbi == SALSA64_GBI_F3DWR || beta_ops;
 	const unsigned kind = ex ? IDX_X2 : wr ? IDX_X5 : IDX_X10;
 	uint32_t w0, w1;
 
@@ -291,13 +296,13 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 				return;
 			break;
 		case G_RDPHALF_1:
-			/* B4 is G_PERSPNORM in Cruis'n's beta-style command map. */
-			if (!beta_ops)
+			/* B4 is G_PERSPNORM for Cruis'n USA and F3D beta. */
+			if (!persp_ops)
 				g->rdphalf1 = w1;
 			break;
 		case G_RDPHALF_2:
-			/* B3 is HALF_1 for Cruis'n USA and F3D beta. */
-			if (beta_ops) {
+			/* B3 starts the inline RDP command for both fast-perspective profiles. */
+			if (persp_ops) {
 				g->rdphalf1 = w1;
 				break;
 			}
@@ -310,7 +315,7 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 			break;
 		case G_TEXRECT:
 		case G_TEXRECTFLIP:
-			if (beta_ops)
+			if (persp_ops)
 				gfx_dl_texrect(g, w0, w1, G_RDPHALF_2 | G_MODIFYVTX << 8,
 					       G_MODIFYVTX | G_MODIFYVTX << 8);
 			else
@@ -356,7 +361,14 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 		case G_TRI2:
 		case G_QUAD:
 		case G_BRANCH_Z:
-			if (!ex && op == G_TRI2 && !beta_ops) {
+			if (g->job->gbi == SALSA64_GBI_F3D_CRUISN_USA && op == G_TRI2) {
+				/* Cruise'n USA's CRC profile is F3D with the perspective override;
+				 * B1 is not the F3DBETA TRI2 opcode. Ignore it like other unknown
+				 * commands rather than interpreting arbitrary words as triangles. */
+				res->unknown_cmds++;
+				res->last_unknown = op;
+				GFX_UNKNOWN(op);
+			} else if (!ex && op == G_TRI2 && !beta_ops) {
 				tri4(g, w0, w1);
 			} else if (wr && op == G_QUAD) {
 				/* 0xB5 aquí es un cuadrilátero con índices ×5. */

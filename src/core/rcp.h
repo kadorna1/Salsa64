@@ -101,7 +101,7 @@ enum salsa64_gbi {
 	SALSA64_GBI_F3DPD,    /* Perfect Dark: Fast3D de Rare, vértices con color por índice */
 	SALSA64_GBI_F3DEXBG,  /* Conker: F3DEX2 con G_TRI4, normales aparte y luces puntuales */
 	SALSA64_GBI_F3DWR,    /* Wave Race 64: Fast3D 2.0D con índices de vértice ×5 y G_QUAD en 0xB5 */
-	SALSA64_GBI_F3D_CRUISN_USA, /* Cruis'n USA: índices normales, opcodes beta B2–B4 */
+	SALSA64_GBI_F3D_CRUISN_USA, /* Cruis'n USA: Fast3D con override PERSPNORM/RDPHALF */
 	SALSA64_GBI_F3DDKR,   /* Diddy Kong Racing: Fast3D de Rare con matrices, vértices y triángulos por DMA */
 	SALSA64_GBI_F3DJFG,   /* Jet Force Gemini y Mickey's Speedway USA: el de DKR con otro conteo de vértices */
 	SALSA64_GBI_S2DEX1,   /* S2DEX 1.x suelto (Yoshi's Story): los mismos objetos con los opcodes de la primera generación */

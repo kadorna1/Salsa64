@@ -3102,16 +3102,16 @@ static void setup_cruisn_f3d_draw(bool beta)
 	dl(beta ? 0x04000800u : 0x04300000u, va); /* F3DBETA count vs. F3D count */
 }
 
-static void gfx_cruisn_usa_tri2(void)
+static void gfx_cruisn_usa_b1_is_not_beta_tri2(void)
 {
 	start();
 	job_gbi = SALSA64_GBI_F3D_CRUISN_USA;
 	setup_cruisn_f3d_draw(false);
-	dl(0xB1000A14u, 0x00141E); /* B1: (0,1,2) and (0,2,3), X10 */
+	dl(0xB1000A14u, 0x00141E); /* B1 is not Cruis'n USA's beta TRI2 */
 	dl(0xB8000000u, 0);
 	run();
-	CHECK_EQ(res.triangles, 2);
-	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.triangles, 0);
+	CHECK_EQ(res.unknown_cmds, 1);
 	CHECK_EQ(res.dl_errors, 0);
 }
 
@@ -3147,7 +3147,7 @@ void t_suite_gfx(void)
 	RUN(gfx_cruisn_exotica_counted_dlist_nested);
 	RUN(gfx_cruisn_usa_beta_half_commands);
 	RUN(gfx_f3dbeta_half_commands);
-	RUN(gfx_cruisn_usa_tri2);
+	RUN(gfx_cruisn_usa_b1_is_not_beta_tri2);
 	RUN(gfx_cruisn_usa_quad);
 	RUN(gfx_f3dbeta_tri2);
 	RUN(gfx_clip_four_planes);
