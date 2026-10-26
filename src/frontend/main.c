@@ -568,6 +568,7 @@ static struct {
 	volatile uint32_t seq;
 	uint8_t on[SALSA64_PIF_PORTS];
 } rumble_box;
+static uint8_t rumble_applied[SALSA64_PIF_PORTS];
 
 static uint16_t pad_published[SALSA64_PIF_PORTS];
 
@@ -609,6 +610,16 @@ static void rumble_snapshot(uint8_t on[SALSA64_PIF_PORTS])
 		lwsync();
 		if (rumble_box.seq == s1)
 			return;
+	}
+}
+
+static void rumble_stop_all(void)
+{
+	padActParam act;
+	memset(&act, 0, sizeof act);
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+		if (rumble_applied[i] && ioPadSetActDirect(i, &act) == PAD_OK)
+			rumble_applied[i] = 0;
 	}
 }
 
@@ -1208,7 +1219,6 @@ static int update_pads(uint32_t *buttons)
 		[0 ... SALSA64_PIF_PORTS - 1] = { 0, 128, 128, 128, 128 },
 	};
 	static uint8_t present[SALSA64_PIF_PORTS];
-	static uint8_t rumble_applied[SALSA64_PIF_PORTS];
 	static uint32_t stick[SALSA64_PIF_PORTS];
 	const struct salsa64_ds3 neutral = { 0, 128, 128, 128, 128 };
 	struct salsa64_pad pads[SALSA64_PIF_PORTS];
@@ -4808,6 +4818,7 @@ static void game_close(void)
 	/* Never leave a motor latched across game changes or a return to the menu. */
 	memset(n64.bus.pif.rumble, 0, sizeof n64.bus.pif.rumble);
 	rumble_publish();
+	rumble_stop_all();
 	cajanegra_shutdown(10000000);
 	states_shutdown(10000000);  /* un estado a medio escribir se termina antes de soltar nada */
 	salsa64_filters_release();
