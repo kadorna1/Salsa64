@@ -71,6 +71,7 @@ static void transferpak_power_status_and_banking(void)
 	write_reg(&state, &cart, 0xB000, 1);
 	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x8D); /* powered, cart enabled, reset=3 */
 	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x89); /* reset status advances */
+	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x81); /* steady state: access enabled */
 
 	CHECK_EQ(read_first(&state, &cart, 0xC000), 0x11); /* Transfer Pak bank 1 -> GB ROM bank 1 */
 	write_reg(&state, &cart, 0xA000, 2);
