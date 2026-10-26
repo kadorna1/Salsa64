@@ -1,0 +1,91 @@
+name: Dr. Mario 64 graphics regression
+
+on:
+  pull_request:
+    branches: [main, "fix/cruisn-v2.11-port"]
+    paths:
+      - "src/rsp/gfx/**"
+      - "src/rdp/**"
+      - "src/platform/ps3/**"
+      - "tests/**"
+      - "tools/**"
+      - "docker/**"
+      - ".github/workflows/dr-mario64-graphics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: dr-mario64-graphics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests-and-ps3-package:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 350
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Keep the toolchain image in GHCR and key it to the Docker recipe.
+      # Normal C/C++ edits pull the existing image instead of rebuilding GCC/binutils.
+      - name: Select toolchain image version
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="$(sha256sum docker/Dockerfile docker/cgcomp-wrapper.sh | sha256sum | cut -c1-16)"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/salsa64-toolchain:${IMAGE_TAG}"
+          echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "Toolchain image: $IMAGE"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Reuse published toolchain image (build and publish on cache miss)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if docker pull "$SALSA64_IMAGE"; then
+            echo "Reused cached toolchain image: $SALSA64_IMAGE"
+          else
+            echo "Toolchain image not present yet; building it once."
+            tools/docker-image.sh
+            docker push "$SALSA64_IMAGE"
+          fi
+
+      - name: Run host unit tests inside Docker
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          tools/build.sh test-host 2>&1 | tee build/logs/dr-mario-host-tests.log
+
+      - name: Build installable PS3 package inside Docker
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/dr-mario-ps3-package.log
+          test -s build/salsa64/salsa64.pkg
+
+      - name: Upload test logs and package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dr-mario64-graphics-diagnostics
+          path: |
+            build/salsa64/*.pkg
+            build/logs/docker-image.log
+            build/logs/dr-mario-host-tests.log
+            build/logs/dr-mario-ps3-package.log
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
