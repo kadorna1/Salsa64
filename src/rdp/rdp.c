@@ -3440,7 +3440,7 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 				continue;
 			uint32_t first_row, baseline_lines, total_lines;
 			uint32_t changed_rows = profile_cpu_rows_count(i, &first_row, &baseline_lines, &total_lines);
-			LOGN(1, "gfx: VI CPU probe %u slot %d %06x/%u lh%u %s baseline=%u/%u lines changed=%u first=%u",
+			LOGN(60, "gfx: VI CPU probe %u slot %d %06x/%u lh%u %s baseline=%u/%u lines changed=%u first=%u",
 			     vi_probe_fields, i, t->addr, t->width, t->lh,
 			     i == p.slot ? "VI" : (rdp.surf[i] ? "RSX" : "CPU"),
 			     baseline_lines, total_lines, changed_rows, first_row);
