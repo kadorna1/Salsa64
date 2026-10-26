@@ -821,6 +821,24 @@ static void menu_controls(void)
 	CHECK_EQ(m.page, MENU_PAGE_OPTIONS);
 }
 
+static void menu_accessory_option(void)
+{
+	struct menu m;
+	nav_setup(&m, 2, 0);
+	menu_input(&m, 0, 0);
+	m.page = MENU_PAGE_OPTIONS;
+	m.opt = MENU_OPT_ACCESSORY;
+	CHECK_EQ(m.set.accessory, MENU_ACC_PAK);
+	CHECK_EQ(menu_input(&m, RIGHT, 10), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_NONE);
+	menu_input(&m, 0, 20);
+	CHECK_EQ(menu_input(&m, CROSS, 30), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_RUMBLE);
+	menu_input(&m, 0, 40);
+	CHECK_EQ(menu_input(&m, LEFT, 50), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_NONE);
+}
+
 static void menu_game_page(void)
 {
 	struct menu m;
@@ -925,8 +943,8 @@ static void menu_game_page(void)
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_GEOMETRY);
 	back.interp = -1;
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_OFF);  /* la de Opciones */
-	/* Accesorio: Controller Pak por omisión, «ninguno» se guarda y se lee. */
-	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	/* Por omisión el accesorio hereda de Opciones; las elecciones explícitas van al archivo del juego. */
+	CHECK_EQ(back.accessory, -1);
 	m.game.accessory = MENU_ACC_NONE;
 	n = menu_game_format(&m.game, buf, sizeof buf);
 	CHECK(strstr(buf, "accesorio = ninguno") != NULL);
@@ -937,6 +955,25 @@ static void menu_game_page(void)
 	CHECK(strstr(buf, "accesorio = controller-pak") != NULL);
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	m.game.accessory = MENU_ACC_RUMBLE;
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	CHECK(strstr(buf, "accesorio = rumble-pak") != NULL);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.accessory, MENU_ACC_RUMBLE);
+	CHECK(!strcmp(menu_accessory_name(MENU_ACC_RUMBLE), "Rumble Pak"));
+	m.game.accessory = MENU_ACC_PAK;
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	/* Global → Controller Pak and back: games can inherit or pin an accessory. */
+	m.game.accessory = -1;
+	m.game_sel = MENU_GAME_ACCESSORY;
+	menu_input(&m, 0, 179);
+	CHECK_EQ(menu_input(&m, RIGHT, 180), MENU_GAME_CHANGED);
+	CHECK_EQ(m.game.accessory, MENU_ACC_PAK);
+	menu_input(&m, 0, 181);
+	CHECK_EQ(menu_input(&m, LEFT, 182), MENU_GAME_CHANGED);
+	CHECK_EQ(m.game.accessory, -1);
 	const char *junk = "aspecto = 5:4\nfiltro = raro\nrecorte = x\nescala = 9\nescala-estable = 9\n";
 	menu_game_parse(&back, junk, strlen(junk));
 	CHECK_EQ(back.aspect, -1);
@@ -972,6 +1009,7 @@ static void menu_game_page(void)
 	st.filter = MENU_FILTER_SCAN_SOFT;
 	st.lang = MENU_LANG_DE;
 	st.interp = MENU_INTERP_GEOMETRY;
+	st.accessory = MENU_ACC_RUMBLE;
 	n = menu_settings_format(&st, buf, sizeof buf);
 	CHECK(n > 0 && n < (int)sizeof buf);
 	struct menu_settings st2;
@@ -981,6 +1019,7 @@ static void menu_game_page(void)
 	CHECK_EQ(st2.filter, MENU_FILTER_SCAN_SOFT);
 	CHECK_EQ(st2.lang, MENU_LANG_DE);
 	CHECK_EQ(st2.interp, MENU_INTERP_GEOMETRY);
+	CHECK_EQ(st2.accessory, MENU_ACC_RUMBLE);
 }
 
 static void menu_options_page(void)
@@ -1147,6 +1186,9 @@ static void menu_options_page(void)
 	CHECK_EQ(m.opt, MENU_OPT_LANG);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_ACCESSORY);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
 	CHECK_EQ(m.opt, MENU_OPT_CONFIRM);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
@@ -1190,10 +1232,15 @@ static void menu_options_page(void)
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
 	CHECK(m.set.confirm);
-	/* Idioma: derecha avanza con vuelta; izquierda al revés. */
+	/* La selección de accesorio global queda entre confirmar e idioma. */
+	menu_input(&m, 0, 79);
+	menu_input(&m, DOWN, 79);
+	CHECK_EQ(m.opt, MENU_OPT_ACCESSORY);
 	menu_input(&m, 0, 79);
 	menu_input(&m, DOWN, 79);
 	CHECK_EQ(m.opt, MENU_OPT_LANG);
+	/* Idioma: derecha avanza con vuelta; izquierda al revés. */
+	menu_input(&m, 0, 79);
 	CHECK_EQ(m.set.lang, MENU_LANG_ES);
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
@@ -2162,6 +2209,7 @@ void t_suite_menu(void)
 	RUN(menu_video_file);
 	RUN(menu_pages);
 	RUN(menu_options_page);
+	RUN(menu_accessory_option);
 	RUN(menu_game_page);
 	RUN(menu_density);
 	RUN(menu_controls);

@@ -52,8 +52,9 @@
 #define PAUSECTL_MENU    0x8u  /* menú de pausa (START + SELECT) */
 
 /* Filas del menú de pausa y de su página «Imagen». */
-enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_SLOT, PM_CHEATS, PM_IMAGE, PM_FPS, PM_RESET, PM_RESTART, PM_EXIT, PM_ROWS };
+enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_SLOT, PM_CHEATS, PM_IMAGE, PM_ACCESSORY, PM_FPS, PM_RESET, PM_RESTART, PM_EXIT, PM_ROWS };
 enum { IM_FILTER, IM_DENSITY, IM_ASPECT, IM_CROP, IM_SCALE, IM_INTERP, IM_SAVE, IM_BACK, IM_ROWS };
+enum { AM_PORT1, AM_PORT2, AM_PORT3, AM_PORT4, AM_BACK, AM_ROWS };
 
 enum pausectl_action {
 	PAUSECTL_NONE,
@@ -79,6 +80,9 @@ struct pausectl {
 	 * llama lo lee y lo baja). */
 	bool image;
 	int image_sel, image_do, image_arg;
+	bool accessory;           /* página de accesorios, con el juego pausado */
+	int accessory_sel;        /* AM_PORT1..AM_BACK */
+	int accessory_do, accessory_arg; /* puerto (0..3) y dirección -1/+1; -1 = nada */
 	bool image_density;  /* hay fila «Densidad» (la pone quien llama: el filtro es la máscara) */
 	/* Lista de trucos. `panel_avail` y `panel_rows` los pone quien llama (hay
 	 * trucos y cuántos); panel_sel es el elegido; toggle, el que se pidió

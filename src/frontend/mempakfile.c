@@ -50,12 +50,21 @@ void mempakfile_open(struct mempakfile *f, struct salsa64_mempak *mp, struct sal
 	f->log = log;
 	salsa64_mempak_init(mp);
 	bus->mempak = NULL;
-	if (!(ports & ((1u << SALSA64_MEMPAK_PORTS) - 1))) {
+	/* The PIF now separates "storage is loaded" from "this accessory is
+	 * inserted". Keep this API's historical meaning: its mask inserts a
+	 * Controller Pak in each selected port. The game frontend may override
+	 * these types immediately afterward (e.g. to start with Rumble Paks). */
+	unsigned selected = ports & ((1u << SALSA64_MEMPAK_PORTS) - 1);
+	for (unsigned p = 0; p < SALSA64_MEMPAK_PORTS; p++) {
+		bool present = (selected >> p) & 1;
+		mp->present[p] = present;
+		bus->pif.accessory[p] = present ? SALSA64_PIF_ACCESSORY_CONTROLLER_PAK
+					       : SALSA64_PIF_ACCESSORY_NONE;
+	}
+	if (!selected) {
 		f->bus = NULL;
 		return;
 	}
-	for (unsigned p = 0; p < SALSA64_MEMPAK_PORTS; p++)
-		mp->present[p] = (ports >> p) & 1;
 	bus->mempak = mp;
 	if (!dir) {
 		f->log("accesorio: Controller Pak (controles %02X), solo en memoria", ports & 0xF);
