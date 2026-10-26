@@ -2,7 +2,7 @@ name: Dr. Mario 64 graphics regression
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "fix/cruisn-v2.11-port"]
     paths:
       - "src/rsp/gfx/**"
       - "src/rdp/**"
@@ -32,6 +32,7 @@ jobs:
 
       - name: Build project toolchain container
         run: |
+          set -o pipefail
           docker build --progress=plain -f docker/Dockerfile -t salsa64-toolchain:dev . 2>&1 | tee docker-image.log
 
       - name: Run host unit tests
