@@ -113,9 +113,9 @@ enum menu_density { MENU_DENSITY_NORMAL, MENU_DENSITY_FINE, MENU_DENSITIES };
 enum menu_interp { MENU_INTERP_OFF, MENU_INTERP_GEOMETRY, MENU_INTERPS };
 
 /* Accesorio enchufado a los controles (juegos/<ROM>.cfg, «accesorio =
- * controller-pak|ninguno»; mempak.h). Sin opción global: por omisión, un
- * Controller Pak en cada control. */
-enum menu_accessory { MENU_ACC_PAK, MENU_ACC_NONE, MENU_ACCS };
+ * controller-pak|rumble-pak|ninguno»). Sin opción global: por omisión,
+ * un Controller Pak en cada control. */
+enum menu_accessory { MENU_ACC_PAK, MENU_ACC_NONE, MENU_ACC_RUMBLE, MENU_ACCS };
 
 /* Ajustes de un solo juego (juegos/<ROM>.cfg): -1 es «lo global». */
 struct menu_game {
