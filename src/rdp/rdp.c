@@ -1454,6 +1454,50 @@ static bool profile_cpu_rows_changed(int i)
 	return false;
 }
 
+/* Count row-level CopyColorFromRDRAM differences without changing a surface.
+ * Diagnostic only: sweep all known 16-bit targets, not just the VI-selected one,
+ * to discover whether CPU-written pixels are landing in an auxiliary image. */
+static uint32_t profile_cpu_rows_count(int i, uint32_t *first_row,
+                                      uint32_t *baseline_lines, uint32_t *total_lines)
+{
+	const struct rdp_target *t = &rdp.tg.t[i];
+	uint32_t rows = 0;
+	if (first_row)
+		*first_row = UINT32_MAX;
+	if (baseline_lines)
+		*baseline_lines = 0;
+	if (total_lines)
+		*total_lines = 0;
+	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || !t->used ||
+	    t->bpp != 2 || !t->width || !t->lh ||
+	    t->width > RB_MAX_W || t->lh > RB_MAX_H)
+		return 0;
+
+	uint64_t end64 = (uint64_t)t->addr + (uint64_t)t->width * t->bpp * t->lh;
+	if (end64 > rdp.rdram_size)
+		end64 = rdp.rdram_size;
+	if (end64 > (uint64_t)RDP_GUARD_LINES * RDP_GUARD_LINE)
+		end64 = (uint64_t)RDP_GUARD_LINES * RDP_GUARD_LINE;
+	if ((uint64_t)t->addr < end64) {
+		uint32_t lo = t->addr >> RDP_GUARD_SHIFT;
+		uint32_t hi = (uint32_t)((end64 - 1) >> RDP_GUARD_SHIFT);
+		for (uint32_t line = lo; line <= hi; line++) {
+			if (total_lines)
+				(*total_lines)++;
+			if (guard.profile[line] && baseline_lines)
+				(*baseline_lines)++;
+		}
+	}
+	for (uint32_t y = 0; y < t->lh; y++) {
+		if (rdp_target_row_cpu_changed(t, y, &guard, rdp.rdram, rdp.rdram_size)) {
+			if (!rows && first_row)
+				*first_row = y;
+			rows++;
+		}
+	}
+	return rows;
+}
+
 /* Upload contiguous bands of rows whose RDRAM guard lines changed. */
 static uint32_t prime_profile_cpu_rows(int i)
 {
@@ -3385,6 +3429,23 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 	 * the last RDP task, so get_target() alone is too early to notice them.
 	 * Re-upload only rows that differ from the stable RDRAM baseline, just
 	 * before presenting the VI-selected target. */
+	/* Periodically inspect every tracked target, including non-VI images. This
+	 * tells us whether CPU updates are being written to an auxiliary target while
+	 * the VI keeps presenting one of the double-buffered main targets. */
+	static uint32_t vi_probe_fields;
+	if (rdp.copy_color_from_rdram && (++vi_probe_fields % 120u) == 0) {
+		for (int i = 0; i < RDP_TARGETS_MAX; i++) {
+			const struct rdp_target *t = &rdp.tg.t[i];
+			if (!t->used || t->bpp != 2 || !t->width || !t->lh)
+				continue;
+			uint32_t first_row, baseline_lines, total_lines;
+			uint32_t changed_rows = profile_cpu_rows_count(i, &first_row, &baseline_lines, &total_lines);
+			LOGN(1, "gfx: VI CPU probe %u slot %d %06x/%u lh%u %s baseline=%u/%u lines changed=%u first=%u",
+			     vi_probe_fields, i, t->addr, t->width, t->lh,
+			     i == p.slot ? "VI" : (rdp.surf[i] ? "RSX" : "CPU"),
+			     baseline_lines, total_lines, changed_rows, first_row);
+		}
+	}
 	if (rdp.copy_color_from_rdram) {
 		if (profile_cpu_rows_changed(p.slot)) {
 			uint32_t rows = prime_profile_cpu_rows(p.slot);
