@@ -306,7 +306,8 @@ void menu_game_parse(struct menu_game *g, const char *text, size_t len)
 				if (!strcmp(val, interp_key[v]))
 					g->interp = v;
 		} else if (!strcmp(key, "accesorio")) {
-			g->accessory = !strcmp(val, "ninguno") ? MENU_ACC_NONE : MENU_ACC_PAK;
+			g->accessory = !strcmp(val, "ninguno") ? MENU_ACC_NONE
+					: !strcmp(val, "rumble-pak") ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
 		}
 	}
 	salsa64_padmap_parse(&g->controls, text, len, NULL, 0);
@@ -327,7 +328,8 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 			g->stable_scale >= 1 && g->stable_scale <= MENU_SCALE_MAX ? scale[g->stable_scale] : "ninguna",
 			g->density >= 0 && g->density < MENU_DENSITIES ? density_key[g->density] : "global",
 			g->interp >= 0 && g->interp < MENU_INTERPS ? interp_key[g->interp] : "global",
-			g->accessory == MENU_ACC_NONE ? "ninguno" : "controller-pak");
+			g->accessory == MENU_ACC_NONE ? "ninguno"
+				: g->accessory == MENU_ACC_RUMBLE ? "rumble-pak" : "controller-pak");
 	if (n < 0 || (size_t)n >= size)
 		return -1;
 	int k = salsa64_padmap_format(&g->controls, buf + n, size - (size_t)n, 1);
@@ -365,7 +367,8 @@ int menu_game_interp(const struct menu_settings *s, const struct menu_game *g)
 
 const char *menu_accessory_name(int accessory)
 {
-	return accessory == MENU_ACC_NONE ? "Ninguno" : "Controller Pak";
+	return accessory == MENU_ACC_NONE ? "Ninguno"
+		: accessory == MENU_ACC_RUMBLE ? "Rumble Pak" : "Controller Pak";
 }
 
 const char *menu_interp_name(int interp)
@@ -824,8 +827,9 @@ static enum menu_action game_buttons(struct menu *m, uint32_t pressed)
 	}
 	if (m->game_sel == MENU_GAME_CONTROLS)
 		return pressed & BIT(SALSA64_DS3_CROSS) ? MENU_CONTROLS : MENU_NONE;
-	if (m->game_sel == MENU_GAME_ACCESSORY) {  /* dos valores, sin «Global» */
-		m->game.accessory = m->game.accessory == MENU_ACC_PAK ? MENU_ACC_NONE : MENU_ACC_PAK;
+	if (m->game_sel == MENU_GAME_ACCESSORY) {  /* accesorios cíclicos, sin «Global» */
+		int delta = pressed & BIT(SALSA64_DS3_LEFT) ? -1 : 1;
+		m->game.accessory = (m->game.accessory + delta + MENU_ACCS) % MENU_ACCS;
 		return MENU_GAME_CHANGED;
 	}
 	/* Global → valor 0 → ... → último → Global (izquierda, al revés). */
