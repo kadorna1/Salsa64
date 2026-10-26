@@ -186,6 +186,10 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 			label = tr("Imagen");
 			snprintf(val, sizeof val, "▶");
 			break;
+		case PM_ACCESSORY:
+			label = tr("Accesorios");
+			snprintf(val, sizeof val, "▶");
+			break;
 		case PM_CHEATS:
 			label = tr("Trucos");
 			dim = !m->cheats_total;
@@ -210,6 +214,40 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 		}
 	}
 	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("×  Aceptar     ↑↓  Elegir     ○  Continuar"), 1.5f, 0xC8C8C8FF, 0);
+	rsxkit_ui_end();
+}
+
+void osd_accessory_menu_draw(const struct osd_accessory_menu *m, float lw, float lh)
+{
+	const float sc = 1.75f, row_h = 44.0f, pad = 22.0f, w = 590.0f;
+	float h = 54.0f + AM_ROWS * row_h + 36.0f + 2 * pad;
+	float x = 34.0f, y = lh - h - 34.0f;
+	char label[40], val[96];
+	rsxkit_ui_begin(lw, lh);
+	rsxkit_ui_rect(x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f, 0xFFFFFF50);
+	rsxkit_ui_rect(x, y, w, h, 0x141414E8);
+	rsxkit_ui_text(x + pad, y + pad, tr("Accesorios"), 2.25f, 0xFFFFFFFF, 0);
+	for (int i = 0; i < AM_ROWS; i++) {
+		float ry = y + pad + 54.0f + i * row_h;
+		bool cur = i == m->sel;
+		const char *name;
+		val[0] = '\0';
+		if (i < AM_BACK) {
+			snprintf(label, sizeof label, tr("Control %u"), (unsigned)i + 1);
+			name = label;
+			snprintf(val, sizeof val, cur ? "◀ %s ▶" : "%s", tr(m->value[i]));
+		} else {
+			name = tr("Volver");
+		}
+		if (cur)
+			rsxkit_ui_rect(x + 8.0f, ry - 5.0f, w - 16.0f, row_h - 2.0f, 0x3A5A9AE0);
+		rsxkit_ui_text(x + pad, ry, name, sc, cur ? 0xFFFFFFFF : 0xD8D8D8FF, 0);
+		if (val[0])
+			rsxkit_ui_text(x + w - pad - cells(val) * RSXKIT_FONT_W * sc, ry, val, sc,
+				       cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
+	}
+	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.4f,
+		       tr("←→ / ×  Cambiar     ↑↓  Elegir     ○  Volver"), 1.4f, 0xC8C8C8FF, 0);
 	rsxkit_ui_end();
 }
 
