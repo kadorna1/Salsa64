@@ -112,9 +112,9 @@ enum menu_density { MENU_DENSITY_NORMAL, MENU_DENSITY_FINE, MENU_DENSITIES };
  * vértices entre un cuadro y el siguiente (salsa64_rdp_interp). */
 enum menu_interp { MENU_INTERP_OFF, MENU_INTERP_GEOMETRY, MENU_INTERPS };
 
-/* Accesorio enchufado a los controles (juegos/<ROM>.cfg, «accesorio =
- * controller-pak|rumble-pak|ninguno»). Sin opción global: por omisión,
- * un Controller Pak en cada control. */
+/* Accesorio enchufado a los controles (menu.cfg y juegos/<ROM>.cfg,
+ * «accesorio = controller-pak|rumble-pak|ninguno»). -1 en ajustes de juego
+ * significa heredar la opción global. */
 enum menu_accessory { MENU_ACC_PAK, MENU_ACC_NONE, MENU_ACC_RUMBLE, MENU_ACCS };
 
 /* Ajustes de un solo juego (juegos/<ROM>.cfg): -1 es «lo global». */
@@ -127,7 +127,7 @@ struct menu_game {
 	int density;   /* -1 o enum menu_density (solo con la máscara) */
 	int interp;    /* -1 o enum menu_interp */
 	struct salsa64_padmap controls; /* asignaciones propias; INHERIT usa el global */
-	int accessory; /* enum menu_accessory (nunca -1: sin valor global) */
+	int accessory; /* -1 o enum menu_accessory: -1 hereda de Opciones */
 };
 /* MENU_GAME_DENSITY solo es una fila si el filtro que vale es la máscara. */
 enum { MENU_GAME_ASPECT, MENU_GAME_FILTER, MENU_GAME_DENSITY, MENU_GAME_OVERSCAN, MENU_GAME_SCALE, MENU_GAME_INTERP, MENU_GAME_CONTROLS,
@@ -159,11 +159,12 @@ struct menu_settings {
 	int lang;       /* enum menu_lang */
 	int interp;     /* enum menu_interp («interpolacion = no|geometria») */
 	int rom_order;  /* enum menu_rom_order («orden = titulo|archivo») */
+	int accessory;  /* enum menu_accessory; accesorio inicial para todos los controles */
 };
 
 enum { MENU_PAGE_GAMES, MENU_PAGE_OPTIONS, MENU_PAGE_CHEATS, MENU_PAGE_GAME, MENU_PAGE_CONTROLS };
 enum { MENU_OPT_WAVES, MENU_OPT_OVERSCAN, MENU_OPT_ASPECT, MENU_OPT_FILTER, MENU_OPT_DENSITY, MENU_OPT_RESOLUTION,
-       MENU_OPT_SCALE, MENU_OPT_APPLY, MENU_OPT_INTERP, MENU_OPT_FPS, MENU_OPT_CONFIRM, MENU_OPT_LANG,
+       MENU_OPT_SCALE, MENU_OPT_APPLY, MENU_OPT_INTERP, MENU_OPT_FPS, MENU_OPT_CONFIRM, MENU_OPT_ACCESSORY, MENU_OPT_LANG,
        MENU_OPT_ROM_ORDER, MENU_OPT_DL_COVERS, MENU_OPT_DL_CHEATS, MENU_OPT_REFRESH, MENU_OPT_CONTROLS, MENU_OPT_BACK, MENU_OPTS };
 #define MENU_CONTROL_STICK 14
 #define MENU_CONTROL_RESET 15
