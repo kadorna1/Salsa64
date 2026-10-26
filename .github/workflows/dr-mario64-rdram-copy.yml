@@ -29,14 +29,16 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Compute toolchain image tag
-        id: image
+      # Reuse the image already pulled successfully by the v2.11b PS3 build.
+      # main only changed a Docker metadata label, not the toolchain or libraries.
+      # Pinning this tag prevents a cache miss from trying to rebuild GCC/binutils.
+      - name: Select existing toolchain image
         shell: bash
         run: |
           set -euo pipefail
-          IMAGE_TAG="$(cat docker/Dockerfile docker/cgcomp-wrapper.sh | sha256sum | cut -c1-16)"
-          echo "tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
-          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/salsa64-toolchain:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          IMAGE="ghcr.io/kadorna1/salsa64-toolchain:10ba33a3a3733eaa"
+          echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          echo "Reusing published toolchain image: $IMAGE"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -45,19 +47,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull cached PS3 toolchain
-        id: cached
-        continue-on-error: true
-        run: docker pull "${{ steps.image.outputs.image }}"
-
-      - name: Build and publish toolchain image on cache miss
-        if: steps.cached.outcome != 'success'
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/docker-image.sh
-          docker tag salsa64-toolchain:dev "${{ steps.image.outputs.image }}"
-          docker push "${{ steps.image.outputs.image }}"
+      # Deliberately fail fast if the known image is unavailable; never compile
+      # a fresh PS3 toolchain from this gameplay-fix workflow.
+      - name: Pull existing PS3 toolchain image
+        run: docker pull "$SALSA64_IMAGE"
 
       - name: Run host regression suite
         shell: bash
