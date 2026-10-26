@@ -4,7 +4,7 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
-## [Unreleased]
+## [0.2.12] — 2026-10-26
 
 ### Added
 - The log names each graphics microcode a game uses, with its version text
