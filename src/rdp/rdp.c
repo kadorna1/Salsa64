@@ -2227,11 +2227,11 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 	int slot;
 	uint32_t x0, y0;
 	enum rdp_texsrc src = rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
-	/* CopyColorFromRDRAM also applies when a live color image is sampled as
-	 * a texture. CPU writes can update that RDRAM image after its last draw,
-	 * without another get_target() for it or a VI presentation of that target.
-	 * Refresh here before handing the RSX surface to the texture sampler. */
-	if ((src == RDP_TEXSRC_RSX || src == RDP_TEXSRC_SELF) && slot >= 0 && rdp.surf[slot] &&
+	/* CopyColorFromRDRAM must run before deciding whether to sample a live
+	 * target from the RSX or decode it from RDRAM. rdp_targets_texture()
+	 * deliberately returns RDRAM for CPU-owned targets, so checking only
+	 * RSX/SELF here misses exactly the CPU-updated targets this profile serves. */
+	if (src != RDP_TEXSRC_NONE && slot >= 0 && rdp.surf[slot] &&
 	    rdp.copy_color_from_rdram && profile_cpu_rows_changed(slot)) {
 		uint32_t regions = prime_profile_cpu_spans(slot, true);
 		if (regions) {
@@ -2245,12 +2245,14 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 			LOGN(40, "gfx: CopyColorFromRDRAM uploaded %u CPU spans to %06x/%u before texture sampling (task %u)",
 			     regions, rdp.tg.t[slot].addr, rdp.tg.t[slot].width, rdp.tg.task);
 		}
-		/* If a span could not be synchronized, sample the current RDRAM copy
-		 * rather than returning a known-stale RSX texture. */
+		/* Reclassify after the upload: a formerly CPU-owned target may now
+		 * be sampled from RSX/SELF. If the upload is incomplete, the RDRAM
+		 * fallback remains authoritative instead of using a stale surface. */
 		if (profile_cpu_rows_changed(slot))
 			return false;
+		src = rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
 	}
-	if ((src != RDP_TEXSRC_RSX && src != RDP_TEXSRC_SELF) || !rdp.surf[slot])
+	if ((src != RDP_TEXSRC_RSX && src != RDP_TEXSRC_SELF) || slot < 0 || !rdp.surf[slot])
 		return false;
 	const struct rdp_target *tg = &rdp.tg.t[slot];
 	/* Una textura que se repite a lo ancho no cabe en filas enteras. */
