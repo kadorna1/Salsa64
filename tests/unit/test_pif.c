@@ -6,6 +6,8 @@
 
 #include <string.h>
 
+#include "core/mempak.h"
+#include "core/transferpak.h"
 #include "frontend/padmap.h"
 
 #define SI_DRAM_ADDR      0x04800000u
@@ -368,6 +370,83 @@ static void pif_rumble_pak(void)
 	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_NONE;
 }
 
+/* PIF → Transfer Pak: el Joybus routing debe respetar el CRC de dirección,
+ * la identificación de accesorio, los registros de control y el acceso al GB ROM. */
+static uint16_t tpak_raw_addr(uint16_t address)
+{
+	return (uint16_t)((address & 0xFFE0u) | salsa64_mempak_addr_crc(address));
+}
+
+static void pif_tpak_write(uint16_t address, uint8_t value)
+{
+	uint8_t cmds[64];
+	uint16_t raw = tpak_raw_addr(address);
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x23; /* TX: comando + dirección + 32 datos */
+	cmds[1] = 0x01; /* RX: CRC de escritura */
+	cmds[2] = 0x03;
+	cmds[3] = (uint8_t)(raw >> 8);
+	cmds[4] = (uint8_t)raw;
+	memset(cmds + 5, value, 32);
+	cmds[38] = 0xFE;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+}
+
+static void pif_tpak_read(uint16_t address, uint8_t out[32])
+{
+	uint8_t cmds[64];
+	uint16_t raw = tpak_raw_addr(address);
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x03; /* TX: comando + dirección */
+	cmds[1] = 0x21; /* RX: 32 datos + CRC */
+	cmds[2] = 0x02;
+	cmds[3] = (uint8_t)(raw >> 8);
+	cmds[4] = (uint8_t)raw;
+	cmds[38] = 0xFE;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+	memcpy(out, ram() + 5, 32);
+}
+
+static void pif_transferpak(void)
+{
+	static uint8_t gb_rom[0x8000];
+	struct salsa64_transferpak_cart cart;
+	uint8_t data[32], info[] = { 0x01, 0x03, 0x00, 0xFF, 0xFF, 0xFF, 0xFE };
+
+	memset(gb_rom, 0xA5, sizeof gb_rom);
+	gb_rom[0x147] = 0x00; /* ROM only */
+	gb_rom[0x149] = 0x00;
+	CHECK(salsa64_transferpak_cart_init(&cart, gb_rom, sizeof gb_rom, NULL, 0));
+	bus()->pif.transferpak[0] = &cart;
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_TRANSFER_PAK;
+	salsa64_transferpak_reset(&bus()->pif.transferpak_state[0]);
+	pad(0, 0, 0, 0);
+
+	pif_load(info, sizeof info, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[4], 0x05); /* ordinary controller ID */
+	CHECK_EQ(ram()[5], 0x00);
+	CHECK_EQ(ram()[6], 0x01); /* accessory present */
+
+	pif_tpak_write(0x8000, 0x84); /* power on */
+	pif_tpak_read(0x8000, data);
+	CHECK_EQ(data[0], 0x84);
+	CHECK_EQ(data[31], 0x84);
+	pif_tpak_write(0xA000, 0); /* map the first 16 KiB GB bank */
+	pif_tpak_write(0xB000, 1); /* enable GB cartridge access */
+	pif_tpak_read(0xC000, data);
+	CHECK_EQ(data[0], 0xA5);
+	CHECK_EQ(data[31], 0xA5);
+
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_NONE;
+	bus()->pif.transferpak[0] = NULL; /* don't retain a pointer to this test's cart */
+	salsa64_transferpak_reset(&bus()->pif.transferpak_state[0]);
+}
+
 /* Respuesta más corta que lo pedido: bit 0x40; más larga: se recorta. */
 static void pif_rx_length(void)
 {
@@ -598,6 +677,7 @@ void t_suite_pif(void)
 	RUN(pif_held_press);
 	RUN(pif_no_pak);
 	RUN(pif_rumble_pak);
+	RUN(pif_transferpak);
 	RUN(pif_crc8);
 	RUN(pif_rx_length);
 	RUN(pif_reset_keeps_pads);
