@@ -1498,21 +1498,98 @@ static uint32_t profile_cpu_rows_count(int i, uint32_t *first_row,
 	return rows;
 }
 
-/* Upload contiguous bands of rows whose RDRAM guard lines changed. */
-static uint32_t prime_profile_cpu_rows(int i)
+/* Upload only the portions of RDRAM guard lines that changed. A guard line
+ * is 128 bytes (64 RGBA5551 pixels); refreshing an entire row would replace
+ * RSX-only background pixels in that row with stale RDRAM contents.
+ *
+ * commit_profile is false at target acquisition, because the RDP may draw
+ * over these pixels later in the same task. VI presentation passes true so
+ * the baseline advances only after the CPU-written spans are restored. */
+static uint32_t prime_profile_cpu_spans(int i, bool commit_profile)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
-	uint32_t rows = 0, y = 0;
-	while (y < t->lh) {
-		while (y < t->lh && !rdp_target_row_cpu_changed(t, y, &guard, rdp.rdram, rdp.rdram_size))
-			y++;
-		uint32_t y0 = y;
-		while (y < t->lh && rdp_target_row_cpu_changed(t, y, &guard, rdp.rdram, rdp.rdram_size))
-			y++;
-		if (y0 < y && prime_rows(i, y0, y))
-			rows += y - y0;
+	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || !rdp.surf[i] ||
+	    t->bpp != 2 || !t->width || !t->lh || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+		return 0;
+
+	uint32_t row_bytes = t->width * 2;
+	uint64_t end64 = (uint64_t)t->addr + (uint64_t)row_bytes * t->lh;
+	if (end64 > rdp.rdram_size)
+		end64 = rdp.rdram_size;
+	if (end64 <= t->addr)
+		return 0;
+	uint32_t first_line = t->addr >> RDP_GUARD_SHIFT;
+	uint32_t last_line = (uint32_t)((end64 - 1) >> RDP_GUARD_SHIFT);
+	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
+	uint32_t regions = 0;
+	bool any = false;
+
+	for (uint32_t line = first_line; line <= last_line; line++) {
+		uint32_t baseline = guard.profile[line];
+		if (!baseline || rdp_guard_hash(rdp.rdram + (line << RDP_GUARD_SHIFT)) == baseline)
+			continue;
+
+		uint32_t lo = line << RDP_GUARD_SHIFT;
+		uint32_t hi = lo + RDP_GUARD_LINE;
+		uint32_t y0 = lo <= t->addr ? 0 : (lo - t->addr) / row_bytes;
+		uint32_t y1 = hi <= t->addr ? 0 : (hi - 1 - t->addr) / row_bytes;
+		if (y1 >= t->lh)
+			y1 = t->lh - 1;
+		bool line_ok = true;
+		bool line_uploaded = false;
+
+		for (uint32_t y = y0; y <= y1; y++) {
+			uint32_t row_lo = t->addr + y * row_bytes;
+			uint32_t row_hi = row_lo + row_bytes;
+			uint32_t a = lo > row_lo ? lo : row_lo;
+			uint32_t b = hi < row_hi ? hi : row_hi;
+			if (b > rdp.rdram_size)
+				b = rdp.rdram_size;
+			if (a >= b)
+				continue;
+
+			/* The target is RGBA5551. Guard and row boundaries are normally
+			 * pixel-aligned; round outward defensively to include a whole pixel. */
+			uint32_t x0 = (a - row_lo) / 2;
+			uint32_t x1 = (b - row_lo + 1) / 2;
+			if (x1 > t->lw)
+				x1 = t->lw;
+			if (x0 >= x1)
+				continue;
+			uint32_t w = x1 - x0;
+			uint32_t pitch = (w * 2 + 63) & ~63u;
+			unsigned k = rdp.prime_next;
+			uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
+					 : RB_SLOTS * RB_SLOT;
+			if (rdp.prime_fence[k] && !rsxkit_fence_done(rdp.prime_fence[k])) {
+				fence_wait(rdp.prime_fence[k]);
+				rdp.stats.prime_waits++;
+			}
+			memcpy(rdp.rb + boff, rdp.rdram + row_lo + x0 * 2, w * 2);
+			uint32_t dx = x0 * scale, dy = y * scale;
+			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK) {
+				line_ok = false;
+				continue;
+			}
+			rdp.prime_fence[k] = rsxkit_fence();
+			rdp.prime_next = (k + 1) % PRIME_BUFS;
+			rdp.stats.primes++;
+			regions++;
+			line_uploaded = true;
+			any = true;
+		}
+		/* A guard line may cover the end of one row and the start of the next.
+		 * Commit it only after all of its intersections have been uploaded. */
+		if (commit_profile && line_ok && line_uploaded)
+			rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, lo, hi);
 	}
-	return rows;
+
+	if (any) {
+		rdp.bound_t = -1;
+		rdp.surf_gen[i] = ++rdp.gen_seq;
+	}
+	return regions;
 }
 
 /* La última tarea en que el PPE escribió en la RDRAM [lo, hi) en lugar del
@@ -1727,7 +1804,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			 profile_refresh ? "filas CPU desde RDRAM" :
 			 dma_updated ? "RDRAM tras DMA" : alias ? "cebada (otro ancho)" : "viva");
 		if (stale) {
-			prime(i);
+			prime(i, !rdp.copy_color_from_rdram);
 			if (profile_refresh)
 				rdp.profile_prime_task[i] = rdp.tg.task;  /* ya se cebó entera */
 			rdp.alias_full[i] = false;
@@ -1735,14 +1812,14 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			/* CopyColorFromRDRAM solo actualiza filas que cambiaron desde la
 			 * huella de fin de tarea. El DMA sigue pidiendo el cebado entero. */
 			if (profile_refresh && !dma_updated) {
-				uint32_t rows = prime_profile_cpu_rows(i);
+				uint32_t regions = prime_profile_cpu_spans(i, false);
 				if (rows || !profile_cpu_rows_changed(i))
 					rdp.profile_prime_task[i] = rdp.tg.task;
-				if (rows)
-					LOGN(20, "gfx: color image %06x/%u: %u filas CPU recargadas desde RDRAM",
-					     rdp.tg.t[i].addr, rdp.tg.t[i].width, rows);
+				if (regions)
+					LOGN(20, "gfx: color image %06x/%u: %u CPU spans recargados desde RDRAM",
+					     rdp.tg.t[i].addr, rdp.tg.t[i].width, regions);
 			} else {
-				prime(i);
+				prime(i, !rdp.copy_color_from_rdram);
 				if (profile_refresh)
 					rdp.profile_prime_task[i] = rdp.tg.task;
 				LOGN(20, "gfx: color image %06x/%u recargada desde RDRAM (%s; tarea anterior %u)",
@@ -1759,11 +1836,11 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			if (rdp.alias_full[i] && sum == rdp.alias_sum[i]) {
 				const struct rdp_box *b = &rdp.alias_dirty[i];
 				if (b->y1 > b->y0) {
-					prime_rows(i, b->y0, b->y1);
+					prime_rows(i, b->y0, b->y1, !rdp.copy_color_from_rdram);
 					rdp.stats.primes_alias++;
 				}
 			} else {
-				prime(i);
+				prime(i, !rdp.copy_color_from_rdram);
 				rdp.alias_full[i] = true;
 				rdp.alias_sum[i] = sum;
 				rdp.stats.primes_alias++;
@@ -1807,7 +1884,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	rdp.surf_dirty[i] = false;
 	rdp.tg.t[i].fmt = (uint8_t)fmt;
 	rdp.stats.targets_created++;
-	prime(i);
+	prime(i, true);
 	return i;
 }
 
@@ -3448,12 +3525,12 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 	}
 	if (rdp.copy_color_from_rdram) {
 		if (profile_cpu_rows_changed(p.slot)) {
-			uint32_t rows = prime_profile_cpu_rows(p.slot);
-			if (rows) {
+			uint32_t regions = prime_profile_cpu_spans(p.slot, true);
+			if (regions) {
 				rdp.profile_prime_task[p.slot] = rdp.tg.task;
 				rdp.surf_dirty[p.slot] = true;
-				LOGN(40, "gfx: VI CopyColorFromRDRAM %06x/%u: %u CPU-modified rows uploaded before presentation",
-				     rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width, rows);
+				LOGN(40, "gfx: VI CopyColorFromRDRAM %06x/%u: %u CPU spans uploaded before presentation",
+				     rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width, regions);
 			}
 		} else {
 			LOGN(1, "gfx: VI CopyColorFromRDRAM active for %06x/%u; first VI check found no changed rows",
