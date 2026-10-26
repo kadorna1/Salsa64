@@ -1771,13 +1771,13 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	if (!fresh) {
 		/* Sin dibujar desde hace tareas: lo que vale está en la RDRAM. */
 		bool stale = rdp.tg.task - rdp.tg.t[i].last_task > RDP_TARGETS_FRESH;
-		/* CopyColorFromRDRAM existe justo para juegos como Dr. Mario 64,
-		 * donde la detección por hashes pierde escrituras CPU. Refrescar la
-		 * imagen entera en su primer uso de cada tarea, antes del primer
-		 * dibujo; la comprobación por hashes de VI queda como fallback para
-		 * escrituras que lleguen después. */
+		/* CopyColorFromRDRAM must preserve RSX-only pixels: with the main
+		 * framebuffer mirror disabled, a full upload from RDRAM on every task
+		 * would replace those pixels with stale data. Refresh only spans whose
+		 * stable RDRAM baseline changed; VI presentation catches later writes. */
 		bool profile_refresh = rdp.fbfx >= 1 && rdp.copy_color_from_rdram &&
-				       rdp.profile_prime_task[i] != rdp.tg.task && !stale;
+				       rdp.profile_prime_task[i] != rdp.tg.task && !stale &&
+				       profile_cpu_rows_changed(i);
 		bool dma_updated = rdp.fbfx >= 1 && rdp_target_dma_updated(&rdp.tg.t[i], &rdp.dma);
 		/* La misma memoria dibujada después con otro ancho (Resident Evil 2:
 		 * el fondo se copia a 0x63E000 de 512 de ancho y los personajes van
@@ -1811,16 +1811,17 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			rdp.alias_full[i] = false;
 			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
 		} else if (profile_refresh) {
-			/* Unconditional CopyColorFromRDRAM: do not gate this on hashes.
-			 * The target is reused, but RDRAM may contain CPU-written pixels
-			 * which the normal guard failed to identify. This happens once
-			 * before the RDP draws into this target for the current task. */
-			prime(i, true);
-			rdp.profile_prime_task[i] = rdp.tg.task;
-			rdp.alias_full[i] = false;
-			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
-			LOGN(40, "gfx: CopyColorFromRDRAM forced full refresh %06x/%u (%u rows, task %u)",
-			     rdp.tg.t[i].addr, rdp.tg.t[i].width, rdp.tg.t[i].lh, rdp.tg.task);
+			/* Upload only CPU-modified RDRAM spans. Commit their stable
+			 * baseline after the upload so later tasks do not reapply those
+			 * same stale pixels over newer RSX draws. */
+			uint32_t regions = prime_profile_cpu_spans(i, true);
+			if (regions) {
+				rdp.profile_prime_task[i] = rdp.tg.task;
+				rdp.alias_full[i] = false;
+				memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
+				LOGN(40, "gfx: CopyColorFromRDRAM uploaded %u CPU spans to %06x/%u before drawing (task %u)",
+				     regions, rdp.tg.t[i].addr, rdp.tg.t[i].width, rdp.tg.task);
+			}
 		} else if (dma_updated) {
 			prime(i, true);
 			rdp.alias_full[i] = false;
