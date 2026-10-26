@@ -442,6 +442,7 @@ static const struct entry table[] = {
 	{ "Tele Trinitron chica por",
 	  { "Small Trinitron TV over", "Petit Trinitron par", "Kleiner Trinitron über", "TV Trinitron piccola via", "TV Trinitron pequena por" } },
 	{ "Todos los juegos", { "All games", "Tous les jeux", "Alle Spiele", "Tutti i giochi", "Todos os jogos" } },
+	{ "Transfer Pak", { "Transfer Pak", "Transfer Pak", "Transfer Pak", "Transfer Pak", "Transfer Pak" } },
 	{ "Triángulo", { "Triangle", "Triangle", "Dreieck", "Triangolo", "Triângulo" } },
 	{ "Trucos",
 	  { "Cheats", "Cheats", "Cheats", "Cheat", "Cheats" } },
