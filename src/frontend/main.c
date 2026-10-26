@@ -597,10 +597,13 @@ static void rumble_publish(void)
 
 static void rumble_snapshot(uint8_t on[SALSA64_PIF_PORTS])
 {
-	for (;;) {
+	for (unsigned spins = 0;; spins++) {
 		uint32_t s1 = rumble_box.seq;
-		if (s1 & 1)
+		if (s1 & 1) {
+			if (spins > 64)
+				sysUsleep(20);
 			continue;
+		}
 		lwsync();
 		memcpy(on, rumble_box.on, SALSA64_PIF_PORTS);
 		lwsync();
@@ -1223,8 +1226,18 @@ static int update_pads(uint32_t *buttons)
 	pad_poll.last_us = now;
 	pad_poll.polls++;
 	pif_edges_log();
-	if (ioPadGetInfo(&info) != 0)
+	if (ioPadGetInfo(&info) != 0) {
+		/* A transient pad query failure must not leave a motor running. */
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+			if (!rumble_applied[i])
+				continue;
+			padActParam act;
+			memset(&act, 0, sizeof act);
+			if (ioPadSetActDirect(i, &act) == PAD_OK)
+				rumble_applied[i] = 0;
+		}
 		return 0;
+	}
 	bool intercepted = (info.info & 1) != 0;
 	if (intercepted != pause_ctl.intercepted)
 		salsa64_log("mandos: %s", intercepted ? "los tiene el sistema" : "de vuelta del sistema");
@@ -1236,6 +1249,8 @@ static int update_pads(uint32_t *buttons)
 			present[i] = !!info.status[i];
 			salsa64_log("mando %u %s", i + 1, present[i] ? "conectado" : "desconectado");
 			last[i] = neutral;  /* nada pegado */
+			if (!present[i])
+				rumble_applied[i] = 0; /* volver a aplicar si el mando se reconecta */
 		}
 		if (info.status[i] && ioPadGetData(i, &data) == 0 && data.len > 0 && !sys)
 			last[i] = ds3_from(&data);
