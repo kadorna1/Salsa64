@@ -10,11 +10,10 @@ permissions:
   contents: read
   packages: write
 
-# Do not cancel an active build when this workflow is first changed to publish
-# the toolchain image. Later manual/push runs are still serialized per branch.
+# A source update supersedes a stale test/package run; the toolchain image is cached.
 concurrency:
   group: salsa64-ps3-build-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build-ps3-pkg:
