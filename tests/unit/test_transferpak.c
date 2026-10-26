@@ -212,6 +212,21 @@ static void transferpak_file_save_round_trip(void)
 	remove(source);
 }
 
+static void transferpak_status_without_cartridge(void)
+{
+	struct salsa64_transferpak_state state;
+	salsa64_transferpak_reset(&state);
+	CHECK_EQ(read_first(&state, NULL, 0x8000), 0x00);
+	CHECK_EQ(read_first(&state, NULL, 0xB000), 0x00);
+	write_reg(&state, NULL, 0x8000, 0x84);
+	CHECK_EQ(read_first(&state, NULL, 0x8000), 0x84);
+	CHECK_EQ(read_first(&state, NULL, 0xB000), 0x40);
+	write_reg(&state, NULL, 0xB000, 1);
+	CHECK_EQ(read_first(&state, NULL, 0xB000), 0x40);
+	write_reg(&state, NULL, 0x8000, 0xFE);
+	CHECK_EQ(read_first(&state, NULL, 0xB000), 0x00);
+}
+
 static void transferpak_rejects_bad_cartridges(void)
 {
 	struct salsa64_transferpak_cart cart;
@@ -230,5 +245,6 @@ void t_suite_transferpak(void)
 	RUN(transferpak_mbc1_banking_and_sram);
 	RUN(transferpak_mbc2_nibble_ram);
 	RUN(transferpak_file_save_round_trip);
+	RUN(transferpak_status_without_cartridge);
 	RUN(transferpak_rejects_bad_cartridges);
 }
