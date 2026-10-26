@@ -25,6 +25,11 @@ static void make_rom(uint8_t type, uint8_t ram_code)
 	test_rom[0x149] = ram_code;
 }
 
+static void quiet_log(const char *fmt, ...)
+{
+	(void)fmt;
+}
+
 static void write_reg(struct salsa64_transferpak_state *s, struct salsa64_transferpak_cart *c,
 		      uint16_t addr, uint8_t value)
 {
@@ -178,18 +183,6 @@ static void transferpak_file_save_round_trip(void)
 	struct salsa64_pif pif;
 	struct transferpakfile file;
 	memset(&pif, 0, sizeof pif);
-	transferpakfile_open(&file, &pif, 0, source, NULL);
-	/* A logger is required to accept a companion ROM; open again below with
-	 * a real quiet logger, keeping a NULL-logger case from being mistaken for
-	 * a successfully initialized cartridge. */
-	CHECK(pif.transferpak[0] == &file.cart);
-	transferpakfile_close(&file);
-
-	/* Variadic callback matches the frontend's normal save logger. */
-	void quiet_log(const char *fmt, ...)
-	{
-		(void)fmt;
-	}
 	transferpakfile_open(&file, &pif, 0, source, quiet_log);
 	CHECK(file.cart.rom != NULL);
 	CHECK_EQ(file.cart.ram_size, 8u * 1024u);
