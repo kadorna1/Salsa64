@@ -325,6 +325,49 @@ static void pif_crc8(void)
 	CHECK_EQ(salsa64_joybus_crc8(d, 32), 0x33);
 }
 
+/* Rumble Pak: detección por el bloque 0x8000 y motor por escritura en 0xC000. */
+static void pif_rumble_pak(void)
+{
+	uint8_t cmds[64];
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
+	pad(0, 0, 0, 0);
+
+	/* Consulta de identificación: el accesorio está presente. */
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x01; cmds[1] = 0x03; cmds[2] = 0x00; cmds[6] = 0xFE;
+	pif_load(cmds, 7, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[3], 0x05);
+	CHECK_EQ(ram()[4], 0x00);
+	CHECK_EQ(ram()[5], 0x01);
+
+	/* El área 0x8000 devuelve 32 bytes de 0x80, con CRC de datos válido. */
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x03; cmds[1] = 0x21; cmds[2] = 0x02; cmds[3] = 0x80; cmds[4] = 0x01; cmds[38] = 0xFE;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	for (unsigned i = 0; i < 32; i++)
+		CHECK_EQ(ram()[5 + i], 0x80);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	/* 32 bytes no-cero en C000 encienden; 32 ceros apagan el motor. */
+	memset(cmds, 0, sizeof cmds);
+	cmds[0] = 0x23; cmds[1] = 0x01; cmds[2] = 0x03; cmds[3] = 0xC0; cmds[4] = 0x1B;
+	memset(cmds + 5, 0x01, 32); cmds[38] = 0xFE;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 1);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	memset(cmds + 5, 0, 32);
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_NONE;
+}
+
 /* Respuesta más corta que lo pedido: bit 0x40; más larga: se recorta. */
 static void pif_rx_length(void)
 {
@@ -554,6 +597,7 @@ void t_suite_pif(void)
 	RUN(pif_reset_combo);
 	RUN(pif_held_press);
 	RUN(pif_no_pak);
+	RUN(pif_rumble_pak);
 	RUN(pif_crc8);
 	RUN(pif_rx_length);
 	RUN(pif_reset_keeps_pads);
