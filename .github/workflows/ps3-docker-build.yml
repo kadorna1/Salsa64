@@ -1,0 +1,55 @@
+name: PS3 Docker frontend build (diagnostic)
+
+# One-shot trigger: this commit adds the workflow, and subsequent source-only
+# commits do not rebuild the expensive toolchain image automatically.
+on:
+  push:
+    branches:
+      - feature/rumble-pak-support
+    paths:
+      - .github/workflows/ps3-docker-build.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ps3-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build the repository toolchain Docker image
+        shell: bash
+        run: |
+          set +e
+          tools/docker-image.sh
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Toolchain image build failed; showing full Docker log tail"
+            tail -n 200 build/logs/docker-image.log || true
+            exit "$status"
+          fi
+
+      - name: Compile and package the PS3 frontend
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build/logs
+          tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/ps3-frontend-build.log
+
+      - name: Upload diagnostic logs and build outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: salsa64-ps3-docker-build
+          path: |
+            build/logs/*.log
+            build/salsa64/*.pkg
+            build/salsa64/*.elf
+            build/salsa64/*.self
+          if-no-files-found: warn
+          retention-days: 7
