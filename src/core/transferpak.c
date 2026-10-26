@@ -296,6 +296,8 @@ void salsa64_transferpak_read(struct salsa64_transferpak_state *s, const struct 
 		memset(data, value, SALSA64_TRANSFERPAK_BLOCK);
 		if (s->cart_enabled && s->reset_state == 3)
 			s->reset_state = 2;
+		else if (s->cart_enabled && s->reset_state == 2)
+			s->reset_state = 0;
 		else if (!s->cart_enabled && s->reset_state == 2)
 			s->reset_state = 1;
 		else if (!s->cart_enabled && s->reset_state == 1)
