@@ -91,6 +91,7 @@ ARG PSL1GHT_REF
 
 LABEL org.opencontainers.image.title="salsa64-toolchain" \
       org.opencontainers.image.description="ps3toolchain + PSL1GHT + cgcomp para Salsa64" \
+      org.opencontainers.image.source="https://github.com/kadorna1/Salsa64" \
       salsa64.ps3toolchain.ref="${PS3TOOLCHAIN_REF}" \
       salsa64.psl1ght.ref="${PSL1GHT_REF}"
 
