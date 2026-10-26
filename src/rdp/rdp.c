@@ -1813,8 +1813,10 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			 * sigue pidiendo el cebado entero. */
 			if (profile_refresh && !dma_updated) {
 				uint32_t regions = prime_profile_cpu_spans(i, false);
-				if (regions || !profile_cpu_rows_changed(i))
-					rdp.profile_prime_task[i] = rdp.tg.task;
+				/* We intentionally do not commit guard.profile yet: the RDP can
+				 * overwrite this span later in the current task. But don't repeat
+				 * the pre-draw upload on every SetColorImage within this task. */
+				rdp.profile_prime_task[i] = rdp.tg.task;
 				if (regions)
 					LOGN(20, "gfx: color image %06x/%u: %u CPU spans recargados desde RDRAM",
 					     rdp.tg.t[i].addr, rdp.tg.t[i].width, regions);
