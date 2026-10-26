@@ -1801,7 +1801,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 				alias = true;
 		}
 		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" :
-			 profile_refresh ? "filas CPU desde RDRAM" :
+			 profile_refresh ? "spans CPU desde RDRAM" :
 			 dma_updated ? "RDRAM tras DMA" : alias ? "cebada (otro ancho)" : "viva");
 		if (stale) {
 			prime(i, !rdp.copy_color_from_rdram);
@@ -1809,11 +1809,11 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 				rdp.profile_prime_task[i] = rdp.tg.task;  /* ya se cebó entera */
 			rdp.alias_full[i] = false;
 		} else if (rdram_refresh) {
-			/* CopyColorFromRDRAM solo actualiza filas que cambiaron desde la
-			 * huella de fin de tarea. El DMA sigue pidiendo el cebado entero. */
+			/* CopyColorFromRDRAM actualiza spans de guardas cambiadas. El DMA
+			 * sigue pidiendo el cebado entero. */
 			if (profile_refresh && !dma_updated) {
 				uint32_t regions = prime_profile_cpu_spans(i, false);
-				if (rows || !profile_cpu_rows_changed(i))
+				if (regions || !profile_cpu_rows_changed(i))
 					rdp.profile_prime_task[i] = rdp.tg.task;
 				if (regions)
 					LOGN(20, "gfx: color image %06x/%u: %u CPU spans recargados desde RDRAM",
