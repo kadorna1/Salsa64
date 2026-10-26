@@ -1396,7 +1396,7 @@ static const char *game_value(const struct menu *m, int row)
 		return m->game.scale < 0 ? "Global" : menu_scale_name(m->game.scale, m->set.resolution, buf, sizeof buf);
 	}
 	case MENU_GAME_INTERP:   return m->game.interp < 0 ? "Global" : menu_interp_name(m->game.interp);
-	case MENU_GAME_ACCESSORY: return m->game.accessory < 0 ? "Global" : menu_accessory_name(m->game.accessory < 0 ? m->set.accessory : m->game.accessory);
+	case MENU_GAME_ACCESSORY: return m->game.accessory < 0 ? "Global" : menu_accessory_name(m->game.accessory);
 	case MENU_GAME_CONTROLS: return "Configurar";
 	}
 	return NULL;
