@@ -368,10 +368,10 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 				/* Cruis'n maps B1 to TRI2; apply the profile's index scale. */
 				tri(g, w0, kind);
 				tri(g, w1, kind);
-			} else if (wr && op == G_QUAD) {
-				/* Wave Race/F3DBETA use X5 indices for QUAD. */
-				uint32_t a = vtx_index(w1 >> 24, IDX_X5), b = vtx_index((w1 >> 16) & 0xFF, IDX_X5);
-				uint32_t c = vtx_index((w1 >> 8) & 0xFF, IDX_X5), d = vtx_index(w1 & 0xFF, IDX_X5);
+			} else if (g->job->gbi == SALSA64_GBI_F3D_CRUISN_USA && op == G_QUAD) {
+				/* Cruis'n USA keeps F3D's QUAD command and X10 indices. */
+				uint32_t a = vtx_index(w1 >> 24, IDX_X10), b = vtx_index((w1 >> 16) & 0xFF, IDX_X10);
+				uint32_t c = vtx_index((w1 >> 8) & 0xFF, IDX_X10), d = vtx_index(w1 & 0xFF, IDX_X10);
 				gfx_triangle(g, a, b, c);
 				gfx_triangle(g, a, c, d);
 			} else if (!ex) {
