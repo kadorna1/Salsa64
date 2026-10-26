@@ -316,6 +316,21 @@ static void targets_decode_rgba16(void)
  * dos tareas antes se lee del RSX al copiarlo a fbufSave; fbufSave se copia
  * a la RDRAM (el CPU lo filtra) y desde entonces se lee de la RDRAM; una
  * imagen de 64 recién dibujada se lee del RSX, salvo sobre sí misma. */
+/* Dr. Mario CopyColorFromRDRAM: once CPU-owned bytes are uploaded back to
+ * the target surface, recent texture reads should sample that synchronized RSX
+ * image instead of continuing to decode the stale RDRAM backing. */
+static void targets_profile_readback_transition(void)
+{
+	rdp_targets_init(&s);
+	rdp_targets_task(&s);
+	int slot = draw(0x3b5000, 320);
+	uint32_t x0, y0;
+	CHECK(rdp_targets_readback(&s, slot, true, true));
+	CHECK_EQ(rdp_targets_texture(&s, 0x3b5000, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	rdp_targets_rdram_uploaded(&s, slot);
+	CHECK_EQ(rdp_targets_texture(&s, 0x3b5000, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RSX);
+}
+
 static void targets_texture_policy(void)
 {
 	const uint32_t FB = 0x3da800, SAVE = 0x12c700, ICON = 0x3da800;
@@ -1238,6 +1253,7 @@ void t_suite_targets(void)
 	RUN(targets_dma_refresh_detection);
 	RUN(targets_cpu_guard);
 	RUN(targets_profile_baseline_commit);
+	RUN(targets_profile_readback_transition);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);
 	RUN(targets_present_interlaced);
