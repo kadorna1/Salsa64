@@ -1,0 +1,58 @@
+name: Dr. Mario 64 graphics regression
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/rsp/gfx/**"
+      - "src/rdp/**"
+      - "src/platform/ps3/**"
+      - "tests/**"
+      - "tools/**"
+      - "docker/**"
+      - ".github/workflows/dr-mario64-graphics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dr-mario64-graphics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests-and-ps3-package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build project toolchain container
+        run: |
+          docker build --progress=plain -f docker/Dockerfile -t salsa64-toolchain:dev . 2>&1 | tee docker-image.log
+
+      - name: Run host unit tests
+        run: |
+          set -o pipefail
+          tools/build.sh test-host 2>&1 | tee dr-mario-host-tests.log
+
+      - name: Build PS3 package
+        run: |
+          set -o pipefail
+          tools/build.sh -C src/frontend pkg 2>&1 | tee dr-mario-ps3-package.log
+
+      - name: Upload test logs and package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dr-mario64-graphics-diagnostics
+          if-no-files-found: warn
+          path: |
+            docker-image.log
+            dr-mario-host-tests.log
+            dr-mario-ps3-package.log
+            build/salsa64/salsa64.pkg
+          retention-days: 14
