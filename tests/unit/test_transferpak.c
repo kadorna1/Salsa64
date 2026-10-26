@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Salsa64 — Transfer Pak bus and Game Boy cartridge mapper tests.
  */
@@ -22,7 +23,12 @@ static void make_rom(uint8_t type, uint8_t ram_code)
 	for (unsigned bank = 0; bank < 4; bank++)
 		memset(test_rom + bank * GB_BANK, (int)(bank * 0x11u), GB_BANK);
 	test_rom[0x147] = type;
+	test_rom[0x148] = 0x01; /* 64 KiB */
 	test_rom[0x149] = ram_code;
+	uint8_t sum = 0;
+	for (unsigned i = 0x134; i <= 0x14C; i++)
+		sum = (uint8_t)(sum - test_rom[i] - 1u);
+	test_rom[0x14D] = sum;
 }
 
 static void quiet_log(const char *fmt, ...)
@@ -71,7 +77,7 @@ static void transferpak_power_status_and_banking(void)
 	write_reg(&state, &cart, 0xB000, 1);
 	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x8D); /* powered, cart enabled, reset=3 */
 	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x89); /* reset status advances */
-	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x81); /* steady state: access enabled */
+	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x89); /* steady state: access enabled */
 
 	CHECK_EQ(read_first(&state, &cart, 0xC000), 0x11); /* Transfer Pak bank 1 -> GB ROM bank 1 */
 	write_reg(&state, &cart, 0xA000, 2);
@@ -80,6 +86,9 @@ static void transferpak_power_status_and_banking(void)
 	CHECK_EQ(read_first(&state, &cart, 0xC000), 0xFF); /* Transfer Pak bank 3 maps GB work RAM */
 
 	write_reg(&state, &cart, 0xB000, 0);
+	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x88);
+	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x84);
+	CHECK_EQ(read_first(&state, &cart, 0xB000), 0x80);
 	uint8_t data[SALSA64_TRANSFERPAK_BLOCK];
 	memset(data, 0xCC, sizeof data);
 	salsa64_transferpak_read(&state, &cart, 0xC000, data);
@@ -90,6 +99,34 @@ static void transferpak_power_status_and_banking(void)
 	CHECK(!state.power);
 	CHECK(!state.cart_enabled);
 	CHECK_EQ(read_first(&state, &cart, 0x8000), 0);
+}
+
+static void transferpak_disabled_blocks_cartridge_writes(void)
+{
+	struct salsa64_transferpak_cart cart;
+	struct salsa64_transferpak_state state;
+	make_rom(0x03, 0x02);
+	memset(test_ram, 0xFF, 8u * 1024u);
+	CHECK(salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, test_ram, 8u * 1024u));
+	salsa64_transferpak_reset(&state);
+	write_reg(&state, &cart, 0x8000, 0x84);
+
+	/* Banco 0 lleva C000 a GB 0000: ni RAMG ni bancos cambian sin acceso. */
+	write_reg(&state, &cart, 0xA000, 0);
+	write_reg(&state, &cart, 0xC000, 0x0A);
+	write_reg(&state, &cart, 0xE000, 2);
+	CHECK(!state.ram_enabled);
+	CHECK_EQ(state.mbc1_rom_low, 1);
+
+	write_reg(&state, &cart, 0xB000, 1);
+	write_reg(&state, &cart, 0xC000, 0x0A);
+	CHECK(state.ram_enabled);
+	write_reg(&state, &cart, 0xA000, 2);
+	write_reg(&state, &cart, 0xE000, 0x5A);
+	CHECK_EQ(test_ram[0], 0x5A);
+	write_reg(&state, &cart, 0xB000, 0);
+	write_reg(&state, &cart, 0xE000, 0x33);
+	CHECK_EQ(test_ram[0], 0x5A);
 }
 
 static void transferpak_mbc1_banking_and_sram(void)
@@ -268,6 +305,66 @@ static void transferpak_mbc3_mbc5_banking(void)
 	CHECK_EQ(test_ram[0x2000], 0xA6);
 }
 
+static void transferpak_mbc3_rtc_and_ram_wrap(void)
+{
+	struct salsa64_transferpak_cart cart;
+	struct salsa64_transferpak_state state;
+	make_rom(0x10, 0x02); /* RTC + 8 KiB: todos los bancos SRAM se espejan. */
+	memset(test_ram, 0xFF, 8u * 1024u);
+	CHECK(salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, test_ram, 8u * 1024u));
+	salsa64_transferpak_reset(&state);
+	write_reg(&state, &cart, 0x8000, 0x84);
+	write_reg(&state, &cart, 0xB000, 1);
+	write_reg(&state, &cart, 0xA000, 1);
+	write_reg(&state, &cart, 0xC000, 0x08); /* registro de segundos */
+	write_reg(&state, &cart, 0xA000, 2);
+	write_reg(&state, &cart, 0xE000, 17);
+	CHECK_EQ(state.rtc[0], 0); /* RTC también exige RAMG */
+
+	write_reg(&state, &cart, 0xA000, 0);
+	write_reg(&state, &cart, 0xC000, 0x0A);
+	write_reg(&state, &cart, 0xA000, 1);
+	write_reg(&state, &cart, 0xC000, 0x08);
+	write_reg(&state, &cart, 0xA000, 2);
+	write_reg(&state, &cart, 0xE000, 17);
+	CHECK_EQ(state.rtc[0], 17);
+
+	write_reg(&state, &cart, 0xA000, 1);
+	write_reg(&state, &cart, 0xC000, 3); /* banco 3 sobre RAM de un banco */
+	write_reg(&state, &cart, 0xA000, 2);
+	write_reg(&state, &cart, 0xE000, 0x6A);
+	CHECK_EQ(test_ram[0], 0x6A);
+}
+
+static void transferpak_mbc5_bank_100(void)
+{
+	uint32_t size = 8u * 1024u * 1024u;
+	uint8_t *rom = calloc(1, size);
+	CHECK(rom != NULL);
+	if (!rom)
+		return;
+	rom[0x147] = 0x19;
+	rom[0x148] = 0x08;
+	rom[0x149] = 0;
+	uint8_t sum = 0;
+	for (unsigned i = 0x134; i <= 0x14C; i++)
+		sum = (uint8_t)(sum - rom[i] - 1u);
+	rom[0x14D] = sum;
+	memset(rom + 0x100u * GB_BANK, 0xA5, SALSA64_TRANSFERPAK_BLOCK);
+	struct salsa64_transferpak_cart cart;
+	struct salsa64_transferpak_state state;
+	CHECK(salsa64_transferpak_cart_init(&cart, rom, size, NULL, 0));
+	salsa64_transferpak_reset(&state);
+	write_reg(&state, &cart, 0x8000, 0x84);
+	write_reg(&state, &cart, 0xB000, 1);
+	write_reg(&state, &cart, 0xA000, 0);
+	write_reg(&state, &cart, 0xE000, 0); /* bits 0–7 */
+	write_reg(&state, &cart, 0xF000, 1); /* bit 8, GB 3000 */
+	write_reg(&state, &cart, 0xA000, 1);
+	CHECK_EQ(read_first(&state, &cart, 0xC000), 0xA5);
+	free(rom);
+}
+
 static void transferpak_status_without_cartridge(void)
 {
 	struct salsa64_transferpak_state state;
@@ -288,20 +385,32 @@ static void transferpak_rejects_bad_cartridges(void)
 	struct salsa64_transferpak_cart cart;
 	make_rom(0x00, 0);
 	CHECK(!salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom - 1, NULL, 0));
+	uint8_t checksum = test_rom[0x14D];
+	test_rom[0x14D] ^= 1;
+	CHECK(!salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, NULL, 0));
+	test_rom[0x14D] = checksum;
 	make_rom(0xFC, 0); /* camera / nonstandard mapper not implemented */
 	CHECK(!salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, NULL, 0));
 	make_rom(0x03, 0x02);
 	CHECK(!salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, NULL, 0));
 	CHECK(!salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, test_ram, 1024));
+	for (uint8_t type = 0x1C; type <= 0x1E; type++) {
+		make_rom(type, type == 0x1C ? 0 : 0x02);
+		CHECK(!salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, test_ram,
+						   type == 0x1C ? 0 : 8u * 1024u));
+	}
 }
 
 void t_suite_transferpak(void)
 {
 	RUN(transferpak_power_status_and_banking);
+	RUN(transferpak_disabled_blocks_cartridge_writes);
 	RUN(transferpak_mbc1_banking_and_sram);
 	RUN(transferpak_mbc2_nibble_ram);
 	RUN(transferpak_file_save_round_trip);
 	RUN(transferpak_mbc3_mbc5_banking);
+	RUN(transferpak_mbc3_rtc_and_ram_wrap);
+	RUN(transferpak_mbc5_bank_100);
 	RUN(transferpak_status_without_cartridge);
 	RUN(transferpak_rejects_bad_cartridges);
 }

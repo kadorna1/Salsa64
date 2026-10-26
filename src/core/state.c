@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "core/endian.h"
+#include "core/rom.h"
 #include "core/save.h"
 #include "cpu/rec.h"
 #include "cpu/vr4300_internal.h"
@@ -26,6 +27,7 @@ static const uint8_t magic[8] = { 'S', 'L', 'S', '6', '4', 'S', 'T', 0 };
 #define TAG_RCP0 TAG('R', 'C', 'P', '0')
 #define TAG_SPME TAG('S', 'P', 'M', 'E')
 #define TAG_PIF0 TAG('P', 'I', 'F', '0')
+#define TAG_TPAK TAG('T', 'P', 'A', 'K')
 #define TAG_CART TAG('C', 'A', 'R', 'T')
 #define TAG_FLSH TAG('F', 'L', 'S', 'H')
 #define TAG_HLEG TAG('H', 'L', 'E', 'G')
@@ -299,28 +301,57 @@ static void sec_pif(struct st *s, struct salsa64_bus *b)
 		pad_state(s, &p->sent[i]);
 	st_u32s(s, p->reads, SALSA64_PIF_PORTS);
 	st_raw(s, b->pif_ram, SALSA64_PIF_RAM_SIZE);
-	/* Transfer Pak registers are machine state; cartridge ROM/RAM pointers
-	 * remain owned by the frontend and are reattached when a game opens. */
+}
+
+#define TPAK_VERSION 1u
+
+static void tpak_regs(struct st *s, struct salsa64_transferpak_state *t)
+{
+	st_u8(s, &t->power);
+	st_u8(s, &t->bank);
+	st_u8(s, &t->cart_enabled);
+	st_u8(s, &t->status_phase);
+	st_u8(s, &t->ram_enabled);
+	st_u8(s, &t->mbc1_rom_low);
+	st_u8(s, &t->mbc1_bank_high);
+	st_u8(s, &t->mbc1_mode);
+	st_u8(s, &t->mbc2_rom_bank);
+	st_u8(s, &t->mbc3_rom_bank);
+	st_u8(s, &t->mbc3_ram_bank);
+	st_u8(s, &t->mbc3_latch_prev);
+	st_u8(s, &t->mbc5_rom_low);
+	st_u8(s, &t->mbc5_rom_high);
+	st_u8(s, &t->mbc5_ram_bank);
+	st_raw(s, t->rtc, sizeof t->rtc);
+	st_raw(s, t->rtc_latched, sizeof t->rtc_latched);
+	st_u8(s, &t->rtc_latched_valid);
+}
+
+static void sec_tpak(struct st *s, struct salsa64_bus *b)
+{
+	uint32_t version = TPAK_VERSION, ports = SALSA64_PIF_PORTS;
+	st_u32(s, &version);
+	st_u32(s, &ports);
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
-		struct salsa64_transferpak_state *t = &p->transferpak_state[i];
-		st_u8(s, &t->power);
-		st_u8(s, &t->bank);
-		st_u8(s, &t->cart_enabled);
-		st_u8(s, &t->reset_state);
-		st_u8(s, &t->ram_enabled);
-		st_u8(s, &t->mbc1_rom_low);
-		st_u8(s, &t->mbc1_bank_high);
-		st_u8(s, &t->mbc1_mode);
-		st_u8(s, &t->mbc2_rom_bank);
-		st_u8(s, &t->mbc3_rom_bank);
-		st_u8(s, &t->mbc3_ram_bank);
-		st_u8(s, &t->mbc3_latch_prev);
-		st_u8(s, &t->mbc5_rom_low);
-		st_u8(s, &t->mbc5_rom_high);
-		st_u8(s, &t->mbc5_ram_bank);
-		st_raw(s, t->rtc, sizeof t->rtc);
-		st_raw(s, t->rtc_latched, sizeof t->rtc_latched);
-		st_u8(s, &t->rtc_latched_valid);
+		struct salsa64_transferpak_cart *c = b->pif.transferpak[i];
+		uint32_t present = c && c->rom;
+		uint32_t rom_size = present ? c->rom_size : 0;
+		uint32_t rom_crc = present ? salsa64_crc32(c->rom, c->rom_size) : 0;
+		uint32_t ram_size = present ? c->ram_size : 0;
+		uint32_t writes = present ? c->writes : 0;
+		uint8_t dirty = present ? c->dirty : 0, rumble = b->pif.rumble[i], reserved = 0;
+		st_u32(s, &present);
+		st_u32(s, &rom_size);
+		st_u32(s, &rom_crc);
+		st_u32(s, &ram_size);
+		st_u32(s, &writes);
+		st_u8(s, &dirty);
+		st_u8(s, &rumble);
+		st_u8(s, &reserved);
+		st_u8(s, &reserved);
+		tpak_regs(s, &b->pif.transferpak_state[i]);
+		if (ram_size)
+			st_raw(s, c->ram, ram_size);
 	}
 }
 
@@ -416,6 +447,10 @@ static bool save_sections(struct salsa64_n64 *n64, const struct salsa64_state_th
 
 	h = section_begin(s, TAG_PIF0);
 	sec_pif(s, b);
+	section_end(s, h);
+
+	h = section_begin(s, TAG_TPAK);
+	sec_tpak(s, b);
 	section_end(s, h);
 
 	if (cart_bytes(b)) {
@@ -681,6 +716,101 @@ static const struct section *find_section(const struct section *t, unsigned n, u
 	return NULL;
 }
 
+#define TPAK_REG_BYTES 26u
+#define TPAK_PORT_FIXED (24u + TPAK_REG_BYTES)
+
+/* Se valida al leer la sección, antes de tocar la RDRAM. Así un estado de
+ * otro cartucho GB no puede mezclar su SRAM con el que está conectado. */
+static bool validate_tpak(const uint8_t *data, uint32_t len, const struct salsa64_bus *b, char *err,
+			  size_t err_size)
+{
+	if (len < 8) {
+		fail(err, err_size, "sección TPAK cortada");
+		return false;
+	}
+	uint32_t version = salsa64_rd32(data), ports = salsa64_rd32(data + 4);
+	if (version != TPAK_VERSION)
+		return true; /* versión propia desconocida: se ignora y se reinicia */
+	if (ports != SALSA64_PIF_PORTS) {
+		fail(err, err_size, "sección TPAK con número de puertos inválido");
+		return false;
+	}
+	uint32_t off = 8;
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+		if (len - off < TPAK_PORT_FIXED) {
+			fail(err, err_size, "sección TPAK cortada");
+			return false;
+		}
+		uint32_t present = salsa64_rd32(data + off);
+		uint32_t rom_size = salsa64_rd32(data + off + 4);
+		uint32_t rom_crc = salsa64_rd32(data + off + 8);
+		uint32_t ram_size = salsa64_rd32(data + off + 12);
+		struct salsa64_transferpak_cart *c = b->pif.transferpak[i];
+		bool attached = c && c->rom;
+		if (present > 1 || !!present != attached ||
+		    (present && (rom_size != c->rom_size || rom_crc != salsa64_crc32(c->rom, c->rom_size) ||
+				 ram_size != c->ram_size)) ||
+		    (!present && (rom_size || rom_crc || ram_size)) || ram_size > SALSA64_TRANSFERPAK_RAM_MAX ||
+		    len - off - TPAK_PORT_FIXED < ram_size) {
+			if (err && err_size)
+				snprintf(err, err_size, "el estado usa otro cartucho GB en el puerto %u", i + 1);
+			return false;
+		}
+		off += TPAK_PORT_FIXED + ram_size;
+	}
+	if (off != len) {
+		fail(err, err_size, "sección TPAK con tamaño inválido");
+		return false;
+	}
+	return true;
+}
+
+static void reset_tpak(struct salsa64_bus *b)
+{
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+		salsa64_transferpak_reset(&b->pif.transferpak_state[i]);
+		b->pif.rumble[i] = 0;
+	}
+}
+
+static void load_tpak(const struct section *sec, struct salsa64_bus *b)
+{
+	reset_tpak(b);
+	if (!sec || sec->len < 8 || salsa64_rd32(sec->data) != TPAK_VERSION)
+		return;
+	uint32_t off = 8;
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+		const uint8_t *p = sec->data + off;
+		uint32_t present = salsa64_rd32(p);
+		uint32_t ram_size = salsa64_rd32(p + 12);
+		uint32_t saved_writes = salsa64_rd32(p + 16);
+		uint8_t dirty = p[20], rumble = p[21];
+		struct salsa64_transferpak_state state;
+		memset(&state, 0, sizeof state);
+		struct st s = st_reader(p + 24, TPAK_REG_BYTES);
+		tpak_regs(&s, &state);
+		if (state.power <= 1 && state.bank <= 3 && state.cart_enabled <= 1 && state.status_phase <= 3 &&
+		    state.ram_enabled <= 1 && state.mbc1_mode <= 1 && state.mbc5_rom_high <= 1 &&
+		    state.rtc_latched_valid <= 1) {
+			b->pif.transferpak_state[i] = state;
+			b->pif.rumble[i] = rumble != 0;
+		}
+		if (present && ram_size) {
+			struct salsa64_transferpak_cart *c = b->pif.transferpak[i];
+			const uint8_t *saved = p + TPAK_PORT_FIXED;
+			if (memcmp(c->ram, saved, ram_size) != 0) {
+				memcpy(c->ram, saved, ram_size);
+				c->writes = c->writes > saved_writes ? c->writes + 1 : saved_writes + 1;
+				c->dirty = 1;
+			} else {
+				c->writes = saved_writes;
+				c->dirty = dirty != 0;
+			}
+		}
+		off += TPAK_PORT_FIXED + ram_size;
+	}
+}
+
 /* El estado de una HLE: si el backend no lo sabe cargar o el tamaño es de
  * otro formato, la HLE sigue con el suyo (casi siempre da igual: los
  * juegos vuelven a poner el estado del RDP en cada cuadro). */
@@ -822,6 +952,8 @@ bool salsa64_state_load(struct salsa64_n64 *n64, salsa64_state_read_fn read, voi
 				*broken = rdram_done;
 				return false;
 			}
+			if (tag == TAG_TPAK && !validate_tpak(p, len, b, err, err_size))
+				return false;
 			sec[nsec++] = (struct section){ tag, p, len };
 			p += len;
 		} else {
@@ -883,6 +1015,7 @@ bool salsa64_state_load(struct salsa64_n64 *n64, salsa64_state_read_fn read, voi
 		s = st_reader(cs->data, cs->len);
 		sec_pif(&s, b);
 	}
+	load_tpak(find_section(sec, nsec, TAG_TPAK), b);
 	if ((cs = find_section(sec, nsec, TAG_CART)) != NULL && b->save && cs->len >= 8) {
 		uint32_t type = salsa64_rd32(cs->data), size = salsa64_rd32(cs->data + 4);
 		struct salsa64_save *sv = b->save;

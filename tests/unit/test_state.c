@@ -9,11 +9,12 @@
 #include "core/endian.h"
 #include "core/save.h"
 #include "core/state.h"
+#include "core/transferpak.h"
 #include "rsp/audio/audio.h"
 #include "rsp/gfx/hle.h"
 
 /* Archivos en memoria: tres (el estado en N y dos finales para comparar). */
-#define FILE_MAX (SALSA64_RDRAM_MAX + (256u << 10))
+#define FILE_MAX (SALSA64_RDRAM_MAX + SALSA64_STATE_SECTIONS)
 
 struct memfile {
 	uint8_t data[FILE_MAX];
@@ -602,6 +603,104 @@ static void state_filename(void)
 	rom_off();
 }
 
+static uint8_t gb_rom[0x8000], gb_ram[0x2000];
+
+static void gb_cart_make(struct salsa64_transferpak_cart *cart, uint8_t marker)
+{
+	memset(gb_rom, marker, sizeof gb_rom);
+	gb_rom[0x147] = 0x03;
+	gb_rom[0x148] = 0x00;
+	gb_rom[0x149] = 0x02;
+	uint8_t sum = 0;
+	for (unsigned i = 0x134; i <= 0x14C; i++)
+		sum = (uint8_t)(sum - gb_rom[i] - 1u);
+	gb_rom[0x14D] = sum;
+	CHECK(salsa64_transferpak_cart_init(cart, gb_rom, sizeof gb_rom, gb_ram, sizeof gb_ram));
+}
+
+static uint32_t state_section_at(const struct memfile *f, const char tag[4])
+{
+	for (uint32_t at = SALSA64_STATE_HEADER; at + 8 <= f->len;) {
+		uint32_t len = salsa64_rd32(f->data + at + 4);
+		if (memcmp(f->data + at, tag, 4) == 0)
+			return at;
+		if (len > f->len - at - 8)
+			break;
+		at += 8 + len;
+	}
+	return UINT32_MAX;
+}
+
+static void state_transferpak(void)
+{
+	struct salsa64_transferpak_cart cart;
+	rom_on(0x11223344);
+	memset(gb_ram, 0x11, sizeof gb_ram);
+	gb_cart_make(&cart, 0x31);
+	t_n64.bus.pif.transferpak[0] = &cart;
+	struct salsa64_transferpak_state *t = &t_n64.bus.pif.transferpak_state[0];
+	salsa64_transferpak_reset(t);
+	t->power = t->cart_enabled = t->ram_enabled = 1;
+	t->bank = 2;
+	t->status_phase = 2;
+	t->mbc3_rom_bank = 7;
+	t->rtc[0] = 19;
+	t->rtc_latched[0] = 17;
+	t->rtc_latched_valid = 1;
+	t_n64.bus.pif.rumble[0] = 1;
+	cart.writes = 7;
+	CHECK(save_to(&fa));
+	CHECK(state_section_at(&fa, "TPAK") != UINT32_MAX);
+
+	memset(gb_ram, 0x77, sizeof gb_ram);
+	memset(t, 0, sizeof *t);
+	t_n64.bus.pif.rumble[0] = 0;
+	cart.writes = 20;
+	char err[128] = "";
+	CHECK(load_from(&fa, err, sizeof err));
+	CHECK_EQ(t->power, 1);
+	CHECK_EQ(t->bank, 2);
+	CHECK_EQ(t->status_phase, 2);
+	CHECK_EQ(t->rtc[0], 19);
+	CHECK_EQ(t->rtc_latched[0], 17);
+	CHECK_EQ(t_n64.bus.pif.rumble[0], 1);
+	CHECK_EQ(gb_ram[0], 0x11);
+	CHECK(cart.dirty);
+	CHECK_EQ(cart.writes, 21);
+
+	/* Identidad distinta: se rechaza antes de aplicar el estado. */
+	uint8_t old = gb_rom[0x200];
+	gb_rom[0x200] ^= 0x80;
+	R[9] = 0x1234;
+	CHECK(!load_from(&fa, err, sizeof err));
+	CHECK_EQ(R[9], 0x1234);
+	gb_rom[0x200] = old;
+
+	/* Un estado anterior, sin TPAK, sigue cargando y apaga ambos accesorios. */
+	memcpy(fb.data, fa.data, fa.len);
+	fb.len = fa.len;
+	uint32_t at = state_section_at(&fb, "TPAK");
+	CHECK(at != UINT32_MAX);
+	if (at != UINT32_MAX) {
+		uint32_t bytes = 8 + salsa64_rd32(fb.data + at + 4);
+		memmove(fb.data + at, fb.data + at + bytes, fb.len - at - bytes);
+		fb.len -= bytes;
+		salsa64_wr32(fb.data + 16, fb.len);
+		t->power = 1;
+		t->cart_enabled = 1;
+		t_n64.bus.pif.rumble[0] = 1;
+		gb_ram[0] = 0x55;
+		CHECK(load_from(&fb, err, sizeof err));
+		CHECK_EQ(t->power, 0);
+		CHECK_EQ(t->cart_enabled, 0);
+		CHECK_EQ(t_n64.bus.pif.rumble[0], 0);
+		CHECK_EQ(gb_ram[0], 0x55);
+	}
+	t_n64.bus.pif.transferpak[0] = NULL;
+	salsa64_transferpak_reset(t);
+	rom_off();
+}
+
 void t_suite_state(void)
 {
 	RUN(state_round_trip);
@@ -617,4 +716,5 @@ void t_suite_state(void)
 	RUN(gfx_state_round_trip);
 	RUN(audio_state_round_trip);
 	RUN(state_filename);
+	RUN(state_transferpak);
 }

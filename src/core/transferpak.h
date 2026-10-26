@@ -42,7 +42,7 @@ struct salsa64_transferpak_state {
 	uint8_t power;
 	uint8_t bank;       /* 16 KiB Game Boy address-space slice (0..3) */
 	uint8_t cart_enabled;
-	uint8_t reset_state; /* status bits 2-3 seen by the N64 */
+	uint8_t status_phase; /* transición del registro de estado (0..3) */
 	/* Game Boy MBC registers. */
 	uint8_t ram_enabled;
 	uint8_t mbc1_rom_low, mbc1_bank_high, mbc1_mode;

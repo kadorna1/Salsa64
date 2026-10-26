@@ -18,6 +18,7 @@
  *           tarea del RSP en curso (ya recogida del backend)
  *     SPME  DMEM e IMEM del RSP
  *     PIF0  controles retenidos, intercambios del PIF y la PIF RAM
+ *     TPAK  versión, identidad del cartucho GB, registros, SRAM y Rumble
  *     CART  guardado del cartucho en memoria (EEPROM, SRAM o FlashRAM)
  *     FLSH  con FlashRAM: versión de la sección y estado del chip (modo,
  *           registro de estado, borrado preparado, búfer de página)
@@ -66,8 +67,9 @@
 #define SALSA64_STATE_VERSION     2u  /* la más nueva que se lee; el 2 trae RDRZ */
 #define SALSA64_STATE_MIN_VERSION 1u
 #define SALSA64_STATE_HEADER      64u
-/* Lugar para las secciones chicas (FlashRAM 128 KB + miniatura y lo demás)... */
-#define SALSA64_STATE_SECTIONS    (256u << 10)
+/* Lugar para las secciones chicas (cuatro SRAM GB de 128 KB, FlashRAM,
+ * miniatura y lo demás)... */
+#define SALSA64_STATE_SECTIONS    (1u << 20)
 /* ...y para un bloque comprimido al cargar un formato 2. */
 #define SALSA64_STATE_SCRATCH     (SALSA64_STATE_SECTIONS + SPUKIT_LZ_BLOCK)
 #define SALSA64_STATE_SLOTS       10

@@ -1,5 +1,12 @@
 # Estado
 
+## 2026-10-26 — Rumble Pak y Transfer Pak experimental
+- Accesorio global, por juego y por puerto en pausa; el DS3 usa solo el motor grande y se apaga en todo cierre.
+- Transfer Pak propio: secuencias 8D→89→89 y 88→84→80, acceso protegido y MBC1/2/3/5 con SRAM.
+- Las ROM GB validan tamaño y cabecera; MBC3 RTC no avanza y MBC5 con rumble se rechaza.
+- La sección aditiva TPAK guarda identidad, registros, SRAM y latch; estados sin ella reinician los accesorios.
+- Pruebas del protocolo, SI diferido, mappers, archivos y estados; falta validación en PS3 real.
+
 ## 2026-10-25 — Monaco: atraso gráfico acotado sin quitar el solape
 
 - El volcado mostró al hilo de audio muerto por TLBL: una lista de 101,94 ms atrasó la IRQ del SP 8,63 M ciclos y agotó sus 11 nodos.

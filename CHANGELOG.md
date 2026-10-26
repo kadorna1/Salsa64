@@ -4,6 +4,17 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
+## [Unreleased]
+
+### Added
+- **Rumble Pak and live accessory selection:** choose Controller Pak, Rumble
+  Pak, Transfer Pak or no accessory globally, per game and per controller
+  from the pause menu. DualShock 3 vibration stops on pause and exit (thanks
+  to kadorna1, #45/#46).
+- **Experimental Transfer Pak:** load a validated `<n64-rom>.gb` or `.gbc`
+  sidecar, use ROM-only/MBC1/MBC2/MBC3/MBC5 cartridges, persist their SRAM
+  and keep Transfer Pak state in save states (thanks to kadorna1, #45/#46).
+
 ## [0.2.12] — 2026-10-26
 
 ### Added

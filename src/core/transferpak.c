@@ -29,6 +29,27 @@ static uint32_t header_ram_size(const uint8_t *rom, uint32_t size)
 	}
 }
 
+static uint32_t header_rom_size(uint8_t code)
+{
+	if (code <= 8)
+		return 0x8000u << code;
+	if (code == 0x52)
+		return 72u * GB_ROM_BANK;
+	if (code == 0x53)
+		return 80u * GB_ROM_BANK;
+	if (code == 0x54)
+		return 96u * GB_ROM_BANK;
+	return 0;
+}
+
+static bool header_checksum_ok(const uint8_t *rom)
+{
+	uint8_t sum = 0;
+	for (unsigned i = 0x134; i <= 0x14C; i++)
+		sum = (uint8_t)(sum - rom[i] - 1u);
+	return sum == rom[0x14D];
+}
+
 uint32_t salsa64_transferpak_ram_size(const uint8_t *rom, uint32_t rom_size)
 {
 	if (!rom || rom_size < 0x150 || rom_size > SALSA64_TRANSFERPAK_ROM_MAX)
@@ -46,22 +67,43 @@ static int mapper_for(uint8_t type)
 		return SALSA64_GB_MAPPER_MBC2;
 	if (type >= 0x0F && type <= 0x13)
 		return SALSA64_GB_MAPPER_MBC3;
-	if (type >= 0x19 && type <= 0x1E)
+	/* 1C–1E add a cartridge-side rumble motor, not emulated here. */
+	if (type >= 0x19 && type <= 0x1B)
 		return SALSA64_GB_MAPPER_MBC5;
 	return -1;
+}
+
+static bool type_uses_ram(uint8_t type)
+{
+	return type == 0x02 || type == 0x03 || type == 0x05 || type == 0x06 || type == 0x08 || type == 0x09 ||
+	       type == 0x10 || type == 0x12 || type == 0x13 || type == 0x1A || type == 0x1B;
+}
+
+static uint32_t mapper_rom_max(int mapper)
+{
+	switch (mapper) {
+	case SALSA64_GB_MAPPER_ROM: return 2u * GB_ROM_BANK;
+	case SALSA64_GB_MAPPER_MBC1: return 128u * GB_ROM_BANK;
+	case SALSA64_GB_MAPPER_MBC2: return 16u * GB_ROM_BANK;
+	case SALSA64_GB_MAPPER_MBC3: return 128u * GB_ROM_BANK;
+	case SALSA64_GB_MAPPER_MBC5: return 512u * GB_ROM_BANK;
+	default: return 0;
+	}
 }
 
 bool salsa64_transferpak_cart_init(struct salsa64_transferpak_cart *cart, const uint8_t *rom,
 				  uint32_t rom_size, uint8_t *ram, uint32_t ram_size)
 {
 	if (!cart || !rom || rom_size < 0x8000 || rom_size > SALSA64_TRANSFERPAK_ROM_MAX ||
-	    (rom_size & (GB_ROM_BANK - 1)) != 0)
+	    (rom_size & (GB_ROM_BANK - 1)) != 0 || header_rom_size(rom[0x148]) != rom_size ||
+	    !header_checksum_ok(rom))
 		return false;
 	int mapper = mapper_for(rom[0x147]);
-	if (mapper < 0)
+	if (mapper < 0 || rom_size > mapper_rom_max(mapper))
 		return false;
 	uint32_t need = header_ram_size(rom, rom_size);
-	if (need > SALSA64_TRANSFERPAK_RAM_MAX || (need && (!ram || ram_size < need)))
+	if (type_uses_ram(rom[0x147]) != (need != 0) || need > SALSA64_TRANSFERPAK_RAM_MAX ||
+	    (need && (!ram || ram_size != need)))
 		return false;
 	if (need == 0 && ram_size != 0)
 		return false;
@@ -150,13 +192,13 @@ static uint8_t gb_read(struct salsa64_transferpak_state *s, const struct salsa64
 	if (addr < 0xA000)
 		return 0xFF; /* VRAM is on the Game Boy, not the cartridge. */
 	if (addr < 0xC000) {
+		if (c->mapper != SALSA64_GB_MAPPER_ROM && !s->ram_enabled)
+			return 0xFF;
 		if (c->mapper == SALSA64_GB_MAPPER_MBC3 && c->has_rtc &&
 		    s->mbc3_ram_bank >= 0x08 && s->mbc3_ram_bank <= 0x0C) {
 			unsigned reg = s->mbc3_ram_bank - 0x08;
 			return s->rtc_latched_valid ? s->rtc_latched[reg] : s->rtc[reg];
 		}
-		if (c->mapper != SALSA64_GB_MAPPER_ROM && !s->ram_enabled)
-			return 0xFF;
 		if (!c->ram || !c->ram_size)
 			return 0xFF;
 		uint32_t offset;
@@ -165,11 +207,8 @@ static uint8_t gb_read(struct salsa64_transferpak_state *s, const struct salsa64
 			return (uint8_t)(0xF0u | (c->ram[offset] & 0x0Fu));
 		}
 		uint32_t bank = gb_ram_bank(s, c);
-		offset = bank * GB_RAM_BANK + (addr - 0xA000u);
-		/* 2 KiB SRAM is mirrored throughout A000–BFFF. */
-		if (c->ram_size == 2048)
-			offset &= 0x7FFu;
-		return offset < c->ram_size ? c->ram[offset] : 0xFF;
+		offset = (bank * GB_RAM_BANK + (addr - 0xA000u)) % c->ram_size;
+		return c->ram[offset];
 	}
 	/* These addresses belong to GB work RAM/I/O/OAM, not the cartridge. */
 	return 0xFF;
@@ -236,13 +275,13 @@ static void gb_mapper_write(struct salsa64_transferpak_state *s,
 	}
 	if (addr < 0xA000 || addr >= 0xC000)
 		return;
+	if (c->mapper != SALSA64_GB_MAPPER_ROM && !s->ram_enabled)
+		return;
 	if (c->mapper == SALSA64_GB_MAPPER_MBC3 && c->has_rtc &&
 	    s->mbc3_ram_bank >= 0x08 && s->mbc3_ram_bank <= 0x0C) {
 		s->rtc[s->mbc3_ram_bank - 0x08] = value;
 		return;
 	}
-	if (c->mapper != SALSA64_GB_MAPPER_ROM && !s->ram_enabled)
-		return;
 	if (!c->ram || !c->ram_size)
 		return;
 	uint32_t offset;
@@ -250,12 +289,8 @@ static void gb_mapper_write(struct salsa64_transferpak_state *s,
 		offset = addr & 0x01FFu;
 		value &= 0x0Fu;
 	} else {
-		offset = (uint32_t)gb_ram_bank(s, c) * GB_RAM_BANK + (addr - 0xA000u);
-		if (c->ram_size == 2048)
-			offset &= 0x7FFu;
+		offset = ((uint32_t)gb_ram_bank(s, c) * GB_RAM_BANK + (addr - 0xA000u)) % c->ram_size;
 	}
-	if (offset >= c->ram_size)
-		return;
 	/* Most Transfer Pak software writes whole blocks of repeated control
 	 * bytes; preserving the entire block is essential for SRAM data. */
 	if (c->ram[offset] != value) {
@@ -265,15 +300,28 @@ static void gb_mapper_write(struct salsa64_transferpak_state *s,
 	}
 }
 
-static uint8_t status(const struct salsa64_transferpak_state *s, const struct salsa64_transferpak_cart *c)
+static uint8_t status_step(struct salsa64_transferpak_state *s, const struct salsa64_transferpak_cart *c)
 {
-	/* With power off the complete register window reads as zero. When powered,
-	 * no-cartridge is its own status value rather than a power/status OR. */
 	if (!s->power)
 		return 0;
 	if (!c || !c->rom)
 		return 0x40;
-	return (uint8_t)(0x80 | (s->cart_enabled ? 0x01 : 0) | ((s->reset_state & 3u) << 2));
+	if (s->cart_enabled) {
+		if (s->status_phase == 3) {
+			s->status_phase = 2;
+			return 0x8D;
+		}
+		return 0x89;
+	}
+	if (s->status_phase == 2) {
+		s->status_phase = 1;
+		return 0x88;
+	}
+	if (s->status_phase == 1) {
+		s->status_phase = 0;
+		return 0x84;
+	}
+	return 0x80;
 }
 
 void salsa64_transferpak_read(struct salsa64_transferpak_state *s, const struct salsa64_transferpak_cart *c,
@@ -292,16 +340,8 @@ void salsa64_transferpak_read(struct salsa64_transferpak_state *s, const struct 
 		return;
 	}
 	if (address >= 0x3000 && address < 0x4000) {
-		value = status(s, c);
+		value = status_step(s, c);
 		memset(data, value, SALSA64_TRANSFERPAK_BLOCK);
-		if (s->cart_enabled && s->reset_state == 3)
-			s->reset_state = 2;
-		else if (s->cart_enabled && s->reset_state == 2)
-			s->reset_state = 0;
-		else if (!s->cart_enabled && s->reset_state == 2)
-			s->reset_state = 1;
-		else if (!s->cart_enabled && s->reset_state == 1)
-			s->reset_state = 0;
 		return;
 	}
 	if (address < 0x8000) {
@@ -313,16 +353,8 @@ void salsa64_transferpak_read(struct salsa64_transferpak_state *s, const struct 
 		return;
 	}
 	if (address >= 0xB000 && address < 0xC000) {
-		value = status(s, c);
+		value = status_step(s, c);
 		memset(data, value, SALSA64_TRANSFERPAK_BLOCK);
-		if (s->cart_enabled && s->reset_state == 3)
-			s->reset_state = 2;
-		else if (s->cart_enabled && s->reset_state == 2)
-			s->reset_state = 0;
-		else if (!s->cart_enabled && s->reset_state == 2)
-			s->reset_state = 1;
-		else if (!s->cart_enabled && s->reset_state == 1)
-			s->reset_state = 0;
 		return;
 	}
 	if (!s->power || !s->cart_enabled) {
@@ -344,7 +376,6 @@ void salsa64_transferpak_write(struct salsa64_transferpak_state *s, struct salsa
 			s->power = 1;
 			s->bank = 3;
 			s->cart_enabled = 0;
-			s->reset_state = 0;
 			salsa64_transferpak_reset(s);
 			s->power = 1;
 			s->bank = 3;
@@ -352,7 +383,7 @@ void salsa64_transferpak_write(struct salsa64_transferpak_state *s, struct salsa
 			s->power = 0;
 			s->bank = 0;
 			s->cart_enabled = 0;
-			s->reset_state = 0;
+			s->status_phase = 0;
 		}
 		return;
 	}
@@ -365,7 +396,7 @@ void salsa64_transferpak_write(struct salsa64_transferpak_state *s, struct salsa
 	if (address >= 0x3000 && address < 0x4000) {
 		uint8_t enabled = data[0] & 1u;
 		if (!s->cart_enabled && enabled) {
-			s->reset_state = 3;
+			s->status_phase = 3;
 			s->ram_enabled = 0;
 			s->mbc1_rom_low = 1;
 			s->mbc1_bank_high = s->mbc1_mode = 0;
@@ -373,6 +404,8 @@ void salsa64_transferpak_write(struct salsa64_transferpak_state *s, struct salsa
 			s->mbc3_ram_bank = s->mbc3_latch_prev = 0;
 			s->mbc5_rom_low = 1;
 			s->mbc5_rom_high = s->mbc5_ram_bank = 0;
+		} else if (s->cart_enabled && !enabled) {
+			s->status_phase = 2;
 		}
 		s->cart_enabled = enabled;
 		return;
@@ -386,7 +419,7 @@ void salsa64_transferpak_write(struct salsa64_transferpak_state *s, struct salsa
 	if (address >= 0xB000 && address < 0xC000) {
 		uint8_t enabled = data[0] & 1u;
 		if (!s->cart_enabled && enabled) {
-			s->reset_state = 3;
+			s->status_phase = 3;
 			s->ram_enabled = 0;
 			s->mbc1_rom_low = 1;
 			s->mbc1_bank_high = s->mbc1_mode = 0;
@@ -394,11 +427,13 @@ void salsa64_transferpak_write(struct salsa64_transferpak_state *s, struct salsa
 			s->mbc3_ram_bank = s->mbc3_latch_prev = 0;
 			s->mbc5_rom_low = 1;
 			s->mbc5_rom_high = s->mbc5_ram_bank = 0;
+		} else if (s->cart_enabled && !enabled) {
+			s->status_phase = 2;
 		}
 		s->cart_enabled = enabled;
 		return;
 	}
-	if (address >= 0xC000)
+	if (address >= 0xC000 && s->power && s->cart_enabled)
 		for (unsigned i = 0; i < SALSA64_TRANSFERPAK_BLOCK; i++) {
 			uint16_t gb_addr = (uint16_t)(((s->bank & 3u) * GB_ROM_BANK) | ((address + i) & 0x3FFFu));
 			gb_mapper_write(s, c, gb_addr, data[i]);
