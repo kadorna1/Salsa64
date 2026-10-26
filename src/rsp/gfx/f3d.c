@@ -212,7 +212,8 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 #else
 	const bool ex = g->job->gbi == SALSA64_GBI_F3DEX;
 #endif
-	const bool wr = g->job->gbi == SALSA64_GBI_F3DWR;
+	const bool beta_ops = g->job->gbi == SALSA64_GBI_F3DBETA || g->job->gbi == SALSA64_GBI_F3D_CRUISN_USA;
+	const bool wr = g->job->gbi == SALSA64_GBI_F3DWR || g->job->gbi == SALSA64_GBI_F3DBETA;
 	const unsigned kind = ex ? IDX_X2 : wr ? IDX_X5 : IDX_X10;
 	uint32_t w0, w1;
 
@@ -290,9 +291,16 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 				return;
 			break;
 		case G_RDPHALF_1:
-			g->rdphalf1 = w1;
+			/* B4 is G_PERSPNORM in Cruis'n's beta-style command map. */
+			if (!beta_ops)
+				g->rdphalf1 = w1;
 			break;
 		case G_RDPHALF_2:
+			/* B3 is HALF_1 for Cruis'n USA and F3D beta. */
+			if (beta_ops) {
+				g->rdphalf1 = w1;
+				break;
+			}
 			g->rdphalf2 = w1;
 			/* F3D: G_RDPHALF_1 + G_RDPHALF_2 o G_RDPHALF_CONT pasan al
 			 * RDP una doble palabra (GoldenEye arma así triángulos crudos
@@ -302,10 +310,12 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 			break;
 		case G_TEXRECT:
 		case G_TEXRECTFLIP:
-			/* G_RDPHALF_1 + G_RDPHALF_2 (libultra 2.0) o G_RDPHALF_2 +
-			 * G_RDPHALF_CONT (la anterior: SM64 y también F3DEX 0.95 en
-			 * Mario Kart 64, aunque en F3DEX 1.x el 0xB2 sea G_MODIFYVTX). */
-			gfx_dl_texrect(g, w0, w1, G_RDPHALF_1 | G_RDPHALF_2 << 8, G_RDPHALF_2 | G_RDPHALF_CONT << 8);
+			if (beta_ops)
+				gfx_dl_texrect(g, w0, w1, G_RDPHALF_2 | G_MODIFYVTX << 8,
+					       G_MODIFYVTX | G_MODIFYVTX << 8);
+			else
+				gfx_dl_texrect(g, w0, w1, G_RDPHALF_1 | G_RDPHALF_2 << 8,
+					       G_RDPHALF_2 | G_RDPHALF_CONT << 8);
 			break;
 		case G_SPNOOP:
 		case G_NOOP:
@@ -346,10 +356,20 @@ void gfx_dl_f3d(struct gfx_state *g, gfx_cmd_hook hook)
 		case G_TRI2:
 		case G_QUAD:
 		case G_BRANCH_Z:
-			if (!ex && op == G_TRI2) {
+			if (!ex && op == G_TRI2 && !beta_ops) {
 				tri4(g, w0, w1);
 			} else if (wr && op == G_QUAD) {
 				/* 0xB5 aquí es un cuadrilátero con índices ×5. */
+				uint32_t a = vtx_index(w1 >> 24, IDX_X5), b = vtx_index((w1 >> 16) & 0xFF, IDX_X5);
+				uint32_t c = vtx_index((w1 >> 8) & 0xFF, IDX_X5), d = vtx_index(w1 & 0xFF, IDX_X5);
+				gfx_triangle(g, a, b, c);
+				gfx_triangle(g, a, c, d);
+			} else if (beta_ops && op == G_TRI2) {
+				/* Cruis'n maps B1 to TRI2; apply the profile's index scale. */
+				tri(g, w0, kind);
+				tri(g, w1, kind);
+			} else if (wr && op == G_QUAD) {
+				/* Wave Race/F3DBETA use X5 indices for QUAD. */
 				uint32_t a = vtx_index(w1 >> 24, IDX_X5), b = vtx_index((w1 >> 16) & 0xFF, IDX_X5);
 				uint32_t c = vtx_index((w1 >> 8) & 0xFF, IDX_X5), d = vtx_index(w1 & 0xFF, IDX_X5);
 				gfx_triangle(g, a, b, c);
