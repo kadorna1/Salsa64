@@ -428,9 +428,9 @@ static void pif_transferpak(void)
 
 	pif_load(info, sizeof info, 0x01);
 	salsa64_pif_execute(bus());
-	CHECK_EQ(ram()[4], 0x05); /* ordinary controller ID */
-	CHECK_EQ(ram()[5], 0x00);
-	CHECK_EQ(ram()[6], 0x01); /* accessory present */
+	CHECK_EQ(ram()[3], 0x05); /* ordinary controller ID */
+	CHECK_EQ(ram()[4], 0x00);
+	CHECK_EQ(ram()[5], 0x01); /* accessory present */
 
 	pif_tpak_write(0x8000, 0x84); /* power on */
 	pif_tpak_read(0x8000, data);
