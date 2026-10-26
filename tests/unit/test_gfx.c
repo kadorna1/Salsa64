@@ -3056,14 +3056,11 @@ static void gfx_cruisn_usa_beta_half_commands(void)
 	dl(0xB3000000u, 0xFA000000u);
 	dl(0xB4000000u, 0xDEADBEEFu);
 	dl(0xB2000000u, 0xAABBCCDDu);
-	/* Cruis'n USA maps B1 to TRI2 with ordinary F3D indices. */
-	dl(0xB1000A14u, 0x001E2832u);
 	dl(0xB8000000u, 0);
 
 	run();
 	CHECK_EQ(gs.prim, 0xAABBCCDDu);
 	CHECK_EQ(res.unknown_cmds, 0);
-	CHECK_EQ(res.triangles, 2);
 	CHECK_EQ(res.dl_errors, 0);
 }
 
@@ -3074,14 +3071,73 @@ static void gfx_f3dbeta_half_commands(void)
 	dl(0xB3000000u, 0xFA000000u);
 	dl(0xB4000000u, 0xDEADBEEFu);
 	dl(0xB2000000u, 0xAABBCCDDu);
-	/* F3DBETA maps B1 to TRI2 with X5-scaled indices. */
-	dl(0xB100050Au, 0x000F1419u);
 	dl(0xB8000000u, 0);
 
 	run();
 	CHECK_EQ(gs.prim, 0xAABBCCDDu);
 	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+}
+
+/* Shared setup for the Cruis'n F3D command tests (identity transform, four vertices). */
+static void setup_cruisn_f3d_draw(bool beta)
+{
+	uint32_t vp = data_alloc(16);
+	const int16_t vpdata[8] = { 640, 480, 511, 0, 640, 480, 511, 0 };
+	for (int i = 0; i < 8; i++)
+		salsa64_wr16(t_n64.bus.rdram + vp + 2 * i, (uint16_t)vpdata[i]);
+	dl(0x03800000u, vp);             /* F3D G_MOVEMEM viewport */
+	dl(0x01030000u, put_matrix(ident)); /* F3D projection LOAD */
+	dl(0x01020000u, put_matrix(ident)); /* F3D modelview LOAD */
+	set_combine(CC_A_ZERO, CC_ZERO, CC_C_ZERO, CC_SHADE, CC_ZERO, CC_ZERO, CC_ZERO, CC_SHADE);
+	dl(0xB7000000u, G_SHADING_SMOOTH | G_CULL_BACK);
+	dl(0xFF100000u | 319u, 0x00100000u);
+	const struct vtx v[4] = {
+		{ 0, 0, 0, 0, 0, { 255, 0, 0, 255 } },
+		{ 1, 0, 0, 0, 0, { 0, 255, 0, 255 } },
+		{ 0, 1, 0, 0, 0, { 0, 0, 255, 255 } },
+		{ -1, 1, 0, 0, 0, { 255, 255, 255, 255 } },
+	};
+	uint32_t va = put_vertices(v, 4);
+	dl(beta ? 0x04000800u : 0x04300000u, va); /* F3DBETA count vs. F3D count */
+}
+
+static void gfx_cruisn_usa_tri2(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3D_CRUISN_USA;
+	setup_cruisn_f3d_draw(false);
+	dl(0xB1000A14u, 0x00141E); /* B1: (0,1,2) and (0,2,3), X10 */
+	dl(0xB8000000u, 0);
+	run();
 	CHECK_EQ(res.triangles, 2);
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+}
+
+static void gfx_cruisn_usa_quad(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3D_CRUISN_USA;
+	setup_cruisn_f3d_draw(false);
+	dl(0xB5000000u, 0x000A141Eu); /* B5: QUAD indices 0,1,2,3, X10 */
+	dl(0xB8000000u, 0);
+	run();
+	CHECK_EQ(res.triangles, 2);
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+}
+
+static void gfx_f3dbeta_tri2(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3DBETA;
+	setup_cruisn_f3d_draw(true);
+	dl(0xB100050Au, 0x000A0Fu); /* B1: (0,1,2) and (0,2,3), X5 */
+	dl(0xB8000000u, 0);
+	run();
+	CHECK_EQ(res.triangles, 2);
+	CHECK_EQ(res.unknown_cmds, 0);
 	CHECK_EQ(res.dl_errors, 0);
 }
 
@@ -3091,6 +3147,9 @@ void t_suite_gfx(void)
 	RUN(gfx_cruisn_exotica_counted_dlist_nested);
 	RUN(gfx_cruisn_usa_beta_half_commands);
 	RUN(gfx_f3dbeta_half_commands);
+	RUN(gfx_cruisn_usa_tri2);
+	RUN(gfx_cruisn_usa_quad);
+	RUN(gfx_f3dbeta_tri2);
 	RUN(gfx_clip_four_planes);
 	RUN(gfx_combiner_forms);
 	RUN(gfx_s2dex_task_rectangle);
