@@ -114,6 +114,7 @@ static void plug(void)
 	salsa64_mempak_init(&mp);
 	for (unsigned p = 0; p < 4; p++) {
 		mp.present[p] = 1;
+		bus()->pif.accessory[p] = SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
 		connect(p, true);
 	}
 	bus()->mempak = &mp;
@@ -122,8 +123,10 @@ static void plug(void)
 static void unplug(void)
 {
 	bus()->mempak = NULL;
-	for (unsigned p = 0; p < 4; p++)
+	for (unsigned p = 0; p < 4; p++) {
 		connect(p, false);
+		bus()->pif.accessory[p] = SALSA64_PIF_ACCESSORY_NONE;
+	}
 }
 
 /* ---- Verificaciones ------------------------------------------------------- */
