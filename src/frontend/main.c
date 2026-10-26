@@ -2247,6 +2247,8 @@ static void emu_thread(void *arg)
 			pacer_advance(&pacer, cycles);
 		savefile_stage(&save_file, t1);
 		mempakfile_stage(&mempak_file, t1);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_stage(&transferpak_files[i], t1);
 		if (rprof.on && ++rprof.fold_fields >= PROFILE_FOLD_FIELDS) {
 			salsa64_rec_profile_fold(&rec);  /* entre campos, fuera del código generado */
 			rprof.fold_fields = 0;
