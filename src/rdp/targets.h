@@ -334,6 +334,10 @@ enum rdp_texsrc rdp_targets_texture(struct rdp_targets *s, uint32_t addr, uint32
  * o dos tareas después, a la resolución de la N64 y en 16 bits, y la
  * realimentación del efecto acumulaba ese retraso y ese redondeo. */
 bool rdp_targets_readback(struct rdp_targets *s, int slot, bool force, bool cpu_owns);
+/* Clear CPU ownership after CopyColorFromRDRAM has synchronized the RSX
+ * surface with the changed RDRAM spans, so recent texture reads use that
+ * reconciled surface rather than decoding the old backing again. */
+void rdp_targets_rdram_uploaded(struct rdp_targets *s, int slot);
 
 /* Espejo del framebuffer (rdp.c y el rasterizador del host): lo que el RDP
  * dibuja en un framebuffer se copia a la RDRAM para que el CPU lea el
