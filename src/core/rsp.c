@@ -484,6 +484,59 @@ static bool eurocom_ucode(const struct salsa64_bus *bus, const struct salsa64_ta
 
 static enum salsa64_gbi detect_gbi(const struct salsa64_bus *bus, const struct salsa64_task *task, bool *nonear);
 
+const char *salsa64_gbi_name(enum salsa64_gbi gbi)
+{
+	static const char *const names[] = { "desconocido", "F3DEX2", "F3DZEX2", "F3D", "F3DEX", "S2DEX", "F3DPD",
+					     "F3DEXBG", "F3DWR", "F3DDKR", "F3DJFG", "S2DEX1", "F5ROGUE", "F5INDY",
+					     "Turbo3D", "Turbo3D-F3D", "F3DEX2ACCLAIM", "F3DEX2EUROCOM" };
+	_Static_assert(sizeof names / sizeof names[0] == SALSA64_GBI_F3DEX2EUROCOM + 1, "names");
+	return (unsigned)gbi < sizeof names / sizeof names[0] ? names[gbi] : "?";
+}
+
+/* Anota un microcódigo gráfico la primera vez que aparece (dirección del
+ * código y familia): los CRC solo se calculan entonces, no en cada tarea. */
+static void note_ucode(struct salsa64_bus *bus, const struct salsa64_task *task, enum salsa64_gbi gbi)
+{
+	struct salsa64_rsp *rsp = &bus->rsp;
+	uint32_t code = task->ucode & 0x1FFFFFFFu;
+	for (unsigned i = 0; i < rsp->ucodes_n; i++)
+		if (rsp->ucodes[i].code == code && rsp->ucodes[i].gbi == gbi)
+			return;
+	if (rsp->ucodes_n >= sizeof rsp->ucodes / sizeof rsp->ucodes[0])
+		return;
+	struct salsa64_ucode_seen *u = &rsp->ucodes[rsp->ucodes_n++];
+	memset(u, 0, sizeof *u);
+	u->code = code;
+	u->gbi = (uint8_t)gbi;
+	uint32_t size = task->ucode_size ? task->ucode_size : 0x1000u;
+	if (size == 0x1000u && in_rdram(bus, code, size)) {
+		u->crc = salsa64_crc32(bus->rdram + code, size);
+		u->crc_w = salsa64_crc32_words_swapped(bus->rdram + code, size);
+	}
+	/* El texto de versión de los datos («RSP Gfx ucode …» o «RSP SW Version: …»),
+	 * solo caracteres imprimibles. */
+	uint32_t addr = task->ucode_data & 0x1FFFFFFFu;
+	uint32_t dsize = task->ucode_data_size;
+	if (dsize == 0 || dsize > UCODE_SCAN_MAX)
+		dsize = UCODE_SCAN_MAX;
+	if (addr >= bus->rdram_size)
+		return;
+	if (dsize > bus->rdram_size - addr)
+		dsize = bus->rdram_size - addr;
+	const uint8_t *p = bus->rdram + addr, *end = p + dsize;
+	const uint8_t *q = find(p, end, "RSP Gfx ucode ");
+	if (!q)
+		q = find(p, end, "RSP SW Version: ");
+	if (!q)
+		return;
+	size_t n = 0;
+	for (; q < end && n + 1 < sizeof u->text && *q >= 0x20 && *q < 0x7F; q++)
+		u->text[n++] = (char)*q;
+	while (n && u->text[n - 1] == ' ')
+		n--;
+	u->text[n] = '\0';
+}
+
 enum salsa64_gbi salsa64_rsp_detect_gbi(const struct salsa64_bus *bus, const struct salsa64_task *task)
 {
 	bool nonear;
@@ -627,6 +680,8 @@ void salsa64_rsp_start(struct salsa64_bus *bus)
 								       : SALSA64_GBI_UNKNOWN;
 	enum salsa64_abi abi = task.type == SALSA64_TASK_AUDIO && valid ? salsa64_rsp_detect_abi(bus, &task)
 								       : SALSA64_ABI_UNKNOWN;
+	if (task.type == SALSA64_TASK_GFX && valid)
+		note_ucode(bus, &task, gbi);
 	salsa64_evlog_add(bus, SALSA64_EV_TASK_START, task.type, task.data_ptr);
 	/* JPEG: el microcódigo se reconoce por su CRC (no trae texto). */
 	enum salsa64_jpeg_kind jpeg = SALSA64_JPEG_NONE;

@@ -3259,6 +3259,14 @@ static void stats(uint64_t now)
 		    "%u veces (%.1f/s)",
 		    pad_poll.polls, pad_poll.max_gap_us / 1e3, n64.bus.pif.reads[0] - sw.pif_reads0,
 		    (n64.bus.pif.reads[0] - sw.pif_reads0) * 1e6 / dt);
+	/* Cada microcódigo gráfico nuevo, una vez por juego: con su CRC, un
+	 * reporte dice qué variante usa sin repetir la sesión. */
+	while (n64.bus.rsp.ucodes_logged < n64.bus.rsp.ucodes_n) {
+		const struct salsa64_ucode_seen *u = &n64.bus.rsp.ucodes[n64.bus.rsp.ucodes_logged++];
+		salsa64_log("gfx: microcódigo %s «%s», código en 0x%06x, CRC-32 %08X (palabras al revés %08X)",
+			    salsa64_gbi_name(u->gbi), u->text[0] ? u->text : "sin texto", (unsigned)u->code,
+			    (unsigned)u->crc, (unsigned)u->crc_w);
+	}
 	uint32_t tasks = rs.tasks - sw.rdp0.tasks;
 	if (tasks) {
 		double spu_ms = 0, wait_ms = 0, sleep_ms = 0;

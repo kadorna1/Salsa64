@@ -2721,16 +2721,12 @@ static void gfx_summary(void)
 		s->tex_reused / n, s->tex_old / n, s->tex_arena / n, s->tex_evicted / n,
 		s->unknown_cmds, s->last_unknown, s->skipped, s->bg, s->approx_cc, s->dl_errors, n64.bus.rsp.stats.cut,
 		s->flags);
-	static const char *const gbi_names[] = { "desconocido", "F3DEX2", "F3DZEX2", "F3D", "F3DEX", "S2DEX", "F3DPD",
-						 "F3DEXBG", "F3DWR", "F3DDKR", "F3DJFG", "S2DEX1", "F5ROGUE", "F5INDY", "Turbo3D", "Turbo3D-F3D",
-						 "F3DEX2ACCLAIM", "F3DEX2EUROCOM" };
-	_Static_assert(sizeof gbi_names / sizeof gbi_names[0] == SALSA64_GBI_F3DEX2EUROCOM + 1, "gbi_names");
 	char hist[256];
 	size_t used = 0;
 	hist[0] = '\0';
 	for (unsigned i = 0; i <= SALSA64_GBI_F3DEX2EUROCOM; i++)
 		if (gbi_hist.tasks[i] && used < sizeof hist)
-			used += (size_t)snprintf(hist + used, sizeof hist - used, "%s%s %u", used ? ", " : "", gbi_names[i],
+			used += (size_t)snprintf(hist + used, sizeof hist - used, "%s%s %u", used ? ", " : "", salsa64_gbi_name(i),
 						 gbi_hist.tasks[i]);
 	char imgs[96];
 	used = 0;
@@ -2740,6 +2736,12 @@ static void gfx_summary(void)
 			used += (size_t)snprintf(imgs + used, sizeof imgs - used, "%s%s", used ? " + " : "", gfx_spe0_name(i));
 	fprintf(stderr, "salsa64-run: gfx por microcódigo: %s; imagen del SPE 0: %s (%u cambios de imagen)\n",
 		hist[0] ? hist : "ninguna tarea", imgs[0] ? imgs : "ninguna", gbi_hist.switches);
+	for (unsigned i = 0; i < n64.bus.rsp.ucodes_n; i++) {
+		const struct salsa64_ucode_seen *u = &n64.bus.rsp.ucodes[i];
+		fprintf(stderr, "salsa64-run: gfx: microcódigo %s «%s», código en 0x%06x, CRC-32 %08X (palabras al revés %08X)\n",
+			salsa64_gbi_name(u->gbi), u->text[0] ? u->text : "sin texto", (unsigned)u->code,
+			(unsigned)u->crc, (unsigned)u->crc_w);
+	}
 	if (gfx.raster) {
 		uint32_t rb, pr, trsx, trd, tdec;
 		raster_fb_stats(&rb, &pr, &trsx, &trd, &tdec);

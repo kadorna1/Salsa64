@@ -366,6 +366,17 @@ struct salsa64_rsp {
 	bool collected;
 	uint32_t collected_flags;
 	struct salsa64_rsp_stats stats;
+	/* Microcódigos gráficos distintos que se vieron desde el arranque (por
+	 * dirección del código y familia), para el log: los dos CRC-32 de los
+	 * 4 KB de código (bytes tal cual y palabras al revés, como lo cuentan
+	 * otros emuladores) y el texto de versión. El frontend registra los
+	 * nuevos (ucodes_n > ucodes_logged). */
+	struct salsa64_ucode_seen {
+		uint32_t code, crc, crc_w;
+		uint8_t gbi;
+		char text[56];
+	} ucodes[8];
+	uint8_t ucodes_n, ucodes_logged;
 	/* Opcional (depuración): cada arranque del RSP con su tarea y la familia
 	 * de microcódigo detectada (SALSA64_GBI_UNKNOWN si no es gráfica). */
 	void (*trace)(void *ctx, const struct salsa64_task *task, enum salsa64_gbi gbi);
@@ -509,6 +520,8 @@ void salsa64_rsp_read_task(const struct salsa64_bus *bus, struct salsa64_task *t
  * segmento de datos (ucode_data) o, si no trae texto, por el CRC-32 de su
  * código. */
 enum salsa64_gbi salsa64_rsp_detect_gbi(const struct salsa64_bus *bus, const struct salsa64_task *task);
+/* Nombre corto de la familia para los logs ("F3DEX2", "Turbo3D"…). */
+const char *salsa64_gbi_name(enum salsa64_gbi gbi);
 /* El texto que identifica a un microcódigo ("RSP Gfx ucode …", "RSP SW
  * Version: …") en sus datos, en `out` (vacío si no hay). Para los logs. */
 void salsa64_rsp_ucode_text(const struct salsa64_bus *bus, uint32_t ucode_data, char *out, size_t n);
