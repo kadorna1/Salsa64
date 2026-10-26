@@ -5076,6 +5076,10 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	/* Yoshi's Story (NYS, todas las regiones) lee sus capas de fondo CI8 desde la RDRAM: espera sus copias. */
 	salsa64_rdp_set_big8_wait(rom[0x3B] == 'N' && rom[0x3C] == 'Y' && rom[0x3D] == 'S');
 	{
+		struct menu_game gc;
+		menu_game_default(&gc);
+		if (source && !(selftest_on || gfxtest_on || audiotest_on))
+			game_cfg_read(source, &gc);
 		/* Global defaults come from Opciones; per-game files may override them. */
 		int configured_accessory = gc.accessory < 0 ? mn.settings.accessory : gc.accessory;
 		enum salsa64_pif_accessory accessory =
