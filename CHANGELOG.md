@@ -6,6 +6,17 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+### Added
+- The log names each graphics microcode a game uses, with its version text
+  and CRC-32, so a bug report shows the exact variant.
+
+### Changed
+- **More room in the graphics SPE:** the colour combiner returns its results
+  through output parameters instead of large structs, which frees about 2.5 KB
+  of SPU stack (thanks to kadorna1, #41). The output is identical.
+- Builds with GCC 13 and warnings enabled, and the directory scan test no
+  longer depends on the file system order (thanks to Manfline).
+
 ### Fixed
 - **Monaco Grand Prix:** no longer freezes after choosing Single when a slow graphics task finishes; SP interrupt delay is capped at one video field.
 - **Midway's Greatest Arcade Hits Volume 1:** arcade games are no longer black; Fast3D Sprite2D commands now render their textured rectangles.
