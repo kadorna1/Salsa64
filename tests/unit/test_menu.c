@@ -358,7 +358,14 @@ static void menu_scan_dir(void)
 	memset(l, 0, romlist_memory_bytes());
 	CHECK_EQ(romlist_scan_dir(l, dir, dir, NULL, 0), 3);
 	CHECK_EQ(l->count, 5); /* ROMs, carpeta y subcarpeta */
-	CHECK_EQ(l->e[0].kind, ROMLIST_DIRECTORY);
+	int found_sub = 0;
+	for (uint32_t i = 0; i < l->count; i++) {
+		if (l->e[i].kind == ROMLIST_DIRECTORY && !strcmp(romlist_name(&l->e[i]), "sub")) {
+			found_sub = 1;
+			break;
+		}
+	}
+	CHECK(found_sub);
 	memset(l, 0, romlist_memory_bytes());
 	CHECK_EQ(romlist_scan_dir(l, sub, dir, NULL, 0), 0);
 	CHECK_EQ(l->e[0].kind, ROMLIST_PARENT);

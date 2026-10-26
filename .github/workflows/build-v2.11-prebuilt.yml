@@ -1,4 +1,4 @@
-name: Salsa64 PS3 build (reusable Docker toolchain, v2.11 Cruis'n port)
+name: Salsa64 PS3 build (reusable Docker toolchain, v2.11b Cruis'n port)
 
 on:
   push:
@@ -30,7 +30,7 @@ jobs:
       - name: Apply temporary build version tag
         shell: bash
         run: |
-          git tag -f v2.11 "$GITHUB_SHA"
+          git tag -f v2.11b "$GITHUB_SHA"
           echo "Building $(git describe --tags --always --dirty) from $GITHUB_SHA"
 
       # The tag changes only when the Docker image recipe changes. Normal C/C++
@@ -82,7 +82,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: salsa64-v2.11-cruisn-ps3-pkg-docker-toolchain
+          name: salsa64-v2.11b-cruisn-ps3-pkg-docker-toolchain
           path: |
             build/salsa64/*.pkg
             build/logs/docker-image.log
