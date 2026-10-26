@@ -1698,7 +1698,8 @@ static void panel(const struct menu *m, float W, float H, float a)
 							    "× sí, ○ sigue jugando.", "Con «No», sale directo.",
 							    "Se guarda en menu.cfg.", NULL, NULL };
 		static const char *const accessory_text[] = { "Accesorio inicial de los cuatro", "controles de N64.", NULL,
-							       "Controller Pak guarda datos.", "Rumble Pak activa la vibración.", NULL,
+							       "Controller Pak guarda datos.", "Rumble Pak activa la vibración.",
+							       "Transfer Pak carga .gb/.gbc y usa .sav.", NULL,
 							       "Se guarda en menu.cfg.", NULL, NULL };
 		const char *const order_text[] = { tr("Orden de los juegos de la lista."), NULL,
 						   tr("Se guarda en menu.cfg."), NULL, NULL };
@@ -1875,7 +1876,7 @@ static void options_column(const struct menu *m, float x, float W, float H, floa
 	struct row fps = { "Mostrar FPS", "Velocidad en una esquina del juego", 2, "#", 0, m->set.fps ? "Sí" : "No" };
 	struct row confirm = { "Confirmar al salir", "START + SELECT pregunta antes", 2, "?", 0,
 			       m->set.confirm ? "Sí" : "No" };
-	struct row accessory = { "Accesorio del control", "Controller Pak, Rumble Pak o ninguno", 2, "●", 0,
+	struct row accessory = { "Accesorio del control", "Controller Pak, Rumble Pak, Transfer Pak o ninguno", 2, "●", 0,
 				  menu_accessory_name(m->set.accessory) };
 	struct row order = { "Orden de la lista", "Título de cabecera o nombre de archivo", 2, "↑", 0,
 			     m->set.rom_order == MENU_ROM_ORDER_FILENAME ? tr("Nombre de archivo") : tr("Título de cabecera") };
