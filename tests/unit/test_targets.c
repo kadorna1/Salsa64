@@ -1066,16 +1066,19 @@ static void targets_cpu_guard(void)
 	CHECK(!rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
 	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	CHECK(!rdp_target_row_cpu_changed(&row_target, 84, &guard_t, guard_ram, sizeof guard_ram));
-	/* A later task overwrites the transient guard with changed RDRAM. It must
-	 * not erase the stable profile baseline or hide the CPU write. */
+	/* A later task snapshots the already-modified RDRAM. The ordinary guard
+	 * now permits a late readback, but the profile baseline must still block it. */
 	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
+	CHECK(rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
+	CHECK(!rdp_guard_profile_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
 	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
-	CHECK(rdp_guard_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) + 1));
+	CHECK(rdp_guard_profile_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) + 1));
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) - 1));
 	/* Al restaurar el byte, la fila vuelve a coincidir con la huella. */
 	guard_ram[dl] = 0;
 	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
+	CHECK(rdp_guard_profile_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
 	CHECK(!rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	uint32_t la = dl & ~(RDP_GUARD_LINE - 1);
 	guard_ram[la + 7] = 1;   /* +1 en la palabra 0 */

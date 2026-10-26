@@ -1098,8 +1098,14 @@ static bool guard_row(uint32_t d0, uint32_t d1, bool ok[ROW_LINES], uint32_t *sk
 	uint32_t l0 = d0 >> RDP_GUARD_SHIFT, l1 = (d1 - 1) >> RDP_GUARD_SHIFT;
 	bool all = true;
 	for (uint32_t l = l0; l <= l1 && l - l0 < ROW_LINES; l++) {
-		ok[l - l0] = rdp_guard_ok(&guard, rdp.rdram, l);
-		if (!ok[l - l0]) {
+		bool can_write = rdp_guard_ok(&guard, rdp.rdram, l);
+		/* Dr. Mario 64 also needs the opposite protection: a CPU write made
+		 * before guard_mark_task() is already present in the task-end hash.
+		 * Keep it by refusing to copy this line until its target is refreshed. */
+		if (can_write && rdp.copy_color_from_rdram && !rdp_guard_profile_ok(&guard, rdp.rdram, l))
+			can_write = false;
+		ok[l - l0] = can_write;
+		if (!can_write) {
 			all = false;
 			(*skipped)++;
 		}

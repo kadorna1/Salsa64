@@ -768,6 +768,18 @@ void rdp_guard_profile_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t 
 		g->profile[l] = rdp_guard_hash(rdram + (l << RDP_GUARD_SHIFT));
 }
 
+/* Do not let a late RSX readback replace a CPU change which predates the
+ * most recent graphics task. The ordinary task-end guard cannot catch that
+ * case because it snapshots the already-modified RDRAM. A zero baseline means
+ * this line has not been uploaded/read back by the profile and remains safe. */
+bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint32_t line)
+{
+	if (!g || !rdram || line >= RDP_GUARD_LINES)
+		return false;
+	uint32_t baseline = g->profile[line];
+	return !baseline || rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT)) == baseline;
+}
+
 /* A CPU-modified row is uploaded only if a previously initialized profile
  * baseline no longer matches. Guard lines are absolute 128-byte spans, so
  * unaligned row strides conservatively mark adjacent rows when they overlap

@@ -426,6 +426,8 @@ void rdp_guard_clear(struct rdp_guard *g);
 void rdp_guard_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, uint32_t lo, uint32_t hi);
 /* Baseline estable del perfil CopyColorFromRDRAM, independiente de las guardas tardías. */
 void rdp_guard_profile_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, uint32_t lo, uint32_t hi);
+/* ¿Una copia RSX->RDRAM puede escribir esta línea sin pisar datos del CPU? */
+bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint32_t line);
 /* ¿Se puede escribir la línea `line` (dirección >> RDP_GUARD_SHIFT)? */
 static inline bool rdp_guard_ok(const struct rdp_guard *g, const uint8_t *rdram, uint32_t line)
 {
