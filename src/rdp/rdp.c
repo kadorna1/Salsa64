@@ -1572,6 +1572,11 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	if (!fresh) {
 		/* Sin dibujar desde hace tareas: lo que vale está en la RDRAM. */
 		bool stale = rdp.tg.task - rdp.tg.t[i].last_task > RDP_TARGETS_FRESH;
+		/* Dr. Mario 64 y otros títulos escriben texels directamente en la
+		 * RDRAM de una color image que ya tenía una superficie RSX. La HLE
+		 * debe emular CopyColorFromRDRAM: volver a cargar el respaldo antes
+		 * de dibujar encima, en lugar de conservar la versión vieja del RSX. */
+		bool dma_updated = rdp.fbfx >= 1 && rdp_target_dma_updated(&rdp.tg.t[i], &rdp.dma);
 		/* La misma memoria dibujada después con otro ancho (Resident Evil 2:
 		 * el fondo se copia a 0x63E000 de 512 de ancho y los personajes van
 		 * encima a 596): la superficie de este ancho quedó vieja. La copia
@@ -1594,10 +1599,20 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			if (wt && (int32_t)(wt - t->last_task) > 0)
 				alias = true;
 		}
-		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" : alias ? "cebada (otro ancho)" : "viva");
+		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" :
+			 dma_updated ? "RDRAM tras DMA" : alias ? "cebada (otro ancho)" : "viva");
 		if (stale) {
 			prime(i);
 			rdp.alias_full[i] = false;
+		} else if (dma_updated) {
+			/* El contenido recién cargado por DMA manda sobre la versión RSX.
+			 * Prime solo se permite para imágenes de 16 bits de tamaño válido;
+			 * preservamos las salvaguardas de fbfx y del presupuesto de VRAM. */
+			prime(i);
+			rdp.alias_full[i] = false;
+			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
+			LOGN(20, "gfx: color image %06x/%u recargada desde RDRAM tras DMA (tarea anterior %u)",
+			     rdp.tg.t[i].addr, rdp.tg.t[i].width, rdp.tg.t[i].last_task);
 		} else if (alias) {
 			/* Con la misma RDRAM que en el último cebado entero, solo las
 			 * filas dibujadas encima desde entonces (Leon). */
