@@ -475,6 +475,7 @@ static void rsp_detect_gbi_dkr(void)
 	 * los bytes (i ^ 3), así que los 4 últimos del flujo son los 4 últimos
 	 * bytes del código, al revés. */
 	static const struct { uint32_t crc; enum salsa64_gbi gbi; } cases[] = {
+		{ 0xD3AB59B2u, SALSA64_GBI_F3D_CRUISN_USA },
 		{ 0x8D91244Fu, SALSA64_GBI_F3DDKR }, { 0x6E6FC893u, SALSA64_GBI_F3DDKR },
 		{ 0xBDE9D1FBu, SALSA64_GBI_F3DJFG }, { 0xDA51CCDBu, SALSA64_GBI_F5ROGUE },
 		{ 0x6859BF8Eu, SALSA64_GBI_F5INDY }, { 0x23FEF05Fu, SALSA64_GBI_F5INDY },
@@ -613,7 +614,22 @@ static void rsp_detect_gbi(void)
 	CHECK_EQ(detect("RSP Gfx ucode S2DEX       fifo 2.06 "), SALSA64_GBI_S2DEX);
 	CHECK_EQ(detect("RSP Gfx ucode S2DEX  1.06 "), SALSA64_GBI_S2DEX1);
 	CHECK_EQ(detect("RSP Gfx ucode F3DEXBG.NoN fifo 2.08 "), SALSA64_GBI_F3DEXBG);
+
 	CHECK_EQ(detect("RSP SW Version: 2.0X"), SALSA64_GBI_F3D);
+
+	/* The 2 in F3DEX2 is part of the name, not the microcode version. */
+	{
+		const uint8_t *old_rom = t_n64.bus.rom;
+		uint32_t old_rom_size = t_n64.bus.rom_size;
+		uint8_t rom[0x40] = { 0 };
+		memcpy(rom + 0x20, "CRUIS'N EXOTICA", sizeof "CRUIS'N EXOTICA" - 1);
+		t_n64.bus.rom = rom;
+		t_n64.bus.rom_size = sizeof rom;
+		CHECK_EQ(detect("RSP Gfx ucode F3DEX2.fifo 2.08 "), SALSA64_GBI_F3DEX2_CRUISN);
+		CHECK_EQ(detect("RSP Gfx ucode F3DEX2.fifo 2.07 "), SALSA64_GBI_F3DEX2);
+		t_n64.bus.rom = old_rom;
+		t_n64.bus.rom_size = old_rom_size;
+	}
 	CHECK_EQ(detect("Salsa64 GBI F3DEX2"), SALSA64_GBI_F3DEX2);
 	CHECK_EQ(detect("Salsa64 GBI F3DEX1"), SALSA64_GBI_F3DEX);
 	CHECK_EQ(detect("Salsa64 GBI Fast3D"), SALSA64_GBI_F3D);
