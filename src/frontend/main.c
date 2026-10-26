@@ -2602,7 +2602,7 @@ static void filter_cycle(uint64_t now)
 		salsa64_log("filtros: ciclo, otra vuelta: la señal del cable en %s", flt.spe ? "el SPE" : "el RSX");
 	}
 	salsa64_log("filtros: ciclo → «%s»", salsa64_crt_name(flt.cur));
-	osd_notice(now, "Filtro: %s", salsa64_crt_name(flt.cur));
+	osd_notice(now, "Filtro: %s", tr(salsa64_crt_name(flt.cur)));
 }
 
 /* rsxkit_frame_begin y _end con el tiempo que se esperó el flip anterior:
@@ -5085,7 +5085,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_bus_set_rom(&n64.bus, rom, rom_size);
 	if (!salsa64_boot_hle(&n64, SALSA64_BOOT_TV_AUTO, &boot_info)) {
 		salsa64_log("%s: FALLO al arrancar %s: %s", res_tag, source, boot_info.error);
-		snprintf(err, err_size, "No arrancó %s: %s", source, boot_info.error);
+		snprintf(err, err_size, tr("No arrancó %s: %s"), source, boot_info.error);
 		emu_done = 1;
 		game_close();
 		return GAME_FAILED;
@@ -5406,7 +5406,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (sysThreadCreate(&emu_tid, emu_thread, NULL, EMU_PRIO, EMU_STACK, THREAD_JOINABLE,
 			    (char *)"salsa64_emu") != 0) {
 		salsa64_log("%s: FALLO al crear el hilo de emulación", res_tag);
-		snprintf(err, err_size, "No se pudo crear el hilo de emulación");
+		snprintf(err, err_size, "%s", tr("No se pudo crear el hilo de emulación"));
 		emu_done = 1;
 		game_close();
 		rdp_scale_set(menu_scale_limit(video_cfg.scale, video_cfg.resolution), "vuelve la global");
@@ -5841,7 +5841,7 @@ static void download_begin(int what)
 	bool started = dl_start(what, list, n);
 	free(list);
 	if (!started) {
-		menu_set_status(&menu, "No se pudo bajar el índice: %s", "hilo");
+		menu_set_status(&menu, "No se pudo bajar el índice: %s", tr("hilo"));
 		return;
 	}
 	dl_shown = true;
@@ -5901,7 +5901,7 @@ static void menu_show(const char *shot)
 
 static void settings_read(struct menu_settings *s)
 {
-	char text[512];
+	char text[1024];
 	menu_settings_default(s);
 	FILE *f = fopen(MENU_CFG_PATH, "r");
 	if (!f)
@@ -5913,7 +5913,7 @@ static void settings_read(struct menu_settings *s)
 
 static bool settings_write(const struct menu_settings *s)
 {
-	char text[512];
+	char text[1024];
 	int n = menu_settings_format(s, text, sizeof text);
 	FILE *f = fopen(MENU_CFG_PATH, "w");
 	bool ok = f && fwrite(text, 1, (size_t)n, f) == (size_t)n;
@@ -5922,10 +5922,23 @@ static bool settings_write(const struct menu_settings *s)
 	return ok;
 }
 
+/* Idioma de la consola (para «Automático»): se lee una vez y se anota en el log. */
+static void language_apply(void)
+{
+	s32 sys = -1;
+	if (sysUtilGetSystemParamInt(SYSUTIL_SYSTEMPARAM_ID_LANG, &sys) != 0)
+		sys = -1;
+	i18n_set_system(sys);
+	i18n_set(mn.settings.lang);
+	salsa64_log("idioma: la consola dice %d (%s), ajuste «%s», en uso «%s»", sys,
+		    sys < 0 ? "desconocido" : i18n_code(i18n_from_system(sys)), i18n_code(mn.settings.lang),
+		    i18n_code(i18n_lang()));
+}
+
 static void menu_settings_load(void)
 {
 	settings_read(&mn.settings);
-	i18n_set(mn.settings.lang);
+	language_apply();
 }
 
 static void menu_settings_save(void)
@@ -6290,7 +6303,7 @@ static int menu_loop(void)
 					menu.sel = at, menu.pos = (float)at;
 			}
 			if (cfg) {
-				i18n_set(mn.settings.lang);
+				language_apply();
 				menu_settings_save();
 			}
 		}

@@ -7,6 +7,13 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Added
+- **Five more languages and an "Automatic" setting:** Dutch, Swedish, Danish,
+  Norwegian and Finnish join Spanish, English, French, German, Italian and
+  Portuguese. "Automatic" (the default for new setups) follows the console's
+  system language; languages without a translation fall back to English.
+  An explicit choice already saved in `menu.cfg` is kept. Every on-screen
+  text, including download, save-state and region messages, is now
+  translated, and `make test-host` checks that none is missing.
 - **Rumble Pak and live accessory selection:** choose Controller Pak, Rumble
   Pak, Transfer Pak or no accessory globally, per game and per controller
   from the pause menu. DualShock 3 vibration stops on pause and exit (thanks

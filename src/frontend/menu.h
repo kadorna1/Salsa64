@@ -98,8 +98,14 @@ enum menu_filter {
 	MENU_FILTERS,
 };
 
-/* Idioma del menú (menu.cfg, «idioma = es|en|fr|de|it|pt»), ver i18n.h. */
-enum menu_lang { MENU_LANG_ES, MENU_LANG_EN, MENU_LANG_FR, MENU_LANG_DE, MENU_LANG_IT, MENU_LANG_PT, MENU_LANGS };
+/* Idioma del menú (menu.cfg, «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi»),
+ * ver i18n.h. Los once primeros coinciden con los de la tabla; AUTO usa el
+ * idioma de la consola. */
+enum menu_lang {
+	MENU_LANG_ES, MENU_LANG_EN, MENU_LANG_FR, MENU_LANG_DE, MENU_LANG_IT, MENU_LANG_PT,
+	MENU_LANG_NL, MENU_LANG_SV, MENU_LANG_DA, MENU_LANG_NO, MENU_LANG_FI,
+	MENU_LANG_AUTO, MENU_LANGS
+};
 enum menu_rom_order { MENU_ROM_ORDER_TITLE, MENU_ROM_ORDER_FILENAME };
 
 /* Densidad de los puntos del CRT de máscara de sombra: la del filtro

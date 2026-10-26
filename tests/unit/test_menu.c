@@ -496,10 +496,14 @@ static void menu_refresh_buttons(void)
 	CHECK_EQ(menu_input(&m, CROSS, 4), MENU_REFRESH);
 	CHECK_EQ(m.page, MENU_PAGE_OPTIONS);
 	static const char *const labels[] = { "Actualizar lista", "Refresh list", "Actualiser la liste",
-					      "Liste aktualisieren", "Aggiorna elenco", "Atualizar lista" };
+					      "Liste aktualisieren", "Aggiorna elenco", "Atualizar lista",
+					      "Lijst vernieuwen", "Uppdatera listan", "Opdater listen",
+					      "Oppdater listen", "Päivitä lista" };
 	static const char *const notices[] = { "3 ROMs encontradas", "3 ROMs found", "3 ROM trouvées",
-					       "3 ROMs gefunden", "3 ROM trovate", "3 ROMs encontradas" };
-	for (int lang = 0; lang < MENU_LANGS; lang++) {
+					       "3 ROMs gefunden", "3 ROM trovate", "3 ROMs encontradas",
+					       "3 ROM's gevonden", "3 ROM-filer hittades", "3 ROM-filer fundet",
+					       "3 ROM-filer funnet", "3 ROMia löytyi" };
+	for (int lang = 0; lang <= MENU_LANG_FI; lang++) {
 		i18n_set(lang);
 		CHECK(!strcmp(tr("Actualizar lista"), labels[lang]));
 		menu_set_status(&m, "%u ROMs encontradas", 3u);
@@ -672,7 +676,7 @@ static void menu_density(void)
 	menu_input(&m, DOWN, 80);
 	CHECK_EQ(m.opt, MENU_OPT_RESOLUTION);
 	/* menu.cfg: ida y vuelta. */
-	char buf[512];
+	char buf[1024];
 	struct menu_settings back;
 	int n = menu_settings_format(&m.set, buf, sizeof buf);
 	CHECK(n > 0 && n < (int)sizeof buf);
@@ -1041,6 +1045,25 @@ static void menu_game_page(void)
 	CHECK_EQ(st2.lang, MENU_LANG_DE);
 	CHECK_EQ(st2.interp, MENU_INTERP_GEOMETRY);
 	CHECK_EQ(st2.accessory, MENU_ACC_RUMBLE);
+	/* Todos los idiomas, y «auto», van y vienen; una elección guardada no se pisa. */
+	for (int l = 0; l < MENU_LANGS; l++) {
+		st.lang = l;
+		n = menu_settings_format(&st, buf, sizeof buf);
+		menu_settings_default(&st2);
+		menu_settings_parse(&st2, buf, (size_t)n);
+		CHECK_EQ(st2.lang, l);
+	}
+	{
+		static const char old_cfg[] = "aspecto = 16:9\nidioma = fr\n";
+		menu_settings_default(&st2);
+		CHECK_EQ(st2.lang, MENU_LANG_AUTO);
+		menu_settings_parse(&st2, old_cfg, sizeof old_cfg - 1);
+		CHECK_EQ(st2.lang, MENU_LANG_FR);
+		static const char no_lang[] = "aspecto = 16:9\n";
+		menu_settings_default(&st2);
+		menu_settings_parse(&st2, no_lang, sizeof no_lang - 1);
+		CHECK_EQ(st2.lang, MENU_LANG_AUTO);
+	}
 }
 
 static void menu_options_page(void)
@@ -1260,8 +1283,12 @@ static void menu_options_page(void)
 	menu_input(&m, 0, 79);
 	menu_input(&m, DOWN, 79);
 	CHECK_EQ(m.opt, MENU_OPT_LANG);
-	/* Idioma: derecha avanza con vuelta; izquierda al revés. */
+	/* Idioma: derecha avanza con vuelta; izquierda al revés. Por omisión
+	 * «Automático», que va antes de español y después de finés. */
 	menu_input(&m, 0, 79);
+	CHECK_EQ(m.set.lang, MENU_LANG_AUTO);
+	menu_input(&m, 0, 79);
+	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
 	CHECK_EQ(m.set.lang, MENU_LANG_ES);
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
@@ -1270,7 +1297,10 @@ static void menu_options_page(void)
 	CHECK_EQ(menu_input(&m, LEFT, 79), MENU_SETTINGS);
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, LEFT, 79), MENU_SETTINGS);
-	CHECK_EQ(m.set.lang, MENU_LANG_PT);
+	CHECK_EQ(m.set.lang, MENU_LANG_AUTO);
+	menu_input(&m, 0, 79);
+	CHECK_EQ(menu_input(&m, LEFT, 79), MENU_SETTINGS);
+	CHECK_EQ(m.set.lang, MENU_LANG_FI);
 	m.set.lang = MENU_LANG_ES;
 	/* Orden y descargas: cambia y guarda la forma de ordenar; × pide bajar. */
 	menu_input(&m, 0, 79);

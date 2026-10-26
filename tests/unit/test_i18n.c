@@ -149,18 +149,96 @@ static void lookup(void)
 	CHECK(!strcmp(tr("Volver"), "Indietro"));
 	i18n_set(5);
 	CHECK(!strcmp(tr("Volver"), "Voltar"));
+	i18n_set(6);
+	CHECK(!strcmp(tr("Volver"), "Terug"));
+	i18n_set(7);
+	CHECK(!strcmp(tr("Volver"), "Tillbaka"));
+	i18n_set(8);
+	CHECK(!strcmp(tr("Volver"), "Tilbage"));
+	i18n_set(9);
+	CHECK(!strcmp(tr("Volver"), "Tilbake"));
+	i18n_set(10);
+	CHECK(!strcmp(tr("Volver"), "Takaisin"));
 	/* Lo que no está sale igual (títulos de juegos, rutas...). */
 	CHECK(!strcmp(tr("GoldenEye 007"), "GoldenEye 007"));
 	CHECK(tr("Rareza") != NULL);
-	i18n_set(9);  /* fuera de rango: español */
+	i18n_set(40);  /* fuera de rango: español */
 	CHECK_EQ(i18n_lang(), 0);
 	CHECK(!strcmp(tr("Volver"), "Volver"));
 	CHECK(tr(NULL) == NULL);
 	i18n_set(0);
 }
 
+/* Los nombres de los accesorios no se traducen en ningún idioma. */
+static void untranslated_names(void)
+{
+	static const char *const keep[] = { "Controller Pak", "Rumble Pak", "Transfer Pak" };
+	for (unsigned k = 0; k < sizeof keep / sizeof keep[0]; k++)
+		for (size_t i = 0; i < i18n_count(); i++)
+			if (!strcmp(i18n_key(i), keep[k]))
+				for (int l = 1; l <= MENU_LANGS_TR; l++)
+					CHECK(!strcmp(i18n_text(i, l), keep[k]));
+	/* Y en toda la tabla, el nombre propio aparece tal cual si aparece. */
+	for (size_t i = 0; i < i18n_count(); i++)
+		for (unsigned k = 0; k < sizeof keep / sizeof keep[0]; k++)
+			if (strstr(i18n_key(i), keep[k]))
+				for (int l = 1; l <= MENU_LANGS_TR; l++)
+					if (!strstr(i18n_text(i, l), keep[k])) {
+						printf("   «%s» idioma %d perdió «%s»\n", i18n_key(i), l, keep[k]);
+						CHECK(0);
+					}
+}
+
+/* «Automático»: el idioma de la consola, y el mapeo de los 20 que tiene la PS3. */
+static void automatic(void)
+{
+	/* SYSUTIL_LANG_*: 0 ja, 1 en-US, 2 fr, 3 es, 4 de, 5 it, 6 nl, 7 pt-PT, 8 ru, 9 ko, 10 zh-T, 11 zh-S,
+	 * 12 fi, 13 sv, 14 da, 15 no, 16 pl, 17 pt-BR, 18 en-GB, 19 tr. */
+	static const int want[20] = { 1, 1, 2, 0, 3, 4, 6, 5, 1, 1, 1, 1, 10, 7, 8, 9, 1, 5, 1, 1 };
+	for (int sys = 0; sys < 20; sys++) {
+		if (i18n_from_system(sys) != want[sys]) {
+			printf("   idioma de la consola %d: %d (esperado %d)\n", sys, i18n_from_system(sys), want[sys]);
+			CHECK(0);
+		}
+	}
+	CHECK_EQ(i18n_from_system(-1), 1);
+	CHECK_EQ(i18n_from_system(99), 1);
+
+	/* Sin saber el de la consola (host, pruebas): español. */
+	i18n_set_system(-1);
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 0);
+	CHECK(!strcmp(tr("Volver"), "Volver"));
+	CHECK_EQ(i18n_resolve(I18N_AUTO), 0);
+
+	/* Con el de la consola. */
+	i18n_set_system(13);  /* sueco */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 7);
+	CHECK(!strcmp(tr("Volver"), "Tillbaka"));
+	i18n_set_system(9);  /* coreano: inglés */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 1);
+	CHECK(!strcmp(tr("Volver"), "Back"));
+	i18n_set_system(17);  /* portugués de Brasil: la columna del portugués */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 5);
+
+	/* Una elección explícita no depende de la consola. */
+	i18n_set(MENU_LANGS_TR > 1 ? 2 : 0);
+	CHECK_EQ(i18n_lang(), 2);
+	CHECK_EQ(i18n_resolve(3), 3);
+	CHECK(!strcmp(i18n_code(I18N_AUTO), "auto"));
+	CHECK(!strcmp(i18n_code(10), "fi"));
+
+	i18n_set_system(-1);
+	i18n_set(0);
+}
+
 void t_suite_i18n(void)
 {
+	RUN(untranslated_names);
+	RUN(automatic);
 	RUN(sorted);
 	RUN(same_formats);
 	RUN(glyphs);

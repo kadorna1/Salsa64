@@ -3,6 +3,8 @@
  * network/httptest de PSL1GHT. */
 #include "download.h"
 
+#include "i18n.h"
+
 #include <http/http.h>
 #include <http/https.h>
 #include <net/net.h>
@@ -349,7 +351,7 @@ static void job_main(void *arg)
 	}
 	names = malloc(ilen + 1);
 	if (!names) {
-		fail("No se pudo bajar el índice: %s", "memoria");
+		fail("No se pudo bajar el índice: %s", tr("memoria"));
 		goto out;
 	}
 	nlen = dl_index_names((const char *)index, ilen, ext, names, ilen + 1);
@@ -427,7 +429,7 @@ bool dl_start(int what, const struct dl_rom *roms, unsigned n)
 	job.state = DL_RUNNING;
 	if (sysThreadCreate(&job.tid, job_main, NULL, 1500, 0x20000, THREAD_JOINABLE, (char *)"descargas") != 0) {
 		job.state = DL_FAILED;
-		snprintf(job.err, sizeof job.err, "%s", "hilo");
+		snprintf(job.err, sizeof job.err, "%s", tr("hilo"));
 		free(job.roms);
 		job.roms = NULL;
 		return false;

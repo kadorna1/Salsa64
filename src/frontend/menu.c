@@ -60,7 +60,7 @@ void menu_settings_default(struct menu_settings *s)
 	s->interp = MENU_INTERP_OFF;
 	s->rom_order = MENU_ROM_ORDER_TITLE;
 	s->accessory = MENU_ACC_PAK;
-	s->lang = MENU_LANG_ES;
+	s->lang = MENU_LANG_AUTO;
 }
 
 static const char *overscan_name(int o)
@@ -126,10 +126,24 @@ const char *menu_overscan_name(int o)
 {
 	return overscan_name(o);
 }
-static const char *const lang_key[MENU_LANGS] = { "es", "en", "fr", "de", "it", "pt" };
+static const char *const lang_key[MENU_LANGS] = { "es", "en", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "fi", "auto" };
 static const char *const density_key[MENU_DENSITIES] = { "normal", "fina" };
 static const char *const interp_key[MENU_INTERPS] = { "no", "geometria" };
-static const char *const lang_label[MENU_LANGS] = { "Español", "English", "Français", "Deutsch", "Italiano", "Português" };
+static const char *const lang_label[MENU_LANGS] = { "Español", "English", "Français", "Deutsch", "Italiano", "Português",
+						    "Nederlands", "Svenska", "Dansk", "Norsk", "Suomi", "Automático" };
+
+/* El selector recorre Automático y luego los idiomas en este orden. */
+static int lang_step(int cur, bool back)
+{
+	static const int order[MENU_LANGS] = { MENU_LANG_AUTO, MENU_LANG_ES, MENU_LANG_EN, MENU_LANG_FR, MENU_LANG_DE,
+					       MENU_LANG_IT, MENU_LANG_PT, MENU_LANG_NL, MENU_LANG_SV, MENU_LANG_DA,
+					       MENU_LANG_NO, MENU_LANG_FI };
+	int at = 0;
+	for (int i = 0; i < MENU_LANGS; i++)
+		if (order[i] == cur)
+			at = i;
+	return order[(at + (back ? MENU_LANGS - 1 : 1)) % MENU_LANGS];
+}
 
 static const char *resolution_name(int r)
 {
@@ -469,7 +483,7 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 {
 	return snprintf(buf, size,
 			"# Ajustes del menú de Salsa64\n# aspecto = 4:3|16:9; filtro = suave|nitido|lineas|lineas+|crt-…; "
-			"densidad = normal|fina; idioma = es|en|fr|de|it|pt; interpolacion = no|geometria; orden = titulo|archivo\n"
+			"densidad = normal|fina; idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi; interpolacion = no|geometria; orden = titulo|archivo\n"
 			"fondo = %s\nfps = %s\nconfirmar = %s\naspecto = %s\nfiltro = %s\ndensidad = %s\nidioma = %s\n"
 			"interpolacion = %s\norden = %s\naccesorio = %s\n",
 			s->waves ? "si" : "no", s->fps ? "si" : "no", s->confirm ? "si" : "no",
@@ -484,7 +498,7 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 
 bool menu_settings_cfg_differs(const struct menu_settings *a, const struct menu_settings *b)
 {
-	char ta[512], tb[512];
+	char ta[1024], tb[1024];
 	menu_settings_format(a, ta, sizeof ta);
 	menu_settings_format(b, tb, sizeof tb);
 	return strcmp(ta, tb) != 0;
@@ -679,7 +693,7 @@ static enum menu_action options_buttons(struct menu *m, uint32_t pressed)
 		return MENU_SETTINGS;
 	}
 	if (m->opt == MENU_OPT_LANG && (pressed & change)) {
-		m->set.lang = (m->set.lang + (pressed & BIT(SALSA64_DS3_LEFT) ? MENU_LANGS - 1 : 1)) % MENU_LANGS;
+		m->set.lang = lang_step(m->set.lang, pressed & BIT(SALSA64_DS3_LEFT));
 		return MENU_SETTINGS;
 	}
 	if ((m->opt == MENU_OPT_DL_COVERS || m->opt == MENU_OPT_DL_CHEATS) && (pressed & BIT(SALSA64_DS3_CROSS))) {
@@ -1680,7 +1694,8 @@ static void panel(const struct menu *m, float W, float H, float a)
 							    "Normal: como el filtro", "original. Fina: puntos más",
 							    "chicos y más juntos.", "Se guarda en menu.cfg.", NULL,
 							    NULL };
-		static const char *const lang_text[] = { "Idioma del menú y de los", "avisos del juego.", NULL, "Se guarda en menu.cfg.", NULL, NULL };
+		static const char *const lang_text[] = { "Idioma del menú y de los", "avisos del juego.", "Automático: el de la consola.", NULL,
+						       "Se guarda en menu.cfg.", NULL, NULL };
 		static const char *const interp_text[] = { "Dibuja los campos de en", "medio con los objetos entre",
 							   "un cuadro y el siguiente:", "Zelda (20 cuadros) se ve a",
 							   "60, con 33 ms de retraso.", "(experimental).", NULL,

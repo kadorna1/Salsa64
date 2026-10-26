@@ -10,6 +10,7 @@
 #include <sys/file.h>
 #include <sys/systime.h>
 
+#include "i18n.h"
 #include "platform/ps3/bgio.h"
 #include "platform/ps3/bgjob.h"
 #include "platform/ps3/log.h"
@@ -68,7 +69,7 @@ static void bg_write(void *arg)
 	bgio_lz_reset();
 	bool ok = bgio_out_open(&io, bg.tmp);
 	if (!ok)
-		snprintf(r->err, sizeof r->err, "no se pudo crear %s", bg.tmp);
+		snprintf(r->err, sizeof r->err, tr("no se pudo crear %s"), bg.tmp);
 	else
 		ok = salsa64_state_write(&bg.snap, bgio_compress, NULL, bgio_out_write, bgio_out_patch, &io, r->err,
 					 sizeof r->err);
@@ -192,7 +193,7 @@ static bool save_sync(struct salsa64_n64 *n64, const char *path, const char *tmp
 	sysLv2FsMkdir(STATES_DIR, 0777);
 	struct bgio_out io;
 	if (!bgio_out_open(&io, tmp)) {
-		snprintf(err, err_size, "no se pudo crear %s", tmp);
+		snprintf(err, err_size, tr("no se pudo crear %s"), tmp);
 		return false;
 	}
 	const struct salsa64_state_thumb th = { SALSA64_STATE_THUMB_W, SALSA64_STATE_THUMB_H, thumb_px };
@@ -223,7 +224,7 @@ bool states_save(struct salsa64_n64 *n64, unsigned slot, struct states_timing *t
 
 	/* La escritura anterior tiene que haber terminado: la foto es una sola. */
 	if (!bg_idle(5000000)) {
-		snprintf(err, err_size, "el estado anterior sigue escribiéndose");
+		snprintf(err, err_size, tr("el estado anterior sigue escribiéndose"));
 		return false;
 	}
 	if (bg.pending && bg.finished) {
@@ -274,7 +275,7 @@ bool states_load(struct salsa64_n64 *n64, unsigned slot, struct states_timing *t
 	*broken = false;
 	/* Cargar lo que se está escribiendo: esperar a que esté en el disco. */
 	if (!bg_idle(10000000)) {
-		snprintf(err, err_size, "el estado sigue escribiéndose");
+		snprintf(err, err_size, tr("el estado sigue escribiéndose"));
 		return false;
 	}
 	uint64_t t0 = sysGetSystemTime();
@@ -283,7 +284,7 @@ bool states_load(struct salsa64_n64 *n64, unsigned slot, struct states_timing *t
 	memset(&io, 0, sizeof io);
 	s32 fd = -1;
 	if (sysLv2FsOpen(path, SYS_O_RDONLY, &fd, 0, NULL, 0) != 0) {
-		snprintf(err, err_size, "no hay estado");
+		snprintf(err, err_size, tr("no hay estado"));
 		return false;
 	}
 	io.fd = fd;

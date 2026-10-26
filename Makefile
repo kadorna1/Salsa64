@@ -3,13 +3,14 @@
 #   make frontend   el emulador para PS3 (build/salsa64/)
 #   make rsxkit     lib/rsxkit sola (build/rsxkit/librsxkit.a)
 #   make spukit     lib/spukit sola (build/spukit/libspukit.a)
-#   make test-host  pruebas unitarias del núcleo con el gcc nativo
+#   make test-host  pruebas unitarias del núcleo con el gcc nativo (antes, make i18n-check:
+#                   la tabla de idiomas al día y cada texto visible con su entrada)
 #   make host       ejecutor de ROMs para el host (build/host/salsa64-run)
 PHASE0_DIRS := $(patsubst %/Makefile,%,$(wildcard tests/phase0/*/Makefile))
 PHASE1_DIRS := $(patsubst %/Makefile,%,$(wildcard tests/phase1/*/Makefile))
 PHASE2_DIRS := $(patsubst %/Makefile,%,$(wildcard tests/phase2/*/Makefile))
 
-.PHONY: all phase0 phase1 phase2 frontend rsxkit spukit test-host host clean \
+.PHONY: i18n-check all phase0 phase1 phase2 frontend rsxkit spukit test-host host clean \
 	$(PHASE0_DIRS) $(PHASE1_DIRS) $(PHASE2_DIRS)
 
 all: phase0 phase1 phase2 frontend
@@ -32,7 +33,11 @@ phase2: $(PHASE2_DIRS)
 $(PHASE0_DIRS) $(PHASE1_DIRS) $(PHASE2_DIRS):
 	$(MAKE) -C $@
 
-test-host:
+i18n-check:
+	python3 tools/i18n-gen.py --check
+	python3 tools/i18n-check.py
+
+test-host: i18n-check
 	$(MAKE) -C tests/unit run
 
 host:
