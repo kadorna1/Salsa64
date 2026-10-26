@@ -174,7 +174,9 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 	struct salsa64_pif *pif = &bus->pif;
 	struct salsa64_mempak *mp = bus->mempak;
 	bool rumble_pak = pif->accessory[port] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
-	bool pak = rumble_pak || (mp && mp->present[port]);
+	bool controller_pak = pif->accessory[port] == SALSA64_PIF_ACCESSORY_CONTROLLER_PAK &&
+			      mp && mp->present[port];
+	bool pak = rumble_pak || controller_pak;
 	const struct salsa64_pad *pad = &pif->pads[port];
 	switch (tx[0]) {
 	case JB_INFO:
@@ -214,7 +216,7 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 			/* El Rumble Pak se identifica devolviendo 0x80 en 0x8000–0x8FFF. */
 			memset(reply, addr >= 0x8000u && addr < 0x9000u ? 0x80 : 0x00, PAK_BLOCK);
 			ok = true;
-		} else if (!rumble_pak && pak) {
+		} else if (controller_pak) {
 			ok = salsa64_mempak_read(mp, port, raw, reply);
 		}
 		if (!ok)
@@ -242,7 +244,7 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 					}
 				pif->rumble[port] = on;
 			}
-		} else if (pak) {
+		} else if (controller_pak) {
 			ok = salsa64_mempak_write(mp, port, raw, tx + 3);
 		}
 		pak_count(mp, pak, ok, raw, true);
