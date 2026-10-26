@@ -5106,11 +5106,15 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		mempakfile_open(&mempak_file, &mempak, &n64.bus, rom, SAVES_DIR,
 				(selftest_on || gfxtest_on || audiotest_on) ? 0u : 0xFu, salsa64_log);
 		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+			transferpakfile_open(&transferpak_files[i], &n64.bus.pif, i, source, salsa64_log);
+			salsa64_transferpak_reset(&n64.bus.pif.transferpak_state[i]);
 			n64.bus.pif.accessory[i] = (uint8_t)accessory;
 			n64.bus.pif.rumble[i] = 0;
 		}
 		if (accessory == SALSA64_PIF_ACCESSORY_RUMBLE_PAK)
 			salsa64_log("accesorio: Rumble Pak emulado en los cuatro controles");
+		else if (accessory == SALSA64_PIF_ACCESSORY_TRANSFER_PAK)
+			salsa64_log("accesorio: Transfer Pak emulado en los cuatro controles");
 		rumble_publish();
 	}
 
