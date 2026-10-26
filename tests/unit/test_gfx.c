@@ -3021,6 +3021,35 @@ static void gfx_cruisn_exotica_counted_dlist(void)
 
 /* Cruis'n USA: índices Fast3D normales, pero B3=HALF_1, B4=PERSPNORM
  * y B2=HALF_CONT. */
+/* En un tramo contado, las órdenes de una lista hija no descuentan del
+ * presupuesto del padre; incluso si la primera orden llama a otra lista,
+ * la hija debe terminar y luego ejecutarse la segunda orden del padre. */
+static void gfx_cruisn_exotica_counted_dlist_nested(void)
+{
+	start();
+	job_gbi = SALSA64_GBI_F3DEX2_CRUISN;
+	dl(0xD5000002u, DATA_PA);
+	dl(0xDF000000u, 0); /* ENDDL de la lista padre */
+
+	/* El primer comando contado llama a una lista de dos comandos. */
+	t_wr32(DATA_PA + 0, 0xDE000000u);
+	t_wr32(DATA_PA + 4, DATA_PA + 0x100);
+	t_wr32(DATA_PA + 8, 0xFA000000u);
+	t_wr32(DATA_PA + 12, 0x22223333u); /* segundo comando contado */
+	t_wr32(DATA_PA + 16, 0xFA000000u);
+	t_wr32(DATA_PA + 20, 0x33334444u); /* fuera del conteo */
+	t_wr32(DATA_PA + 0x100, 0xFA000000u);
+	t_wr32(DATA_PA + 0x104, 0x11112222u);
+	t_wr32(DATA_PA + 0x108, 0xDF000000u);
+	t_wr32(DATA_PA + 0x10C, 0);
+
+	run();
+	CHECK_EQ(gs.prim, 0x22223333u);
+	CHECK_EQ(res.commands, 6);
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.dl_errors, 0);
+}
+
 static void gfx_cruisn_usa_beta_half_commands(void)
 {
 	start();
@@ -3110,6 +3139,7 @@ void t_suite_gfx(void)
 	RUN(gfx_s2dex_chained_affine_texture);
 	RUN(gfx_f3dex2_othermode_copy);
 	RUN(gfx_cruisn_exotica_counted_dlist);
+	RUN(gfx_cruisn_exotica_counted_dlist_nested);
 	RUN(gfx_cruisn_usa_beta_half_commands);
 	RUN(gfx_f3dbeta_half_commands);
 }
