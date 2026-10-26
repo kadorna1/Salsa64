@@ -212,6 +212,61 @@ static void transferpak_file_save_round_trip(void)
 	remove(source);
 }
 
+static void transferpak_mbc3_mbc5_banking(void)
+{
+	struct salsa64_transferpak_cart cart;
+	struct salsa64_transferpak_state state;
+	uint8_t data[SALSA64_TRANSFERPAK_BLOCK];
+
+	/* MBC3: switch ROM bank, enable SRAM, select external RAM bank 2. */
+	make_rom(0x13, 0x03);
+	memset(test_ram, 0xFF, 32u * 1024u);
+	CHECK(salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, test_ram, 32u * 1024u));
+	salsa64_transferpak_reset(&state);
+	write_reg(&state, &cart, 0x8000, 0x84);
+	write_reg(&state, &cart, 0xB000, 1);
+	write_reg(&state, &cart, 0xA000, 0);
+	write_reg(&state, &cart, 0xE000, 2); /* GB 0x2000: MBC3 ROM bank 2 */
+	write_reg(&state, &cart, 0xA000, 1);
+	CHECK_EQ(read_first(&state, &cart, 0xC000), 0x22);
+
+	write_reg(&state, &cart, 0xA000, 0);
+	write_reg(&state, &cart, 0xC000, 0x0A); /* GB 0x0000: SRAM enable */
+	write_reg(&state, &cart, 0xA000, 1);
+	write_reg(&state, &cart, 0xC000, 2); /* GB 0x4000: SRAM bank 2 */
+	write_reg(&state, &cart, 0xA000, 2);
+	write_reg(&state, &cart, 0xE000, 0x5C); /* GB 0xA000: external SRAM */
+	memset(data, 0, sizeof data);
+	salsa64_transferpak_read(&state, &cart, 0xE000, data);
+	for (unsigned i = 0; i < sizeof data; i++)
+		CHECK_EQ(data[i], 0x5C);
+	CHECK_EQ(test_ram[2 * 0x2000], 0x5C);
+
+	/* MBC5: 8-bit ROM-bank register and a separately banked SRAM window. */
+	make_rom(0x1B, 0x03);
+	memset(test_ram, 0xFF, 32u * 1024u);
+	CHECK(salsa64_transferpak_cart_init(&cart, test_rom, sizeof test_rom, test_ram, 32u * 1024u));
+	salsa64_transferpak_reset(&state);
+	write_reg(&state, &cart, 0x8000, 0x84);
+	write_reg(&state, &cart, 0xB000, 1);
+	write_reg(&state, &cart, 0xA000, 0);
+	write_reg(&state, &cart, 0xE000, 3); /* GB 0x2000: MBC5 ROM bank 3 */
+	write_reg(&state, &cart, 0xA000, 1);
+	CHECK_EQ(read_first(&state, &cart, 0xC000), 0x33);
+
+	write_reg(&state, &cart, 0xA000, 0);
+	write_reg(&state, &cart, 0xC000, 0x0A); /* GB 0x0000: SRAM enable */
+	write_reg(&state, &cart, 0xA000, 1);
+	write_reg(&state, &cart, 0xC000, 1); /* GB 0x4000: SRAM bank 1 */
+	write_reg(&state, &cart, 0xA000, 2);
+	write_reg(&state, &cart, 0xE000, 0xA6); /* GB 0xA000: external SRAM */
+	memset(data, 0, sizeof data);
+	salsa64_transferpak_read(&state, &cart, 0xE000, data);
+	for (unsigned i = 0; i < sizeof data; i++)
+		CHECK_EQ(data[i], 0xA6);
+	CHECK_EQ(test_ram[0x2000], 0xA6);
+}
+
 static void transferpak_status_without_cartridge(void)
 {
 	struct salsa64_transferpak_state state;
@@ -245,6 +300,7 @@ void t_suite_transferpak(void)
 	RUN(transferpak_mbc1_banking_and_sram);
 	RUN(transferpak_mbc2_nibble_ram);
 	RUN(transferpak_file_save_round_trip);
+	RUN(transferpak_mbc3_mbc5_banking);
 	RUN(transferpak_status_without_cartridge);
 	RUN(transferpak_rejects_bad_cartridges);
 }
