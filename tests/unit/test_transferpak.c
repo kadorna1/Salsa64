@@ -64,9 +64,9 @@ static void transferpak_power_status_and_banking(void)
 
 	CHECK_EQ(read_first(&state, &cart, 0xC000), 0x11); /* Transfer Pak bank 1 -> GB ROM bank 1 */
 	write_reg(&state, &cart, 0xA000, 2);
-	CHECK_EQ(read_first(&state, &cart, 0xC000), 0x22); /* Transfer Pak bank 2 -> GB ROM bank 2 */
+	CHECK_EQ(read_first(&state, &cart, 0xC000), 0xFF); /* Transfer Pak bank 2 maps GB VRAM */
 	write_reg(&state, &cart, 0xA000, 3);
-	CHECK_EQ(read_first(&state, &cart, 0xC000), 0x33); /* Transfer Pak bank 3 -> GB ROM bank 3 */
+	CHECK_EQ(read_first(&state, &cart, 0xC000), 0xFF); /* Transfer Pak bank 3 maps GB work RAM */
 
 	write_reg(&state, &cart, 0xB000, 0);
 	uint8_t data[SALSA64_TRANSFERPAK_BLOCK];
