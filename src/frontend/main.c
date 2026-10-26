@@ -4192,7 +4192,8 @@ static void accessory_menu_events(void)
 		return;
 	int delta = pause_ctl.accessory_arg < 0 ? -1 : 1;
 	int current = n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_NONE ? MENU_ACC_NONE
-		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE : MENU_ACC_PAK;
+		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE
+		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_TRANSFER_PAK ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
 	int next = (current + delta + MENU_ACCS) % MENU_ACCS;
 	n64.bus.pif.accessory[port] = next == MENU_ACC_NONE ? SALSA64_PIF_ACCESSORY_NONE
 					 : next == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
