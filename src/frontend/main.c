@@ -1081,6 +1081,7 @@ static bool pm_slot_have;  /* la ranura actual tiene estado (para el menú de pa
 
 static void image_events(void);
 static void accessory_menu_events(void);
+static int menu_accessory_default(void);
 
 /* Lo que pidió el menú de pausa (pausectl): estados, ranura, FPS. */
 static void pause_menu_events(void)
@@ -5081,7 +5082,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		if (source && !(selftest_on || gfxtest_on || audiotest_on))
 			game_cfg_read(source, &gc);
 		/* Global defaults come from Opciones; per-game files may override them. */
-		int configured_accessory = gc.accessory < 0 ? mn.settings.accessory : gc.accessory;
+		int configured_accessory = gc.accessory < 0 ? menu_accessory_default() : gc.accessory;
 		enum salsa64_pif_accessory accessory =
 			(selftest_on || gfxtest_on || audiotest_on || configured_accessory == MENU_ACC_NONE)
 				? SALSA64_PIF_ACCESSORY_NONE
@@ -5564,6 +5565,11 @@ static struct {
 	uint32_t step, idle;
 	int games, failures;
 } mn;
+
+static int menu_accessory_default(void)
+{
+	return mn.settings.accessory;
+}
 
 /* ROMs de prueba abiertas desde el menú: se verifican como las embebidas. */
 static void test_flags_from_name(const char *name)
