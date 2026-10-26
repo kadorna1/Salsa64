@@ -5100,6 +5100,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 			(selftest_on || gfxtest_on || audiotest_on || configured_accessory == MENU_ACC_NONE)
 				? SALSA64_PIF_ACCESSORY_NONE
 				: configured_accessory == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
+								   : configured_accessory == MENU_ACC_TRANSFER ? SALSA64_PIF_ACCESSORY_TRANSFER_PAK
 								   : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
 		/* Load every Controller Pak up front so pause-menu swaps work in-place. */
 		mempakfile_open(&mempak_file, &mempak, &n64.bus, rom, SAVES_DIR,
