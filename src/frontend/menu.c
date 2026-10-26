@@ -341,7 +341,8 @@ int menu_game_format(const struct menu_game *g, char *buf, size_t size)
 			g->density >= 0 && g->density < MENU_DENSITIES ? density_key[g->density] : "global",
 			g->interp >= 0 && g->interp < MENU_INTERPS ? interp_key[g->interp] : "global",
 			g->accessory < 0 ? "global" : g->accessory == MENU_ACC_NONE ? "ninguno"
-				: g->accessory == MENU_ACC_RUMBLE ? "rumble-pak" : "controller-pak");
+				: g->accessory == MENU_ACC_RUMBLE ? "rumble-pak"
+				: g->accessory == MENU_ACC_TRANSFER ? "transfer-pak" : "controller-pak");
 	if (n < 0 || (size_t)n >= size)
 		return -1;
 	int k = salsa64_padmap_format(&g->controls, buf + n, size - (size_t)n, 1);
