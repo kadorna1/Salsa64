@@ -837,6 +837,27 @@ static void menu_accessory_option(void)
 	menu_input(&m, 0, 40);
 	CHECK_EQ(menu_input(&m, LEFT, 50), MENU_SETTINGS);
 	CHECK_EQ(m.set.accessory, MENU_ACC_NONE);
+
+	/* Transfer Pak is persisted in both global and per-game text settings. */
+	struct menu_settings settings, parsed_settings;
+	char cfg[1024];
+	menu_settings_default(&settings);
+	settings.accessory = MENU_ACC_TRANSFER;
+	int n = menu_settings_format(&settings, cfg, sizeof cfg);
+	CHECK(n > 0 && n < (int)sizeof cfg);
+	menu_settings_default(&parsed_settings);
+	menu_settings_parse(&parsed_settings, cfg, (size_t)n);
+	CHECK_EQ(parsed_settings.accessory, MENU_ACC_TRANSFER);
+
+	struct menu_game game, parsed_game;
+	menu_game_default(&game);
+	game.accessory = MENU_ACC_TRANSFER;
+	n = menu_game_format(&game, cfg, sizeof cfg);
+	CHECK(n > 0 && n < (int)sizeof cfg);
+	menu_game_default(&parsed_game);
+	menu_game_parse(&parsed_game, cfg, (size_t)n);
+	CHECK_EQ(parsed_game.accessory, MENU_ACC_TRANSFER);
+	CHECK(!strcmp(menu_accessory_name(MENU_ACC_TRANSFER), "Transfer Pak"));
 }
 
 static void menu_game_page(void)
