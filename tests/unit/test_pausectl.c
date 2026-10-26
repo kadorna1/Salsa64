@@ -316,6 +316,50 @@ static void menu_image_page(void)
 	CHECK_EQ(pc.image_do, -1);
 }
 
+/* «Accesorios» cambia cada puerto independientemente y mantiene el juego en pausa. */
+static void menu_accessory_page(void)
+{
+	pausectl_init(&pc, true);
+	open_menu();
+	for (int i = 0; i < PM_ACCESSORY; i++)
+		tap(B(DOWN));
+	CHECK_EQ(pc.menu_sel, PM_ACCESSORY);
+	tap(B(CROSS));
+	CHECK(pc.accessory && !pc.menu);
+	CHECK_EQ(pc.accessory_sel, AM_PORT1);
+	CHECK_EQ(pc.accessory_do, -1);
+	CHECK_EQ(pausectl_reasons(&pc), PAUSECTL_MENU);
+	poll1(B(RIGHT), false, true);
+	CHECK_EQ(pc.accessory_do, AM_PORT1);
+	CHECK_EQ(pc.accessory_arg, 1);
+	CHECK_EQ(game[0], 0);
+	pc.accessory_do = -1;
+	poll1(0, false, true);
+	poll1(B(LEFT), false, true);
+	CHECK_EQ(pc.accessory_do, AM_PORT1);
+	CHECK_EQ(pc.accessory_arg, -1);
+	pc.accessory_do = -1;
+	tap(B(DOWN));
+	CHECK_EQ(pc.accessory_sel, AM_PORT2);
+	tap(B(CROSS));
+	CHECK_EQ(pc.accessory_do, AM_PORT2);
+	pc.accessory_do = -1;
+	for (int i = AM_PORT2; i < AM_BACK; i++)
+		tap(B(DOWN));
+	CHECK_EQ(pc.accessory_sel, AM_BACK);
+	tap(B(CROSS));
+	CHECK(!pc.accessory && pc.menu);
+	CHECK_EQ(pc.menu_sel, PM_ACCESSORY);
+	tap(B(CROSS));
+	CHECK(pc.accessory);
+	poll1(B(CIRCLE), false, true);
+	CHECK(!pc.accessory && pc.menu);
+	CHECK_EQ(pausectl_reasons(&pc), PAUSECTL_MENU);
+	pausectl_game_end(&pc);
+	CHECK(!pc.accessory);
+	CHECK_EQ(pc.accessory_do, -1);
+}
+
 /* «Salir»: con confirmación pregunta; sin ella sale directo. */
 static void menu_exit_row(void)
 {
@@ -626,6 +670,7 @@ void t_suite_pausectl(void)
 	RUN(menu_rows);
 	RUN(menu_cheats_row);
 	RUN(menu_image_page);
+	RUN(menu_accessory_page);
 	RUN(menu_exit_row);
 	RUN(menu_restart_rows);
 	RUN(confirm_yes_exits);
