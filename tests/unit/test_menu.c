@@ -1232,10 +1232,15 @@ static void menu_options_page(void)
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
 	CHECK(m.set.confirm);
-	/* Idioma: derecha avanza con vuelta; izquierda al revés. */
+	/* La selección de accesorio global queda entre confirmar e idioma. */
+	menu_input(&m, 0, 79);
+	menu_input(&m, DOWN, 79);
+	CHECK_EQ(m.opt, MENU_OPT_ACCESSORY);
 	menu_input(&m, 0, 79);
 	menu_input(&m, DOWN, 79);
 	CHECK_EQ(m.opt, MENU_OPT_LANG);
+	/* Idioma: derecha avanza con vuelta; izquierda al revés. */
+	menu_input(&m, 0, 79);
 	CHECK_EQ(m.set.lang, MENU_LANG_ES);
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
