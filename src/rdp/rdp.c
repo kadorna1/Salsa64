@@ -3559,16 +3559,24 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 		}
 	}
 	if (rdp.copy_color_from_rdram) {
-		if (profile_cpu_rows_changed(p.slot)) {
-			uint32_t regions = prime_profile_cpu_spans(p.slot, true);
-			if (regions) {
-				rdp.profile_prime_task[p.slot] = rdp.tg.task;
-				rdp.surf_dirty[p.slot] = true;
-				LOGN(40, "gfx: VI CopyColorFromRDRAM %06x/%u: %u CPU spans uploaded before presentation",
-				     rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width, regions);
+		/* GLideN64's copyFromRDRAM refreshes the VI framebuffer at every VI
+		 * update. Hash-based span detection is not reliable for Dr. Mario 64's
+		 * falling pill, so mirror that behavior for the VI-selected target only.
+		 * The profile also disables the automatic RSX -> RDRAM mirror, matching
+		 * the upstream copyFromRDRAM=1/copyToRDRAM=0 configuration. */
+		if (prime_rows(p.slot, 0, ~0u, true)) {
+			rdp.profile_prime_task[p.slot] = rdp.tg.task;
+			rdp.surf_dirty[p.slot] = true;
+			/* This VI surface may already have a cached SELF-texture copy. */
+			if (rdp.scratch_slot == p.slot) {
+				rdp.scratch_slot = -1;
+				memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
 			}
+			LOGN(40, "gfx: VI CopyColorFromRDRAM copied full %06x/%u (%ux%u) from RDRAM before presentation",
+			     rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width,
+			     rdp.tg.t[p.slot].lw, rdp.tg.t[p.slot].lh);
 		} else {
-			LOGN(1, "gfx: VI CopyColorFromRDRAM active for %06x/%u; first VI check found no changed rows",
+			LOGN(1, "gfx: VI CopyColorFromRDRAM full copy failed for %06x/%u",
 			     rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width);
 		}
 	}
