@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Minimal, bounded ZIP reader for N64 ROMs. The central directory supplies
- * sizes even when a local header uses a data descriptor. No archive paths are
- * written to disk: only a single cartridge image is extracted into RAM.
+ * Lector de ZIP mínimo y acotado para ROMs de N64. El directorio central da
+ * los tamaños aunque la cabecera local use un descriptor de datos. No se
+ * escribe ninguna ruta del archivo en disco: solo se extrae a la RAM una
+ * única imagen de cartucho.
  */
 #include "ziprom.h"
 
@@ -76,9 +77,9 @@ bool salsa64_ziprom_is_path(const char *path)
 	return zip_suffix(path, strlen(path), ".zip");
 }
 
-/* Find the first supported N64 entry in the central directory and resolve
- * its local-data offset. ZIP64 and multi-disk archives are intentionally not
- * accepted; N64 ROMs are capped at 64 MiB. */
+/* Busca la primera entrada de N64 admitida en el directorio central y calcula
+ * el desplazamiento de sus datos locales. ZIP64 y los archivos de varios
+ * discos no se aceptan a propósito; las ROMs de N64 se limitan a 64 MiB. */
 static int zip_open_entry(const char *path, FILE **file_out, struct ziprom_entry *entry)
 {
 	FILE *f = NULL;
@@ -184,9 +185,9 @@ static int zip_open_entry(const char *path, FILE **file_out, struct ziprom_entry
 	if (result != 0)
 		goto done;
 
-	/* Resolve the data location through the local header. Do not trust its
-	 * size fields: bit 3 permits data descriptors, so central-directory sizes
-	 * are authoritative. */
+	/* Resuelve dónde están los datos a través de la cabecera local. No se
+	 * confía en sus campos de tamaño: el bit 3 permite descriptores de datos,
+	 * así que mandan los tamaños del directorio central. */
 	{
 		uint8_t lh[ZIP_LOCAL_FIXED];
 		uint16_t local_name_len, local_extra_len;
@@ -227,8 +228,9 @@ static void zip_copy_entry_name(const struct ziprom_entry *entry, char *dst, siz
 	dst[n] = '\0';
 }
 
-/* Read 64 bytes for a menu peek, or a complete image. A full extraction must
- * reach the end of the Deflate stream and pass the stored CRC-32. */
+/* Lee 64 bytes para la vista previa del menú, o una imagen completa. Una
+ * extracción completa debe llegar al final del flujo Deflate y pasar el
+ * CRC-32 guardado. */
 static int zip_read_data(FILE *f, const struct ziprom_entry *entry, uint8_t *dst,
                          uint32_t out_cap, bool full)
 {
@@ -287,9 +289,10 @@ static int zip_read_data(FILE *f, const struct ziprom_entry *entry, uint8_t *dst
 			zs.next_out = dst + produced;
 			zs.avail_out = (uInt)(expected - produced);
 		} else {
-			/* Allow zlib to consume an exact-length end marker without giving
-			 * it access to memory after the expected output. Any extra output
-			 * lands in this byte and makes the final size check fail. */
+			/* Deja que zlib consuma un marcador de fin de longitud exacta sin
+			 * darle acceso a la memoria posterior a la salida esperada. Toda
+			 * salida de más cae en este byte y hace fallar la comprobación
+			 * final de tamaño. */
 			zs.next_out = &overflow_byte;
 			zs.avail_out = 1;
 		}

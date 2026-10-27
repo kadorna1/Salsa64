@@ -113,11 +113,12 @@ ENV PSL1GHT=${PS3DEV}
 ENV PATH=${PATH}:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin
 ENV DEBIAN_FRONTEND=noninteractive
 
-# build-essential: pruebas unitarias del host. qemu-user-static: cgcomp x86_64.
+# build-essential y zlib1g-dev: pruebas unitarias del host (test_ziprom enlaza -lz).
+# qemu-user-static: cgcomp x86_64.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential ca-certificates curl git libelf1 libgmp10 libssl3 make \
-      python3 qemu-user-static xxd zlib1g \
+      python3 qemu-user-static xxd zlib1g zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=toolchain ${PS3DEV} ${PS3DEV}

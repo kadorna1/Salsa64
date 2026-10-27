@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* ZIP ROM reader tests: stored/Deflate entries, CRC rejection and bad archives. */
+/* Pruebas del lector de ROMs en ZIP: entradas almacenadas y Deflate, rechazo por CRC y archivos dañados. */
 #include "test.h"
 
 #include <stdio.h>
@@ -176,7 +176,7 @@ static void ziprom_bad_crc_rejected(void)
 
 	init_test_rom();
 	CHECK(write_test_zip("test.n64", 8, 0, true, path));
-	/* Header preview stays cheap; integrity is required before launch. */
+	/* La vista previa de la cabecera es barata; la integridad se exige antes de arrancar. */
 	CHECK_EQ(salsa64_ziprom_read_header(path, header, &size, NULL, 0), 0);
 	CHECK_EQ(salsa64_ziprom_extract(path, actual, sizeof actual, &size, NULL, 0), -1);
 	unlink(path);

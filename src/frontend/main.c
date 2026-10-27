@@ -37,7 +37,7 @@
  * existe y si no gfxtest. START + SELECT sale al XMB.
  *
  * Sin embedded, el menú (menu.c, romlist.c), con una disposición inspirada
- * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64 y archivos .zip compatibles
+ * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64 y los .zip compatibles
  * de SALSA64_DATA_DIR y de /dev_usbNNN/salsa64 en una columna, con carpetas
  * primero y navegación por subcarpetas; las ROMs se ordenan por título o
 	* nombre de archivo (menu.cfg). Admite 4096 filas totales por carpeta
@@ -1489,9 +1489,10 @@ static void heap_report(const char *when)
  * no se pudo o no mide entre 0x1000 bytes y ROM_MAX (o cap). */
 static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint32_t *size)
 {
-	/* ZIP: inspect the selected member before allocating so the archive itself
-	 * never needs a second large buffer. Full extraction verifies the member's
-	 * Deflate stream, uncompressed size and CRC-32 before the game sees it. */
+	/* ZIP: se inspecciona la entrada elegida antes de reservar memoria, para que
+	 * el archivo no necesite un segundo búfer grande. La extracción completa
+	 * verifica el flujo Deflate, el tamaño descomprimido y el CRC-32 antes de
+	 * que el juego vea nada. */
 	if (salsa64_ziprom_is_path(path)) {
 		uint8_t header[SALSA64_ROM_HEADER_SIZE];
 		uint32_t rom_len = 0, actual_len = 0;
@@ -1502,9 +1503,9 @@ static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint
 		uint8_t *dst = buf ? buf : rom_alloc(rom_len);
 		if (!dst)
 			return NULL;
-		/* Match the extractor's bound to the memory actually allocated.
-		 * The archive is opened twice (header peek, then extraction), so
-		 * it must remain safe even if the file changes between those reads. */
+		/* Ajusta el límite del extractor a la memoria realmente reservada.
+		 * El archivo se abre dos veces (vista previa y extracción), así que
+		 * debe seguir siendo seguro aunque cambie entre las dos lecturas. */
 		uint32_t dst_cap = buf ? cap : rom_len;
 		if (salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
 			if (!buf)
