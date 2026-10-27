@@ -322,6 +322,15 @@ enum rdp_texsrc rdp_targets_texture_synced(struct rdp_targets *s, uint32_t addr,
 	*slot = i;
 	if (i < 0)
 		return RDP_TEXSRC_NONE;
+	/* Reconciliation repairs CPU-written spans; it does not make an old
+	 * render target current. A stale target may have missed subsequent game
+	 * writes, so keep the normal freshness fallback even after clearing
+	 * cpu_owned. This matters for CopyColorFromRDRAM games that update RDRAM
+	 * between graphics tasks. */
+	if (s->task - s->t[i].last_task > RDP_TARGETS_FRESH) {
+		s->tex_rdram++;
+		return RDP_TEXSRC_RDRAM;
+	}
 	if (i == cur) {
 		s->tex_self++;
 		return RDP_TEXSRC_SELF;
