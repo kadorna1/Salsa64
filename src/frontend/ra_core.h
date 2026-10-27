@@ -78,6 +78,8 @@ bool ra_core_hardcore_active(struct ra_core *c);
 void ra_core_login_password(struct ra_core *c, const char *user, const char *pass);
 void ra_core_login_token(struct ra_core *c, const char *user, const char *token);
 void ra_core_logout(struct ra_core *c);
+/* Cancela el inicio de sesión en curso (sin respuesta); el resultado nunca se avisa. */
+void ra_core_login_abort(struct ra_core *c);
 int ra_core_login_state(struct ra_core *c);
 /* Usuario y token de la sesión abierta (el token, para guardarlo); copian. */
 bool ra_core_user(struct ra_core *c, char *user, size_t usize, char *token, size_t tsize);

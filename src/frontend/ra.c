@@ -61,7 +61,7 @@ static struct {
 	volatile int hashing;
 	volatile bool active, game_hardcore;
 	unsigned frames;
-	uint64_t last_idle;
+	uint64_t last_idle, login_t;
 
 	struct ra_item list[RA_ITEMS_MAX];
 	unsigned list_n, list_unlocked;
@@ -200,6 +200,7 @@ static bool ops_trylock(void *ctx)
 }
 
 static void worker_start(void);
+static bool osk_busy(void);
 
 static char *dupstr(const char *s)
 {
@@ -338,7 +339,7 @@ static void worker(void *arg)
 	while (!ra.stop) {
 		sysSemWait(ra.sem, 500000);
 		struct job j;
-		while (!ra.stop && job_pop(&j)) {
+		while (!ra.stop && !osk_busy() && job_pop(&j)) {  /* con el teclado abierto, la red espera */
 			if (j.type == JOB_HASH)
 				do_hash(&j);
 			else
@@ -353,6 +354,10 @@ static void worker(void *arg)
 
 static void worker_start(void)
 {
+	/* Con el teclado del sistema abierto no se levanta la pila HTTPS (sysModuleLoad,
+	 * netInitialize): ra_osk_step lo vuelve a pedir al descargarse. */
+	if (osk_busy())
+		return;
 	q_lock();
 	bool start = !ra.thread_up;
 	if (start)
@@ -370,13 +375,20 @@ static void worker_start(void)
 /* ---- Teclado del sistema ---- */
 
 enum { OSK_IDLE, OSK_USER, OSK_PASS };
+/* Pasos del teclado (ra_osk_step, solo en el bucle principal): el callback de
+ * sysutil únicamente anota banderas; oskUnloadAsync, oskAbort y el contenedor
+ * van en el bucle. */
+enum { OS_NONE, OS_OPENING, OS_TYPING, OS_UNLOADING };
+#define OSK_STEP_US 5000000ull  /* tope de cada paso que no depende de quien teclea */
 static struct {
-	int stage;
+	int stage, step;
 	sys_mem_container_t cont;
-	bool cont_ok, entered, accepted;
+	bool cont_ok, accepted;
 	u16 text[RA_OSK_MAX + 1], msg[96];
-	oskCallbackReturnParam ret;
+	oskCallbackReturnParam ret;  /* estático: lo escribe el sistema en oskUnloadAsync */
 	char user[RA_USER_MAX], pass[160];
+	uint64_t step_t;
+	volatile int ev_loaded, ev_finished, ev_canceled, ev_unloaded;
 } osk;
 
 static void utf8_to_u16(const char *s, u16 *out, size_t cap)
@@ -435,21 +447,42 @@ static void osk_scrub(void)
 	osk.ret.len = 0;
 }
 
+static void osk_release(void)
+{
+	if (osk.cont_ok) {
+		sysMemContainerDestroy(osk.cont);
+		osk.cont_ok = false;
+		salsa64_log("RA: teclado: contenedor liberado");
+	}
+}
+
+static void osk_end(void)
+{
+	osk.stage = OSK_IDLE;
+	osk.step = OS_NONE;
+	osk_release();
+	osk_scrub();
+	memset(osk.user, 0, sizeof osk.user);
+	if (ra.jn)
+		worker_start();  /* la red espera a que el teclado se descargue */
+}
+
 static bool osk_open(int stage)
 {
+	salsa64_log("RA: teclado: abriendo (%s)", stage == OSK_USER ? "usuario" : "contraseña");
 	if (sysMemContainerCreate(&osk.cont, RA_OSK_BYTES) != 0) {
 		salsa64_log("RA: sin memoria para el teclado del sistema");
 		return false;
 	}
 	osk.cont_ok = true;
 	osk.stage = stage;
-	osk.entered = osk.accepted = false;
+	osk.step = OS_OPENING;
+	osk.step_t = sysGetSystemTime();
+	osk.accepted = false;
+	osk.ev_loaded = osk.ev_finished = osk.ev_canceled = osk.ev_unloaded = 0;
 	memset(osk.text, 0, sizeof osk.text);
 	utf8_to_u16(tr(stage == OSK_USER ? "Usuario de RetroAchievements" : "Contraseña de RetroAchievements"), osk.msg,
 		    sizeof osk.msg / sizeof osk.msg[0]);
-	osk.ret.res = OSK_OK;
-	osk.ret.len = RA_OSK_MAX;
-	osk.ret.str = osk.text;
 	static u16 start[1] = { 0 };
 	oskInputFieldInfo info = { osk.msg, start, RA_OSK_MAX };
 	oskParam param;
@@ -469,47 +502,12 @@ static bool osk_open(int stage)
 	oskSetInitialKeyLayout(OSK_INITIAL_FULLKEY_PANEL);
 	oskSetLayoutMode(OSK_LAYOUTMODE_HORIZONTAL_ALIGN_CENTER | OSK_LAYOUTMODE_VERTICAL_ALIGN_CENTER);
 	int rc = oskLoadAsync(osk.cont, &param, &info);
+	salsa64_log("RA: teclado: oskLoadAsync = %d", rc);
 	if (rc != 0) {
-		salsa64_log("RA: no se pudo abrir el teclado del sistema (%d)", rc);
-		sysMemContainerDestroy(osk.cont);
-		osk.cont_ok = false;
-		osk.stage = OSK_IDLE;
+		osk_end();
 		return false;
 	}
 	return true;
-}
-
-/* El teclado ya se descargó: seguir con la contraseña o iniciar sesión. */
-static void osk_finished(void)
-{
-	if (osk.cont_ok) {
-		sysMemContainerDestroy(osk.cont);
-		osk.cont_ok = false;
-	}
-	int stage = osk.stage;
-	osk.stage = OSK_IDLE;
-	if (!osk.accepted) {
-		osk_scrub();
-		memset(osk.user, 0, sizeof osk.user);
-		salsa64_log("RA: teclado cancelado");
-		return;
-	}
-	if (stage == OSK_USER) {
-		u16_to_utf8(osk.text, osk.ret.len, osk.user, sizeof osk.user);
-		memset(osk.text, 0, sizeof osk.text);
-		if (!osk.user[0] || !osk_open(OSK_PASS))
-			memset(osk.user, 0, sizeof osk.user);
-	} else if (stage == OSK_PASS) {
-		u16_to_utf8(osk.text, osk.ret.len, osk.pass, sizeof osk.pass);
-		memset(osk.text, 0, sizeof osk.text);
-		if (osk.user[0] && osk.pass[0]) {
-			salsa64_log("RA: iniciando sesión de «%s»", osk.user);
-			snprintf(ra.user, sizeof ra.user, "%s", osk.user);
-			ra_core_login_password(ra.core, osk.user, osk.pass);
-		}
-		osk_scrub();
-		memset(osk.user, 0, sizeof osk.user);
-	}
 }
 
 bool ra_osk_active(void)
@@ -517,37 +515,121 @@ bool ra_osk_active(void)
 	return osk.stage != OSK_IDLE;
 }
 
+/* El callback de sysutil (hilo principal, dentro de sysUtilCheckCallback): solo
+ * registra y anota banderas. */
 bool ra_sysutil_event(uint64_t status, uint64_t param)
 {
-	(void)param;
-	oskCallbackReturnParam dummy;
 	switch (status) {
 	case SYSUTIL_OSK_LOADED:
-		return true;
-	case SYSUTIL_OSK_INPUT_ENTERED:
-		oskGetInputText(&osk.ret);
-		osk.entered = true;
-		return true;
 	case SYSUTIL_OSK_DONE:
-		if (!osk.entered)
-			oskGetInputText(&osk.ret);
-		osk.accepted = osk.ret.res == OSK_OK && osk.ret.len > 0;
-		memset(&dummy, 0, sizeof dummy);
-		oskAbort();
-		oskUnloadAsync(&dummy);
-		return true;
-	case SYSUTIL_OSK_INPUT_CANCELED:
-		osk.accepted = false;
-		memset(&dummy, 0, sizeof dummy);
-		oskAbort();
-		oskUnloadAsync(&dummy);
-		return true;
 	case SYSUTIL_OSK_UNLOADED:
-		osk_finished();
-		return true;
+	case SYSUTIL_OSK_INPUT_ENTERED:
+	case SYSUTIL_OSK_INPUT_CANCELED:
+		break;
 	default:
 		return false;
 	}
+	salsa64_log("RA: teclado: evento sysutil 0x%llx (parámetro 0x%llx)", (unsigned long long)status,
+		    (unsigned long long)param);
+	if (status == SYSUTIL_OSK_LOADED)
+		osk.ev_loaded = 1;
+	else if (status == SYSUTIL_OSK_DONE)
+		osk.ev_finished = 1;
+	else if (status == SYSUTIL_OSK_INPUT_CANCELED)
+		osk.ev_canceled = 1;
+	else if (status == SYSUTIL_OSK_UNLOADED)
+		osk.ev_unloaded = 1;
+	return true;
+}
+
+static void osk_timeout(const char *where)
+{
+	salsa64_log("RA: teclado: tope de tiempo esperando %s; se aborta", where);
+	oskAbort();
+	osk_end();
+	push_notice(tr("RA: el teclado del sistema no responde"));
+}
+
+/* Un paso del teclado por vuelta del bucle principal (que sigue haciendo flip y
+ * sysUtilCheckCallback): LOADED → (quien teclea) → FINISHED → oskUnloadAsync →
+ * UNLOADED → recién entonces se lee el texto y se libera el contenedor. */
+static void osk_step(void)
+{
+	if (osk.step == OS_NONE)
+		return;
+	uint64_t now = sysGetSystemTime();
+	if (osk.step == OS_OPENING) {
+		if (osk.ev_loaded) {
+			osk.step = OS_TYPING;
+			salsa64_log("RA: teclado: abierto, esperando al usuario");
+		} else if (now - osk.step_t > OSK_STEP_US) {
+			osk_timeout("que abra");
+		}
+		return;
+	}
+	if (osk.step == OS_TYPING) {
+		if (osk.ev_finished || osk.ev_canceled) {
+			bool fin = osk.ev_finished != 0;
+			memset(&osk.ret, 0, sizeof osk.ret);
+			osk.ret.res = OSK_OK;
+			osk.ret.len = RA_OSK_MAX;
+			osk.ret.str = osk.text;
+			osk.accepted = fin;
+			if (!fin) {
+				salsa64_log("RA: teclado: cancelado, oskAbort");
+				oskAbort();
+			}
+			int rc = oskUnloadAsync(&osk.ret);
+			salsa64_log("RA: teclado: oskUnloadAsync = %d", rc);
+			osk.step = OS_UNLOADING;
+			osk.step_t = now;
+		}
+		return;  /* teclear no tiene tope */
+	}
+	/* OS_UNLOADING */
+	if (!osk.ev_unloaded) {
+		if (now - osk.step_t > OSK_STEP_US)
+			osk_timeout("que se descargue");
+		return;
+	}
+	int stage = osk.stage;
+	bool ok = osk.accepted && osk.ret.res == OSK_OK && osk.ret.len > 0;
+	salsa64_log("RA: teclado: descargado (res %d, %d caracteres)", (int)osk.ret.res, (int)osk.ret.len);
+	osk_release();
+	osk.step = OS_NONE;
+	osk.stage = OSK_IDLE;
+	if (!ok) {
+		osk_end();
+		return;
+	}
+	if (stage == OSK_USER) {
+		u16_to_utf8(osk.text, osk.ret.len, osk.user, sizeof osk.user);
+		memset(osk.text, 0, sizeof osk.text);
+		if (!osk.user[0] || !osk_open(OSK_PASS))
+			osk_end();
+		return;
+	}
+	u16_to_utf8(osk.text, osk.ret.len, osk.pass, sizeof osk.pass);
+	memset(osk.text, 0, sizeof osk.text);
+	if (osk.user[0] && osk.pass[0]) {
+		salsa64_log("RA: iniciando sesión de «%s»", osk.user);
+		snprintf(ra.user, sizeof ra.user, "%s", osk.user);
+		push_notice(tr("RA: conectando…"));
+		ra.login_t = now;
+		osk_scrub();  /* rc_client copia lo que necesita; la contraseña no se queda aquí */
+		char pass[160];
+		snprintf(pass, sizeof pass, "%s", osk.pass);
+		memset(osk.pass, 0, sizeof osk.pass);
+		worker_start();  /* con el teclado ya descargado */
+		ra_core_login_password(ra.core, osk.user, pass);
+		memset(pass, 0, sizeof pass);
+	}
+	osk_end();
+}
+
+static bool osk_busy(void)
+{
+	return osk.stage != OSK_IDLE;
 }
 
 /* ---- API ---- */
@@ -744,6 +826,15 @@ void ra_pump(bool paused)
 {
 	if (!ra.inited)
 		return;
+	osk_step();
+	if (ra.login_t && ra_core_login_state(ra.core) != RA_LOGGING_IN)
+		ra.login_t = 0;
+	if (ra.login_t && sysGetSystemTime() - ra.login_t > 40000000ull) {
+		salsa64_log("RA: inicio de sesión sin respuesta tras 40 s; se cancela");
+		ra_core_login_abort(ra.core);
+		ra.login_t = 0;
+		push_notice(tr("RA: sin respuesta del servidor (tiempo agotado)"));
+	}
 	if (ra_core_take_new_token(ra.core)) {
 		char user[RA_USER_MAX], token[RA_TOKEN_MAX];
 		if (ra_core_user(ra.core, user, sizeof user, token, sizeof token)) {

@@ -91,6 +91,7 @@ static struct {
 	int game_id;             /* lo que responde «gameid» */
 	bool login_ok;
 	bool offline;            /* sin respuesta (status 0) */
+	bool silent;             /* ni responde: la petición queda colgada */
 	bool saw_secret;         /* ¿se escapó la contraseña a una URL o al registro? */
 } srv;
 
@@ -165,6 +166,8 @@ static void s_send(void *ctx, unsigned id, const char *url, const char *post, co
 	if (srv.requests < 32)
 		snprintf(srv.kinds[srv.requests], sizeof srv.kinds[0], "%s", r);
 	srv.requests++;
+	if (srv.silent)
+		return;
 	if (srv.offline) {
 		ra_core_complete(srv.core, id, 0, NULL, 0);
 		return;
@@ -349,8 +352,25 @@ static void offline(void)
 	ra_core_destroy(c);
 }
 
+static void login_abort(void)
+{
+	/* Un servidor que no contesta: el inicio de sesión queda «en curso» hasta que
+	 * ra.c lo cancela por tiempo, y después se puede volver a intentar. */
+	struct ra_core *c = srv_start(true, 77);
+	srv.silent = true;
+	ra_core_login_password(c, "Probador", "secreto-de-prueba");
+	CHECK_EQ(ra_core_login_state(c), RA_LOGGING_IN);
+	ra_core_login_abort(c);
+	CHECK_EQ(ra_core_login_state(c), RA_LOGGED_OUT);
+	srv.silent = false;
+	ra_core_login_password(c, "Probador", "secreto-de-prueba");
+	CHECK_EQ(ra_core_login_state(c), RA_LOGGED_IN);
+	ra_core_destroy(c);
+}
+
 void t_suite_ra(void)
 {
+	RUN(login_abort);
 	RUN(mem_swap);
 	RUN(hash_rom);
 	RUN(flow);

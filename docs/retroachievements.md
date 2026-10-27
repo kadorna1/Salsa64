@@ -24,6 +24,17 @@ en los juegos de N64. Usa la biblioteca oficial **rcheevos** v12.5.0 (MIT,
 Los avisos salen en la esquina como los demás (`osd_notice`); en el menú, en la
 línea de estado.
 
+### El teclado del sistema
+
+El callback de sysutil solo anota banderas (y escribe cada evento al log); el
+bucle del menú hace el resto, sin dejar de presentar: cargado (0x502) →
+terminado (0x503) → `oskUnloadAsync` → descargado (0x504) → recién entonces se
+lee el texto y se libera el contenedor de 4 MB. Cada paso que no depende de quien
+teclea tiene un tope de 5 s (`oskAbort` y aviso). La red no arranca (ni se
+procesan sus trabajos) mientras el teclado está abierto, y un inicio de sesión
+sin respuesta se cancela a los 40 s con aviso. Cada paso queda en el log
+(«RA: teclado: …»).
+
 ## Hardcore
 
 **Opciones > Hardcore** (apagado por omisión). Vale para el siguiente juego que

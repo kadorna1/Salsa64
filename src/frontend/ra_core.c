@@ -29,6 +29,7 @@ struct ra_core {
 	struct pending pend[RA_PENDING_MAX];
 	unsigned next_id;
 	int login;
+	rc_client_async_handle_t *login_h;
 	int game;
 	bool hardcore;
 	bool new_token;
@@ -212,6 +213,7 @@ static void login_done(int result, const char *error, rc_client_t *client, void 
 {
 	struct ra_core *c = rc_client_get_userdata(client);
 	bool by_password = ud != NULL;
+	c->login_h = NULL;
 	if (result == RC_OK) {
 		const rc_client_user_t *u = rc_client_get_user_info(client);
 		c->login = RA_LOGGED_IN;
@@ -332,7 +334,7 @@ void ra_core_login_password(struct ra_core *c, const char *user, const char *pas
 {
 	lock(c);
 	c->login = RA_LOGGING_IN;
-	rc_client_begin_login_with_password(c->client, user, pass, login_done, c);
+	c->login_h = rc_client_begin_login_with_password(c->client, user, pass, login_done, c);
 	unlock(c);
 }
 
@@ -340,7 +342,7 @@ void ra_core_login_token(struct ra_core *c, const char *user, const char *token)
 {
 	lock(c);
 	c->login = RA_LOGGING_IN;
-	rc_client_begin_login_with_token(c->client, user, token, login_done, NULL);
+	c->login_h = rc_client_begin_login_with_token(c->client, user, token, login_done, NULL);
 	unlock(c);
 }
 
@@ -350,6 +352,20 @@ void ra_core_logout(struct ra_core *c)
 	rc_client_logout(c->client);
 	c->login = RA_LOGGED_OUT;
 	c->game = RA_GAME_NONE;
+	unlock(c);
+}
+
+void ra_core_login_abort(struct ra_core *c)
+{
+	/* rc_client no deja iniciar otra sesión mientras la anterior espera su
+	 * respuesta (abortarla no libera ese estado): se le entrega un fallo y su
+	 * respuesta tardía, si llega, se ignora. */
+	lock(c);
+	for (unsigned i = 0; i < RA_PENDING_MAX && c->login == RA_LOGGING_IN; i++)
+		if (c->pend[i].cb)
+			ra_core_complete(c, c->pend[i].id, 0, NULL, 0);
+	if (c->login == RA_LOGGING_IN)
+		c->login = RA_LOGGED_OUT;
 	unlock(c);
 }
 
