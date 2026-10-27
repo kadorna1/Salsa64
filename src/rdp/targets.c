@@ -705,21 +705,6 @@ bool rdp_dma_since(const struct rdp_dma_ring *r, uint32_t lo, uint32_t hi, uint3
 	return false;
 }
 
-/* A reused 16-bit color image must be reloaded when a PI/SP/SI DMA changed
- * its RDRAM backing after the last task that drew into it. The last-task
- * boundary is exclusive: the same DMA has already been consumed once a
- * later RDP task has drawn the target. */
-bool rdp_target_dma_updated(const struct rdp_target *t, const struct rdp_dma_ring *r)
-{
-	if (!t || !r || !t->used || t->bpp != 2 || !t->width || !t->lh)
-		return false;
-	uint64_t end64 = (uint64_t)t->addr + (uint64_t)t->width * t->bpp * t->lh;
-	if (end64 > UINT32_MAX)
-		end64 = UINT32_MAX;
-	if (end64 <= t->addr)
-		return false;
-	return rdp_dma_since(r, t->addr, (uint32_t)end64, t->last_task + 1u);
-}
 
 uint32_t rdp_guard_hash(const uint8_t *line)
 {
