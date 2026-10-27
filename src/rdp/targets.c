@@ -312,6 +312,24 @@ enum rdp_texsrc rdp_targets_texture(struct rdp_targets *s, uint32_t addr, uint32
 	return RDP_TEXSRC_RSX;
 }
 
+/* CopyColorFromRDRAM caller: the CPU-modified spans have been reconciled
+ * with the existing RSX surface. Do not apply the generic stale/CPU-owned
+ * fallback here; RAM lacks the RSX-only pixels for this game's framebuffer. */
+enum rdp_texsrc rdp_targets_texture_synced(struct rdp_targets *s, uint32_t addr, uint32_t pitch, uint32_t bpp,
+					   int cur, int *slot, uint32_t *x0, uint32_t *y0)
+{
+	int i = rdp_targets_locate(s, addr, pitch, bpp, x0, y0);
+	*slot = i;
+	if (i < 0)
+		return RDP_TEXSRC_NONE;
+	if (i == cur) {
+		s->tex_self++;
+		return RDP_TEXSRC_SELF;
+	}
+	s->tex_rsx++;
+	return RDP_TEXSRC_RSX;
+}
+
 bool rdp_targets_readback(struct rdp_targets *s, int slot, bool force, bool cpu_owns)
 {
 	if (slot < 0 || slot >= RDP_TARGETS_MAX || !s->t[slot].used)
