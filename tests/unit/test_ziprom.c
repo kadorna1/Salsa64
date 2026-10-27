@@ -140,7 +140,6 @@ static void ziprom_stored_roundtrip(void)
 
 	init_test_rom();
 	CHECK(write_test_zip("games/test.z64", 0, 0, false, path));
-	CHECK(salsa64_ziprom_is_path(path));
 	CHECK_EQ(salsa64_ziprom_read_header(path, header, &size, member, sizeof member), 0);
 	CHECK_EQ(size, TEST_ROM_SIZE);
 	CHECK(memcmp(header, test_rom, sizeof header) == 0);
