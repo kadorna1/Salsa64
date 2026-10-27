@@ -415,30 +415,7 @@ static void utf8_to_u16(const char *s, u16 *out, size_t cap)
 	out[n] = 0;
 }
 
-static void u16_to_utf8(const u16 *in, int len, char *out, size_t cap)
-{
-	size_t n = 0;
-	for (int i = 0; i < len && in[i]; i++) {
-		u16 c = in[i];
-		if (c < 0x80) {
-			if (n + 1 >= cap)
-				break;
-			out[n++] = (char)c;
-		} else if (c < 0x800) {
-			if (n + 2 >= cap)
-				break;
-			out[n++] = (char)(0xC0 | (c >> 6));
-			out[n++] = (char)(0x80 | (c & 0x3F));
-		} else {
-			if (n + 3 >= cap)
-				break;
-			out[n++] = (char)(0xE0 | (c >> 12));
-			out[n++] = (char)(0x80 | ((c >> 6) & 0x3F));
-			out[n++] = (char)(0x80 | (c & 0x3F));
-		}
-	}
-	out[n] = '\0';
-}
+#define u16_to_utf8 ra_u16_to_utf8
 
 static void osk_scrub(void)
 {
@@ -611,19 +588,14 @@ static void osk_step(void)
 	}
 	u16_to_utf8(osk.text, osk.ret.len, osk.pass, sizeof osk.pass);
 	memset(osk.text, 0, sizeof osk.text);
-	if (osk.user[0] && osk.pass[0]) {
-		salsa64_log("RA: iniciando sesión de «%s»", osk.user);
-		snprintf(ra.user, sizeof ra.user, "%s", osk.user);
-		push_notice(tr("RA: conectando…"));
-		ra.login_t = now;
-		osk_scrub();  /* rc_client copia lo que necesita; la contraseña no se queda aquí */
-		char pass[160];
-		snprintf(pass, sizeof pass, "%s", osk.pass);
-		memset(osk.pass, 0, sizeof osk.pass);
-		worker_start();  /* con el teclado ya descargado */
-		ra_core_login_password(ra.core, osk.user, pass);
-		memset(pass, 0, sizeof pass);
-	}
+	salsa64_log("RA: teclado: usuario «%s» (%zu bytes), contraseña de %zu bytes", osk.user, strlen(osk.user),
+		    strlen(osk.pass));
+	snprintf(ra.user, sizeof ra.user, "%s", osk.user);
+	push_notice(tr("RA: conectando…"));
+	ra.login_t = now;
+	worker_start();  /* con el teclado ya descargado */
+	if (!ra_core_login_begin(ra.core, osk.user, osk.pass))  /* borra osk.pass */
+		ra.login_t = 0;
 	osk_end();
 }
 

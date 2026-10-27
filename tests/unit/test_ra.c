@@ -93,6 +93,7 @@ static struct {
 	bool offline;            /* sin respuesta (status 0) */
 	bool silent;             /* ni responde: la petición queda colgada */
 	bool saw_secret;         /* ¿se escapó la contraseña a una URL o al registro? */
+	bool saw_pass_in_post;   /* la petición de inicio de sesión lleva la contraseña completa */
 } srv;
 
 static const char GAME_JSON[] =
@@ -162,6 +163,8 @@ static void s_send(void *ctx, unsigned id, const char *url, const char *post, co
 	CHECK(post != NULL);
 	if (strstr(url, "secreto-de-prueba"))
 		srv.saw_secret = true;
+	if (strstr(post, "p=secreto-de-prueba"))
+		srv.saw_pass_in_post = true;
 	field(post, "r", r, sizeof r);
 	if (srv.requests < 32)
 		snprintf(srv.kinds[srv.requests], sizeof srv.kinds[0], "%s", r);
@@ -368,8 +371,47 @@ static void login_abort(void)
 	ra_core_destroy(c);
 }
 
+/* El flujo de los dos teclados (ra.c): el mismo búfer UTF-16 estático sirve para el
+ * usuario y la contraseña, y se borra entre uno y otro. El inicio de sesión recibe
+ * los dos textos completos (el servidor simulado ve la contraseña en la petición)
+ * y la contraseña queda borrada después. Aquí hubo un error: se borraba la
+ * contraseña antes de copiarla y rc_client devolvía RC_INVALID_STATE. */
+static void two_keyboards(void)
+{
+	static uint16_t text[64];
+	char user[64], pass[160];
+	struct ra_core *c = srv_start(true, 77);
+	const char *u = "Probador", *p = "secreto-de-prueba";
+	memset(text, 0, sizeof text);
+	for (int i = 0; u[i]; i++)
+		text[i] = (uint16_t)u[i];
+	ra_u16_to_utf8(text, 63, user, sizeof user);  /* 63 = capacidad del teclado, no el largo */
+	CHECK(!strcmp(user, "Probador"));
+	memset(text, 0, sizeof text);
+	for (int i = 0; p[i]; i++)
+		text[i] = (uint16_t)p[i];
+	ra_u16_to_utf8(text, 63, pass, sizeof pass);
+	memset(text, 0, sizeof text);
+	CHECK(!strcmp(pass, "secreto-de-prueba"));
+	CHECK(ra_core_login_begin(c, user, pass));
+	CHECK_EQ(pass[0], 0);
+	CHECK_EQ(ra_core_login_state(c), RA_LOGGED_IN);
+	CHECK(srv.saw_pass_in_post);
+	CHECK(!srv.saw_secret);
+	/* Vacíos no se piden. */
+	char empty[4] = "";
+	CHECK(!ra_core_login_begin(c, user, empty));
+	CHECK(!ra_core_login_begin(c, "", pass));
+	/* UTF-16 con acentos y fuera de ASCII. */
+	uint16_t acc[3] = { 0x00E9, 0x20AC, 0 };
+	ra_u16_to_utf8(acc, 63, user, sizeof user);
+	CHECK(!strcmp(user, "\xC3\xA9\xE2\x82\xAC"));
+	ra_core_destroy(c);
+}
+
 void t_suite_ra(void)
 {
+	RUN(two_keyboards);
 	RUN(login_abort);
 	RUN(mem_swap);
 	RUN(hash_rom);

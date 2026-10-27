@@ -76,6 +76,12 @@ bool ra_core_hardcore_active(struct ra_core *c);
 
 /* Sesión. El resultado llega después: ra_core_login_state, y un aviso. */
 void ra_core_login_password(struct ra_core *c, const char *user, const char *pass);
+/* Inicia sesión con contraseña tras comprobar que usuario y contraseña no vienen
+ * vacíos y que no hay otro inicio en curso; registra sus largos (nunca la
+ * contraseña) y BORRA `pass`. false si no se pidió. */
+bool ra_core_login_begin(struct ra_core *c, const char *user, char *pass);
+/* UTF-16 (el teclado del sistema, `len` caracteres como máximo y hasta el primer 0) a UTF-8. */
+void ra_u16_to_utf8(const uint16_t *in, int len, char *out, size_t cap);
 void ra_core_login_token(struct ra_core *c, const char *user, const char *token);
 void ra_core_logout(struct ra_core *c);
 /* Cancela el inicio de sesión en curso (sin respuesta); el resultado nunca se avisa. */

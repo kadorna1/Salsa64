@@ -93,6 +93,28 @@ static void copy_trunc(char *dst, size_t n, const char *src)
 
 /* ---- Memoria y huella ---- */
 
+void ra_u16_to_utf8(const uint16_t *in, int len, char *out, size_t cap)
+{
+	size_t n = 0;
+	for (int i = 0; i < len && in[i]; i++) {
+		uint16_t ch = in[i];
+		size_t need = ch < 0x80 ? 1 : ch < 0x800 ? 2 : 3;
+		if (n + need >= cap)
+			break;
+		if (need == 1) {
+			out[n++] = (char)ch;
+		} else if (need == 2) {
+			out[n++] = (char)(0xC0 | (ch >> 6));
+			out[n++] = (char)(0x80 | (ch & 0x3F));
+		} else {
+			out[n++] = (char)(0xE0 | (ch >> 12));
+			out[n++] = (char)(0x80 | ((ch >> 6) & 0x3F));
+			out[n++] = (char)(0x80 | (ch & 0x3F));
+		}
+	}
+	out[n] = '\0';
+}
+
 uint32_t ra_mem_read(const uint8_t *rdram, uint32_t size, uint32_t address, uint8_t *buf, uint32_t n)
 {
 	if (!rdram || address >= size || n > size - address)
@@ -224,7 +246,7 @@ static void login_done(int result, const char *error, rc_client_t *client, void 
 		c->login = RA_LOGGED_OUT;
 	} else {
 		c->login = RA_LOGGED_OUT;
-		note(c, "RA: no se pudo iniciar sesión (%d)", result);
+		note(c, "RA: no se pudo iniciar sesión (%d): %s", result, error ? error : "(sin mensaje)");
 		say(c, tr("RA: no se pudo iniciar sesión: %s"), error ? error : "?");
 	}
 }
@@ -336,6 +358,20 @@ void ra_core_login_password(struct ra_core *c, const char *user, const char *pas
 	c->login = RA_LOGGING_IN;
 	c->login_h = rc_client_begin_login_with_password(c->client, user, pass, login_done, c);
 	unlock(c);
+}
+
+bool ra_core_login_begin(struct ra_core *c, const char *user, char *pass)
+{
+	size_t ul = user ? strlen(user) : 0, pl = pass ? strlen(pass) : 0;
+	note(c, "RA: inicio de sesión: usuario «%s» (%zu bytes), contraseña de %zu bytes", user ? user : "", ul, pl);
+	bool ok = ul > 0 && pl > 0 && c->login != RA_LOGGING_IN;
+	if (!ok)
+		note(c, "RA: inicio de sesión no válido (%s)", !ul ? "usuario vacío" : !pl ? "contraseña vacía" : "ya hay uno en curso");
+	else
+		ra_core_login_password(c, user, pass);
+	if (pass)
+		memset(pass, 0, pl);
+	return ok;
 }
 
 void ra_core_login_token(struct ra_core *c, const char *user, const char *token)
