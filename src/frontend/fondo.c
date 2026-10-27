@@ -70,6 +70,7 @@ enum { ST_BEGIN, ST_LOW, ST_OLA, ST_END, STAMPS };
 
 static struct {
 	bool failed;     /* no se pudo: olas hasta fondo_shader_release */
+	bool half;       /* la ola a la mitad de la resolución (`fondo-ola-media`) */
 	bool ready;
 	uint32_t w, h;
 	struct fondo_view vw;
@@ -151,7 +152,13 @@ static bool setup(uint32_t w, uint32_t h)
 	rsxkit_program_set(fd.prog[P_OLA_NEG], "sgn", neg, 1);
 
 	const struct fondo_view *vw = &fd.vw;
-	fd.glow = rsxkit_surface_create(w, h, RSXKIT_POST_RGBA16F);
+	/* Con `fondo-ola-media`, la ola a la mitad de la resolución (un cuarto
+	 * de los fragmentos y del borrado; las líneas, algo más blandas). */
+	FILE *hf = fopen(SALSA64_DATA_DIR "/fondo-ola-media", "r");
+	fd.half = hf != NULL;
+	if (hf)
+		fclose(hf);
+	fd.glow = rsxkit_surface_create(fd.half ? w / 2 : w, fd.half ? h / 2 : h, RSXKIT_POST_RGBA16F);
 	fd.marcha[0] = rsxkit_surface_create(vw->lw / 4, vw->lh, RSXKIT_POST_RGBA16F);
 	fd.marcha[1] = rsxkit_surface_create(vw->lw / 4, vw->lh, RSXKIT_POST_RGBA16F);
 	fd.polvo = rsxkit_surface_create(vw->lw / 4, vw->lh, RSXKIT_POST_RGBA16F);
@@ -200,10 +207,11 @@ static bool setup(uint32_t w, uint32_t h)
 	uint32_t insns[PROGRAMS];
 	for (int i = 0; i < PROGRAMS; i++)
 		insns[i] = rsxkit_program_instructions(fd.prog[i]);
-	salsa64_log("fondo: shader a %ux%u, marcha y polvo a %ux%u, %u MB de memoria principal y %.1f MB del RSX, "
-		    "hora local UTC%+d min; instrucciones: ola %u, marcha %u+3×%u, polvo %u, desempaque %u, final %u "
-		    "(sin estrellas %u)",
-		    w, h, vw->lw, vw->lh, MEM_BYTES >> 20, rsxkit_surface_bytes() / 1048576.0, (int)(fd.tz_s / 60),
+	salsa64_log("fondo: shader a %ux%u (ola a %s), marcha y polvo a %ux%u, %u MB de memoria principal y %.1f MB "
+		    "del RSX, hora local UTC%+d min; instrucciones: ola %u, marcha %u+3×%u, polvo %u, desempaque %u, "
+		    "final %u (sin estrellas %u)",
+		    w, h, fd.half ? "la mitad" : "la misma", vw->lw, vw->lh, MEM_BYTES >> 20,
+		    rsxkit_surface_bytes() / 1048576.0, (int)(fd.tz_s / 60),
 		    insns[P_OLA_POS],
 		    insns[P_MARCHA0], insns[P_MARCHA], insns[P_POLVO], insns[P_LOW], insns[P_FINAL], insns[P_LITE]);
 	return true;
@@ -375,7 +383,7 @@ static bool passes(int b, const struct fondo_frame *fr)
 		p.origin[1] = (float)rows[s] / fd.h;
 		p.step[0] = 1.0f / fd.w;
 		p.step[1] = 1.0f / fd.h;
-		p.in[0] = input(fd.glow, RSXKIT_FILTER_NEAREST);
+		p.in[0] = input(fd.glow, fd.half ? RSXKIT_FILTER_LINEAR : RSXKIT_FILTER_NEAREST);
 		p.inputs = 1;
 		if (stars) {
 			p.in[1] = input(fd.low, RSXKIT_FILTER_LINEAR);

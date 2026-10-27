@@ -106,6 +106,12 @@ escribe cada 5 s
 
     fondo: X ms del RSX por cuadro (marcha y polvo A, ola B, final C; filas con estrellas N de H), CPU D ms, M cuadros
 
+Si a 1080p pasa de 8 ms, el archivo `fondo-ola-media` en `/dev_hdd0/salsa64`
+deja la superficie de la ola a la mitad de la resolución (un cuarto de los
+fragmentos y del borrado, leída con filtro bilineal): las líneas salen algo
+más blandas (en la Mac, 41,5–41,9 dB en lugar de 42,4–46,1 contra el
+original; `FONDO_OLA_DIV=2 build/fondo-ref rsx …`).
+
 ## Verificación contra el original
 
 `tools/fondo-compara.sh [ANCHO ALTO]` compila `tools/fondo-ref.c`, evalúa
