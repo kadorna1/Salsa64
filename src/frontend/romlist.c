@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 
 #include "core/rom.h"
+#include "ziprom.h"
 #include "core/save.h"
 
 #define HDR_TITLE   0x20
@@ -70,6 +71,8 @@ static int casecmp(const char *a, const char *b)
 
 bool romlist_has_rom_ext(const char *name)
 {
+	if (salsa64_ziprom_is_path(name))
+		return true;
 	size_t n = strlen(name);
 	if (n < 5 || name[n - 4] != '.')
 		return false;
@@ -392,10 +395,18 @@ static bool add_rom_raw(struct romlist *l, const char *name, unsigned source, ui
 
 static bool read_header(const char *path, uint32_t size, uint8_t raw[SALSA64_ROM_HEADER_SIZE])
 {
+	if (salsa64_ziprom_is_path(path)) {
+		uint32_t rom_size = 0;
+		return size >= SALSA64_ZIPROM_MIN_SIZE &&
+		       salsa64_ziprom_read_header(path, raw, &rom_size, NULL, 0) == 0 &&
+		       rom_size >= ROMLIST_MIN_SIZE && rom_size <= SALSA64_ZIPROM_MAX_SIZE;
+	}
+	if (size < ROMLIST_MIN_SIZE)
+		return false;
 	FILE *f = fopen(path, "rb");
 	if (!f)
 		return false;
-	bool ok = fread(raw, 1, SALSA64_ROM_HEADER_SIZE, f) == SALSA64_ROM_HEADER_SIZE && size >= ROMLIST_MIN_SIZE;
+	bool ok = fread(raw, 1, SALSA64_ROM_HEADER_SIZE, f) == SALSA64_ROM_HEADER_SIZE;
 	fclose(f);
 	return ok;
 }
@@ -447,7 +458,8 @@ static bool add_file_size(struct romlist *l, const char *path, unsigned source, 
 bool romlist_add_file(struct romlist *l, const char *path, unsigned source, const char *save_cfg, size_t save_cfg_len)
 {
 	struct stat st;
-	if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < (off_t)ROMLIST_MIN_SIZE ||
+	if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) ||
+	    st.st_size < (off_t)(salsa64_ziprom_is_path(path) ? SALSA64_ZIPROM_MIN_SIZE : ROMLIST_MIN_SIZE) ||
 	    (uint64_t)st.st_size > 0xFFFFFFFFull) {
 		l->skipped++;
 		return false;
@@ -580,7 +592,8 @@ static bool scan_one(struct romlist *l, const char *dir, unsigned source, bool a
 		}
 		if (!S_ISREG(st.st_mode) || !romlist_has_rom_ext(name))
 			continue;
-		if (st.st_size < (off_t)ROMLIST_MIN_SIZE || (uint64_t)st.st_size > 0xFFFFFFFFull) {
+		if (st.st_size < (off_t)(salsa64_ziprom_is_path(name) ? SALSA64_ZIPROM_MIN_SIZE : ROMLIST_MIN_SIZE) ||
+		    (uint64_t)st.st_size > 0xFFFFFFFFull) {
 			l->skipped++;
 			continue;
 		}
