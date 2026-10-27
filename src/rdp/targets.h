@@ -395,8 +395,6 @@ struct rdp_dma_ring {
 void rdp_dma_note(struct rdp_dma_ring *r, uint32_t pa, uint32_t len, uint32_t task);
 /* ¿Algún DMA desde la tarea `task` (inclusive) tocó [lo, hi)? */
 bool rdp_dma_since(const struct rdp_dma_ring *r, uint32_t lo, uint32_t hi, uint32_t task);
-/* ¿Un DMA posterior al último dibujo tocó una color image reutilizada? */
-bool rdp_target_dma_updated(const struct rdp_target *t, const struct rdp_dma_ring *r);
 
 /* Guarda de las copias tardías contra lo que escribió el CPU.
  *
