@@ -312,9 +312,9 @@ enum rdp_texsrc rdp_targets_texture(struct rdp_targets *s, uint32_t addr, uint32
 	return RDP_TEXSRC_RSX;
 }
 
-/* CopyColorFromRDRAM caller: the CPU-modified spans have been reconciled
- * with the existing RSX surface. Do not apply the generic stale/CPU-owned
- * fallback here; RAM lacks the RSX-only pixels for this game's framebuffer. */
+/* This helper assumes its caller has reconciled a live RSX-owned surface.
+ * Keep the age cutoff as a safety net: reconciliation does not make an old
+ * render target current. */
 enum rdp_texsrc rdp_targets_texture_synced(struct rdp_targets *s, uint32_t addr, uint32_t pitch, uint32_t bpp,
 					   int cur, int *slot, uint32_t *x0, uint32_t *y0)
 {
@@ -322,6 +322,10 @@ enum rdp_texsrc rdp_targets_texture_synced(struct rdp_targets *s, uint32_t addr,
 	*slot = i;
 	if (i < 0)
 		return RDP_TEXSRC_NONE;
+	if (s->task - s->t[i].last_task > RDP_TARGETS_FRESH) {
+		s->tex_rdram++;
+		return RDP_TEXSRC_RDRAM;
+	}
 	if (i == cur) {
 		s->tex_self++;
 		return RDP_TEXSRC_SELF;
