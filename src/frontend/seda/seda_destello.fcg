@@ -1,0 +1,15 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Salsa64 — fondo «Seda» del menú: los destellos, cuadritos aditivos con un
+ * centro suave y una cruz de brillo. TEXCOORD0 = (x, y de −1 a 1 en el
+ * cuadrito, brillo, tono); el color sale de la rampa TEXUNIT0.
+ */
+void main(float4 t : TEXCOORD0, uniform sampler2D ramp : TEXUNIT0, out float4 color : COLOR)
+{
+	float d2 = dot(t.xy, t.xy);
+	float a = saturate(1.0 - d2);
+	float core = a * a * a;
+	float glint = saturate(1.0 - 8.0 * abs(t.x * t.y)) * a;
+	float3 tint = tex2D(ramp, float2(t.w * 0.9375 + 0.03125, 0.5)).rgb;
+	color = float4(tint * ((core + 0.6 * glint) * t.z), 1.0);
+}

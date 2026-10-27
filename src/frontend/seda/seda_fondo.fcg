@@ -1,0 +1,20 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Salsa64 — fondo «Seda» del menú: el degradado de la hora, un resplandor
+ * detrás de la cinta, una viñeta suave y un tramado mínimo contra las
+ * bandas de las 8 bits. TEXCOORD0 = (píxel x, píxel y, x e y normalizadas);
+ * TEXCOORD1 y 2 = el color de arriba y de abajo; TEXCOORD3 = el del
+ * resplandor; TEXCOORD4 = (centro x, centro y, ancho / alto, caída).
+ */
+void main(float4 t : TEXCOORD0, float4 top : TEXCOORD1, float4 bot : TEXCOORD2, float4 glow : TEXCOORD3,
+	  float4 gp : TEXCOORD4, out float4 color : COLOR)
+{
+	float3 base = lerp(top.rgb, bot.rgb, float3(t.w, t.w, t.w));
+	float2 d = (t.zw - gp.xy) * float2(gp.z, 1.0);
+	float g = 1.0 / (1.0 + dot(d, d) * gp.w);
+	float2 e = t.zw - float2(0.5, 0.5);
+	float vig = 1.0 - 0.45 * dot(e, e);
+	float n = frac(52.9829189 * frac(dot(t.xy, float2(0.06711056, 0.00583715))));
+	float3 rgb = (base + glow.rgb * g) * vig + (n - 0.5) * (1.0 / 255.0);
+	color = float4(rgb, 1.0);
+}

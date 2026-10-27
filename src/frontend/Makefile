@@ -18,12 +18,12 @@ APPID   := SLSA00120
 endif
 SRCS    := main.c audio_out.c audio_sync.c menu.c osd.c osd_fps.c pacer.c padmap.c pausectl.c scale_auto.c replay.c romlist.c savefile.c mempakfile.c transferpakfile.c \
            cheats.c cuelgue.c cover.c download.c dlutil.c i18n.c namematch.c screenshot.c selftest.c selftest_audio.c selftest_gfx.c states.c cajanegra.c \
-           version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c fondo.c fondo_calc.c
+           version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c fondo.c fondo_calc.c seda.c seda_calc.c
 # Filtros de la presentación (filters/): fragment programs en Cg compilados
 # con cgcomp. Van en fp32: cgcomp pide -fastprecision a Cg, que baja a fp16
 # cuentas en píxeles que no lo aguantan.
 # El fondo «Shader» del menú (fondo/, docs/fondo-shader.md) va igual.
-SHADERS := $(sort $(wildcard filters/*.fcg fondo/*.fcg))
+SHADERS := $(sort $(wildcard filters/*.fcg fondo/*.fcg seda/*.fcg))
 CGCFLAGS := -Wcg,-nofastprecision
 FPO_CHECK := 1
 
@@ -58,7 +58,7 @@ SPUKIT  := 1
 # con sus objetos en obj/spu-gfx<n>.
 GFX_IMAGES := 0 1 2 3 4 5
 GFX_PHASES := 8
-SPU_PROGS := $(addprefix gfx,$(GFX_IMAGES)) $(addprefix gfx1fase,$(GFX_PHASES)) audio rsp jpeg crt lz
+SPU_PROGS := $(addprefix gfx,$(GFX_IMAGES)) $(addprefix gfx1fase,$(GFX_PHASES)) audio rsp jpeg crt lz seda
 GFX_SPU_SRCS := $(R)/src/spu/gfx/main.c $(R)/src/spu/gfx/io_spu.c \
                 $(filter-out %/io_mem.c %/sync.c %/state.c %/selftest.c,$(wildcard $(R)/src/rsp/gfx/*.c))
 $(foreach i,$(GFX_IMAGES),$(eval gfx$(i)_SRCS := $(GFX_SPU_SRCS)) $(eval gfx$(i)_OBJDIR := spu-gfx$(i)) \
@@ -71,6 +71,8 @@ rsp_SRCS   := $(R)/src/spu/rsp/main.c $(R)/src/spu/rsp/io_spu.c \
               $(filter-out %/core.c,$(wildcard $(R)/src/rsp/lle/*.c))
 jpeg_SRCS  := $(R)/src/spu/jpeg/main.c $(R)/src/rsp/jpeg/jpeg.c $(R)/src/rsp/jpeg/jpeg_v.c $(R)/src/rsp/jpeg/re2.c
 crt_SRCS   := $(R)/src/spu/crt/main.c
+# Fondo «Seda» del menú (docs/fondo-seda.md): las cintas de tela de seda_calc.c, el mismo código del PPE.
+seda_SRCS  := $(R)/src/spu/seda/main.c $(R)/src/frontend/seda_calc.c
 # Compresor LZ de lib/spukit (estados guardados, docs/estados.md): bloques de 64 KB.
 lz_SRCS    := $(R)/lib/spukit/spu/lz.c
 # Pila del SPE 0 (src/spu/gfx/main.c), en cada imagen: el enlace falla si

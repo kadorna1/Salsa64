@@ -354,3 +354,14 @@ firmware) en una caché de glifos del atlas de rsxkit. API, juegos de fuentes,
 trampas (callbacks por descriptor de 32 bits, `fontSetScalePixel` mal
 declarada en PSL1GHT, calibración de la línea base) y qué falta medir en la
 PS3: `docs/fuente-sistema.md`.
+
+## Fondo «Seda»: constantes en las mallas (2026-10-27)
+
+`rsxkit_post_pass.k` (TEXCOORD1..7) solo existe en las pasadas de pantalla
+(`rsxkit_post_run`): el vertex program de las mallas pasa nada más
+TEXCOORD0, y las constantes `uniform` de un programa se parchean en su copia
+del microcódigo (`rsxkit_program_set`), lo que obliga a esperar al RSX si el
+programa está en uso. Para un color que cambia con la hora, el fondo «Seda»
+lo lleva en una rampa de 16 texeles RGBA8 en memoria principal (una por
+capa, triple búfer) que la malla lee con el tono interpolado; más barato
+que parchear y sin esperas. Detalles en `docs/fondo-seda.md`.

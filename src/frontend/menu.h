@@ -154,8 +154,9 @@ enum { MENU_GAME_ASPECT, MENU_GAME_FILTER, MENU_GAME_DENSITY, MENU_GAME_OVERSCAN
  * es el de overscan.cfg y la resolución la de video.cfg, que leen y
  * escriben en main.c. */
 struct menu_settings {
-	bool waves;     /* fondo animado («fondo = si|no|shader») */
+	bool waves;     /* fondo animado («fondo = si|no|shader|seda») */
 	bool shader;    /* con waves, el shader del RSX en vez de las ondas («fondo = shader») */
+	bool seda;      /* con waves, las cintas de seda («fondo = seda»); excluye a shader */
 	int overscan;   /* enum menu_overscan */
 	int resolution; /* enum menu_resolution */
 	int scale;      /* escala interna: 0 automática antigua; 1..5 fija; 6..10 automática */
@@ -229,7 +230,7 @@ struct menu {
 	const char *dirs[MENU_DIRS_MAX];  /* dónde se buscó (para la lista vacía) */
 	unsigned ndirs;
 	const char *loading;   /* título que se está cargando, o NULL */
-	bool bg_drawn;         /* main.c ya dibujó el fondo «Shader» en este cuadro */
+	bool bg_drawn;         /* main.c ya dibujó el fondo «Shader» o «Seda» en este cuadro */
 	/* Arriba a la derecha, chico, bajo el contador (los pone main.c): la
 	 * versión corta (version.h) y, en un paquete de prueba, «título ·
 	 * APPID»; NULL, nada. */
