@@ -1487,6 +1487,8 @@ static void text_clip_utf8_ellipsis(void)
 
 /* ---- Geometría del menú y vista previa ---------------------------------------- */
 
+int rsxkit_glyph_total(void); /* lib/rsxkit/src/font.h (interna) */
+
 static uint8_t atlas[RSXKIT_UI_ATLAS_H][RSXKIT_UI_ATLAS_W * 4];
 static rsxkit_vertex verts[RSXKIT_UI_MAX_QUADS * 6];
 
@@ -1504,6 +1506,15 @@ static void ui_atlas_scale2x(void)
 			opaque += p[3] != 0;
 		}
 	CHECK(opaque > 0);
+	/* Todos los glifos y el bloque blanco caben: si el atlas se queda corto, el
+	 * bloque no se pinta y los rectángulos del menú salen negros. */
+	{
+		int solid = rsxkit_glyph_total();
+		int sx = (solid % 16) * 18 + 1, sy = (solid / 16) * 28 + 1;
+		CHECK(sy + 26 < RSXKIT_UI_ATLAS_H);
+		if (sy + 26 < RSXKIT_UI_ATLAS_H)
+			CHECK_EQ(atlas[sy + 13][4 * (sx + 8) + 3], 0xFF);
+	}
 	/* «A» (U+0041, índice 33): la barra de la fila 7 se vuelve las filas
 	 * 14 y 15 del glifo al doble; arriba de la letra (filas 0–3), nada. */
 	int ox = (33 % 16) * 18 + 1, oy = (33 / 16) * 28 + 1;
