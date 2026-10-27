@@ -2238,11 +2238,11 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		return false;
 	uint32_t x0 = 0, y0 = 0;
 	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
-	/* CopyColorFromRDRAM must reconcile CPU-written bytes before source
-	 * selection. Unlike the generic texture policy, this game's RDRAM does
-	 * not contain the RSX-only parts of its framebuffer: treating a surface as
-	 * "stale" or "CPU-owned" after reconciliation silently drops those parts.
-	 * Keep RDRAM as the fallback only while changed spans still fail to upload. */
+	/* Reconcile CPU writes before source selection. This game's framebuffer can
+	 * contain RSX-only pixels, so upload changed spans rather than replacing the
+	 * whole surface. Reconciliation does not refresh a target that has aged out
+	 * of the normal source window; rdp_targets_texture_synced still applies the
+	 * standard freshness cutoff. */
 	bool profile_surface_synced = false;
 	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram) {
 		if (profile_cpu_rows_changed(slot)) {
@@ -2275,8 +2275,11 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		? rdp_targets_texture_synced(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0)
 		: rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
 	if (profile_surface_synced) {
-		LOGN(20, "gfx: CopyColorFromRDRAM uses reconciled %s target %06x/%u (age %u tasks)",
-		     src == RDP_TEXSRC_SELF ? "SELF" : "RSX", rdp.tg.t[slot].addr, rdp.tg.t[slot].width,
+		const char *source = src == RDP_TEXSRC_SELF ? "SELF" :
+			src == RDP_TEXSRC_RSX ? "RSX" :
+			src == RDP_TEXSRC_RDRAM ? "RDRAM fallback" : "none";
+		LOGN(20, "gfx: CopyColorFromRDRAM selected %s for %06x/%u (age %u tasks)",
+		     source, rdp.tg.t[slot].addr, rdp.tg.t[slot].width,
 		     rdp.tg.task - rdp.tg.t[slot].last_task);
 	}
 	if ((src != RDP_TEXSRC_RSX && src != RDP_TEXSRC_SELF) || slot < 0 || !rdp.surf[slot])
