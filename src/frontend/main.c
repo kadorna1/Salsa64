@@ -6010,7 +6010,7 @@ static void download_begin(int what)
 		return;
 	}
 	if (!roms->rom_count) {
-		menu_set_status(&menu, "No encontré ROMs (.z64, .v64, .n64, .zip) en:");
+		menu_set_status(&menu, "No encontré ROMs (.z64, .v64, .n64) en:");
 		free(list);
 		return;
 	}
