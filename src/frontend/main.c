@@ -198,6 +198,7 @@
 #include "replay.h"
 #include "cuelgue.h"
 #include "romlist.h"
+#include "ziprom.h"
 #include "savefile.h"
 #include "scale_auto.h"
 #include "mempakfile.h"
@@ -1473,6 +1474,28 @@ static void heap_report(const char *when)
  * no se pudo o no mide entre 0x1000 bytes y ROM_MAX (o cap). */
 static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint32_t *size)
 {
+	/* ZIP: inspect the selected member before allocating so the archive itself
+	 * never needs a second large buffer. Full extraction verifies the member's
+	 * Deflate stream, uncompressed size and CRC-32 before the game sees it. */
+	if (salsa64_ziprom_is_path(path)) {
+		uint8_t header[SALSA64_ROM_HEADER_SIZE];
+		uint32_t rom_len = 0, actual_len = 0;
+		uint32_t limit = buf ? cap : ROM_MAX;
+		if (salsa64_ziprom_read_header(path, header, &rom_len, NULL, 0) != 0 ||
+		    rom_len < 0x1000u || rom_len > limit || rom_len > SALSA64_ZIPROM_MAX_SIZE)
+			return NULL;
+		uint8_t *dst = buf ? buf : rom_alloc(rom_len);
+		if (!dst)
+			return NULL;
+		if (salsa64_ziprom_extract(path, dst, limit, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
+			if (!buf)
+				rom_free(dst);
+			return NULL;
+		}
+		*size = actual_len;
+		return dst;
+	}
+
 	FILE *f = fopen(path, "rb");
 	if (!f)
 		return NULL;
@@ -5987,7 +6010,7 @@ static void download_begin(int what)
 		return;
 	}
 	if (!roms->rom_count) {
-		menu_set_status(&menu, "No encontré ROMs (.z64, .v64, .n64) en:");
+		menu_set_status(&menu, "No encontré ROMs (.z64, .v64, .n64, .zip) en:");
 		free(list);
 		return;
 	}
@@ -6321,7 +6344,7 @@ static bool direct_launch(void)
 	if (direct_rom[0] != '/')
 		why = "la ruta debe ser absoluta";
 	else if (!romlist_has_rom_ext(direct_rom))
-		why = "extensión no admitida (.z64, .n64, .v64)";
+		why = "extensión no admitida (.z64, .n64, .v64, .zip)";
 	else if (!(one = romlist_create()))
 		why = "sin memoria";
 	else if (!romlist_add_file(one, direct_rom, 0, mn.save_cfg, mn.save_cfg_len) || !one->count)
