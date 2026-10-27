@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Vuelca tools/i18n/tabla.tsv en src/frontend/i18n_tabla.inc.
 
-Columnas: es, en, fr, de, it, pt, nl, sv, da, no, fi, pl, tr, ru (separadas por tabulador,
+Columnas: es, en, fr, de, it, pt, nl, sv, da, no, fi, pl, tr, ru, ja, ko,
+zh-hant, zh-hans (separadas por tabulador,
 sin comillas ni escapes). La salida va ordenada por bytes UTF-8 (lo mismo que
 strcmp), como pide bsearch. Con --check solo comprueba que el .inc esté al día.
 """
@@ -11,7 +12,7 @@ import os, sys
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 TSV = os.path.join(ROOT, 'tools/i18n/tabla.tsv')
 INC = os.path.join(ROOT, 'src/frontend/i18n_tabla.inc')
-NCOL = 14
+NCOL = 18
 
 
 def esc(s):

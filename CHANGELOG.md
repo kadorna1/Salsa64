@@ -7,6 +7,14 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Added
+- **PS3 system font for all text, and Japanese, Korean and Chinese menus:**
+  menus, pause, notices and option panels now use the console's own XMB font
+  (read from the PS3 at run time), with proportional spacing, word wrapping
+  and a glyph cache. Japanese, Korean, Traditional Chinese and Simplified
+  Chinese are offered (and picked by "Automatic") only when the system font
+  loads; otherwise they fall back to English as before. The built-in 8x13
+  font remains as a fallback, and the file `/dev_hdd0/salsa64/fuente-propia`
+  forces it. Needs testing on a real PS3.
 - **Eight more languages and an "Automatic" setting:** Dutch, Swedish, Danish,
   Norwegian, Finnish, Polish, Turkish and Russian (the menu font gains the
   Polish and Turkish letters and basic Cyrillic) join Spanish, English, French, German, Italian and

@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include <rsxkit/text.h>
+#include <rsxkit/ui.h>
 
 #include "padmap.h"
 
@@ -263,22 +264,13 @@ unsigned pausectl_panel_top(int sel, unsigned rows)
 	return (unsigned)(top < 0 ? 0 : top > max ? max : top);
 }
 
-/* Caracteres de un texto UTF-8. */
-static unsigned cells(const char *s)
-{
-	unsigned n = 0;
-	for (; *s; s++)
-		n += ((unsigned char)*s & 0xC0) != 0x80;
-	return n;
-}
-
 void pausectl_layout(const char *question, const char *answers, float lw, float lh, struct pausectl_box *b)
 {
 	const float pad = 28.0f, gap = 22.0f;
 	b->qscale = 2.5f;
 	b->ascale = 2.0f;
-	float qw = cells(question) * RSXKIT_FONT_W * b->qscale, qh = RSXKIT_FONT_H * b->qscale;
-	float aw = cells(answers) * RSXKIT_FONT_W * b->ascale, ah = RSXKIT_FONT_H * b->ascale;
+	float qw = rsxkit_ui_text_width(question, b->qscale), qh = RSXKIT_FONT_H * b->qscale;
+	float aw = rsxkit_ui_text_width(answers, b->ascale), ah = RSXKIT_FONT_H * b->ascale;
 	float inner = qw > aw ? qw : aw;
 	b->w = inner + 2 * pad;
 	b->h = qh + gap + ah + 2 * pad;

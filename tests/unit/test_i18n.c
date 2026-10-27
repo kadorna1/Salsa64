@@ -2,7 +2,9 @@
 /*
  * Pruebas de los idiomas (src/frontend/i18n.c): la tabla va ordenada, cada
  * traducción tiene los mismos % que el original, solo usa caracteres que la
- * fuente del menú sabe dibujar y cabe donde cabía el español.
+ * fuente del menú sabe dibujar (la 8x13; en japonés, coreano y chino, además,
+ * los de esas escrituras, que dibuja la fuente del sistema) y cabe donde cabía
+ * el español (contando dos celdas por carácter ancho del CJK).
  */
 #include <stdio.h>
 #include <string.h>
@@ -66,6 +68,24 @@ static void same_formats(void)
 	}
 }
 
+/* Caracteres anchos (CJK): la fuente del sistema les da más o menos el doble
+ * que a una letra latina; se cuentan como dos celdas de la 8x13. */
+static int wide(uint32_t cp)
+{
+	return (cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0x303E) || (cp >= 0x3041 && cp <= 0x33FF) ||
+	       (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xA960 && cp <= 0xA97F) ||
+	       (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE30 && cp <= 0xFE4F) ||
+	       (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6);
+}
+
+static uint32_t wcells(const char *s)
+{
+	uint32_t n = 0;
+	while (s && *s)
+		n += wide(rsxkit_utf8_next(&s)) ? 2 : 1;
+	return n;
+}
+
 static void glyphs(void)
 {
 	/* Los íconos de filas que el menú dibuja con la fuente y las letras propias
@@ -83,6 +103,8 @@ static void glyphs(void)
 			const char *t = l ? i18n_text(i, l) : i18n_key(i);
 			for (const char *p = t; *p;) {
 				uint32_t cp = rsxkit_utf8_next(&p);
+				if (i18n_is_cjk(l) && wide(cp))
+					continue;  /* lo dibuja la fuente del sistema */
 				if (cp >= 0x20 && !rsxkit_font_has(cp)) {
 					printf("   «%s» idioma %d: sin glifo U+%04X\n", t, l, cp);
 					CHECK(0);
@@ -99,7 +121,7 @@ static void widths(void)
 	for (size_t i = 0; i < i18n_count(); i++) {
 		uint32_t es = rsxkit_text_cells(i18n_key(i));
 		for (int l = 1; l <= MENU_LANGS_TR; l++) {
-			uint32_t n = rsxkit_text_cells(i18n_text(i, l));
+			uint32_t n = wcells(i18n_text(i, l));
 			uint32_t limit = es <= 31 ? 34 : es <= 66 ? 66 : es + 8;
 			if (n > limit) {
 				printf("   «%s» idioma %d: %u celdas (límite %u)\n", i18n_key(i), l, n, limit);
@@ -115,15 +137,17 @@ static void labels(void)
 	static const char *const keys[] = { "Archivo", "Ubicación", "Código", "Tamaño", "Región", "Guardado" };
 	for (unsigned k = 0; k < sizeof keys / sizeof keys[0]; k++) {
 		i18n_set(0);
+		i18n_set_cjk(1);
 		for (int l = 1; l <= MENU_LANGS_TR; l++) {
 			i18n_set(l);
-			uint32_t n = rsxkit_text_cells(tr(keys[k]));
+			uint32_t n = wcells(tr(keys[k]));
 			if (n > 9) {
 				printf("   rótulo «%s» idioma %d: %u celdas\n", tr(keys[k]), l, n);
 				CHECK(0);
 			}
 		}
 	}
+	i18n_set_cjk(0);
 	i18n_set(0);
 }
 
@@ -166,6 +190,25 @@ static void lookup(void)
 	CHECK(!strcmp(tr("Volver"), "Geri"));
 	i18n_set(13);
 	CHECK(!strcmp(tr("Volver"), "Назад"));
+	/* Japonés, coreano y chino: solo con la fuente del sistema; sin ella,
+	 * inglés. */
+	i18n_set(I18N_JA);
+	CHECK_EQ(i18n_lang(), 1);
+	CHECK(!strcmp(tr("Volver"), "Back"));
+	i18n_set_cjk(1);
+	i18n_set(I18N_JA);
+	CHECK(!strcmp(tr("Volver"), "戻る"));
+	CHECK(!strcmp(tr("Sí"), "はい"));
+	i18n_set(I18N_KO);
+	CHECK(!strcmp(tr("Volver"), "돌아가기"));
+	i18n_set(I18N_ZH_HANT);
+	CHECK(!strcmp(tr("Volver"), "返回"));
+	i18n_set(I18N_ZH_HANS);
+	CHECK_EQ(i18n_lang(), I18N_ZH_HANS);
+	CHECK(!strcmp(tr("Volver"), "返回"));
+	CHECK(!strcmp(i18n_code(I18N_ZH_HANT), "zh-hant"));
+	i18n_set_cjk(0);
+	CHECK_EQ(i18n_resolve(I18N_KO), 1);
 	/* Lo que no está sale igual (títulos de juegos, rutas...). */
 	CHECK(!strcmp(tr("GoldenEye 007"), "GoldenEye 007"));
 	CHECK(tr("Rareza") != NULL);
@@ -210,6 +253,19 @@ static void automatic(void)
 	}
 	CHECK_EQ(i18n_from_system(-1), 1);
 	CHECK_EQ(i18n_from_system(99), 1);
+	/* Con la fuente del sistema, los cuatro que faltaban. */
+	static const int want_cjk[20] = { I18N_JA, 1, 2, 0, 3, 4, 6, 5, 13, I18N_KO, I18N_ZH_HANT, I18N_ZH_HANS,
+					  10, 7, 8, 9, 11, 5, 1, 12 };
+	i18n_set_cjk(1);
+	for (int sys = 0; sys < 20; sys++)
+		CHECK_EQ(i18n_from_system(sys), want_cjk[sys]);
+	i18n_set_system(0);
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), I18N_JA);
+	CHECK(!strcmp(tr("Volver"), "戻る"));
+	i18n_set_cjk(0);
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 1);
 
 	/* Sin saber el de la consola (host, pruebas): español. */
 	i18n_set_system(-1);

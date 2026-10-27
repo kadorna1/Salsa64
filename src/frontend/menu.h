@@ -98,13 +98,15 @@ enum menu_filter {
 	MENU_FILTERS,
 };
 
-/* Idioma del menú (menu.cfg, «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru»),
- * ver i18n.h. Los catorce primeros coinciden con los de la tabla; AUTO usa el
- * idioma de la consola. */
+/* Idioma del menú (menu.cfg, «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru|ja|ko|
+ * zh-hant|zh-hans»), ver i18n.h. Los dieciocho primeros coinciden con los de la
+ * tabla; AUTO usa el idioma de la consola. El japonés, el coreano y el chino
+ * solo se ofrecen con la fuente del sistema (i18n_cjk). */
 enum menu_lang {
 	MENU_LANG_ES, MENU_LANG_EN, MENU_LANG_FR, MENU_LANG_DE, MENU_LANG_IT, MENU_LANG_PT,
 	MENU_LANG_NL, MENU_LANG_SV, MENU_LANG_DA, MENU_LANG_NO, MENU_LANG_FI,
-	MENU_LANG_PL, MENU_LANG_TR, MENU_LANG_RU, MENU_LANG_AUTO, MENU_LANGS
+	MENU_LANG_PL, MENU_LANG_TR, MENU_LANG_RU, MENU_LANG_JA, MENU_LANG_KO, MENU_LANG_ZH_HANT,
+	MENU_LANG_ZH_HANS, MENU_LANG_AUTO, MENU_LANGS
 };
 enum menu_rom_order { MENU_ROM_ORDER_TITLE, MENU_ROM_ORDER_FILENAME };
 

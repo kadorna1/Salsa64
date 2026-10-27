@@ -54,7 +54,9 @@ SKIP = re.compile(r'(?<![\w.>])(salsa64_log\w*|printf|fprintf|strcmp|strncmp|str
 UI_IGNORE = {'Español', 'English', 'Français', 'Deutsch', 'Italiano', 'Português', 'Nederlands', 'Svenska', 'Dansk',
              'Norsk', 'Suomi', 'Polski', 'Türkçe', 'Русский', 'PAL', 'PAL-M', 'NTSC', 'EEPROM 4K', 'EEPROM 16K',
              'SRAM', 'SRAM 768K', 'SRAM 1M', 'FlashRAM', 'Start', 'L1', 'R1', 'L2', 'R2', 'L3', 'R3', 'A', 'B', 'Z',
-             'L', 'R', 'Gateway', 'Stick', 'Select'}
+             'L', 'R', 'Gateway', 'Stick', 'Select',
+             # El nombre de un idioma CJK guardado cuando no hay fuente del sistema (en inglés a propósito).
+             'Japanese', 'Korean', 'Chinese (Traditional)', 'Chinese (Simplified)'}
 
 
 def ui_literals(src):

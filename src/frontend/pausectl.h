@@ -128,7 +128,8 @@ void pausectl_game_end(struct pausectl *p);
 
 /* Geometría del cuadro en un espacio lógico lw × lh (alto 720; ancho 960
  * en 4:3, 1280 en 16:9), centrado: la pregunta arriba y las respuestas
- * abajo, con la escala del texto (celdas de RSXKIT_FONT_W × RSXKIT_FONT_H). */
+ * abajo, con la escala del texto (renglones de RSXKIT_FONT_H unidades; el ancho,
+ * con rsxkit_ui_text_width: el de la fuente en uso). */
 struct pausectl_box {
 	float x, y, w, h;
 	float qx, qy, qscale;  /* la pregunta */

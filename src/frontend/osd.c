@@ -42,13 +42,10 @@ void osd_notice_clear(void)
 	notice.until = 0;
 }
 
-/* Caracteres de un texto UTF-8 (para medirlo). */
-static unsigned cells(const char *s)
+/* Ancho de un texto con la fuente en uso. */
+static float tw(const char *s, float sc)
 {
-	unsigned n = 0;
-	for (; *s; s++)
-		n += ((unsigned char)*s & 0xC0) != 0x80;
-	return n;
+	return rsxkit_ui_text_width(s, sc);
 }
 
 void osd_scanlines_set(int level, float x, float y, float w, float h, unsigned lines)
@@ -77,7 +74,7 @@ void osd_draw(const struct osd_fps *f, uint64_t now_us, float lw, float lh)
 		char line[96];
 		const float sc = 1.5f, pad = 6.0f;
 		osd_fps_text(f, line, sizeof line);
-		float w = cells(line) * RSXKIT_FONT_W * sc, h = RSXKIT_FONT_H * sc;
+		float w = tw(line, sc), h = RSXKIT_FONT_H * sc;
 		rsxkit_ui_rect(16.0f, 14.0f, w + 2 * pad, h + 2 * pad, 0x000000A0);
 		rsxkit_ui_text(16.0f + pad, 14.0f + pad, line, sc, 0xFFFFFFFF, 0);
 	}
@@ -86,7 +83,7 @@ void osd_draw(const struct osd_fps *f, uint64_t now_us, float lw, float lh)
 		uint64_t left = notice.until - now_us;
 		uint32_t a = left > 250000 ? 255 : (uint32_t)(left * 255 / 250000);
 		const float sc = 2.0f, pad = 10.0f;
-		float w = cells(notice.text) * RSXKIT_FONT_W * sc, h = RSXKIT_FONT_H * sc;
+		float w = tw(notice.text, sc), h = RSXKIT_FONT_H * sc;
 		float x = (lw - w) / 2 - pad, y = lh - h - 2 * pad - 48.0f;
 		rsxkit_ui_rect(x, y, w + 2 * pad, h + 2 * pad, 0x10101000 | (a * 0xC0 / 255));
 		rsxkit_ui_text(x + pad, y + pad, notice.text, sc, 0xFFFFFF00 | a, 0);
@@ -116,7 +113,7 @@ void osd_cheats_draw(const struct cheat_set *cs, int sel, float lw, float lh)
 	float title_h = 56.0f, foot_h = 52.0f;
 	float h = title_h + vis * row_h + foot_h + 2 * pad;
 	float x = (lw - w) / 2, y = (lh - h) / 2;
-	uint32_t maxc = (uint32_t)((w - 2 * pad - 90.0f) / (RSXKIT_FONT_W * sc));
+	float maxw = w - 2 * pad - 90.0f;
 	char line[CHEAT_DESC_MAX + 8];
 
 	rsxkit_ui_begin(lw, lh);
@@ -133,7 +130,7 @@ void osd_cheats_draw(const struct cheat_set *cs, int sel, float lw, float lh)
 			rsxkit_ui_rect(x + 8.0f, ry - 4.0f, w - 16.0f, row_h - 2.0f, 0x3A5A9AE0);
 		snprintf(line, sizeof line, "[%c] ", cs->c[k].on ? 'x' : ' ');
 		rsxkit_ui_text(x + pad, ry, line, sc, cs->c[k].on ? 0x9CFFA0FF : 0xB0B0B0FF, 0);
-		rsxkit_ui_text(x + pad + 4 * RSXKIT_FONT_W * sc, ry, cs->c[k].desc, sc, cur ? 0xFFFFFFFF : 0xD8D8D8FF, maxc);
+		rsxkit_ui_text_fit(x + pad + tw("[x] ", sc), ry, cs->c[k].desc, sc, cur ? 0xFFFFFFFF : 0xD8D8D8FF, maxw);
 	}
 	if (rows > vis) {
 		/* Barra de posición a la derecha. */
@@ -142,7 +139,7 @@ void osd_cheats_draw(const struct cheat_set *cs, int sel, float lw, float lh)
 		rsxkit_ui_rect(x + w - 14.0f, y + pad + title_h, 4.0f, th, 0xFFFFFF20);
 		rsxkit_ui_rect(x + w - 14.0f, by, 4.0f, bh, 0xFFFFFFA0);
 		snprintf(line, sizeof line, "%d / %u", sel + 1, rows);
-		rsxkit_ui_text(x + w - pad - cells(line) * RSXKIT_FONT_W * 1.5f, y + pad + 6.0f, line, 1.5f, 0xB0B0B0FF, 0);
+		rsxkit_ui_text(x + w - pad - tw(line, 1.5f), y + pad + 6.0f, line, 1.5f, 0xB0B0B0FF, 0);
 	}
 	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("×  Activar o desactivar     ↑↓  Elegir     ○  Cerrar"), 1.5f,
 		       0xC8C8C8FF, 0);
@@ -163,10 +160,11 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 	if (m->version) {
 		/* Al ras de abajo del título: de qué paquete es lo que corre. */
 		const char *v = tr(m->version);
-		float vs = 1.25f, room = w - 2 * pad - cells(tr("Pausa")) * RSXKIT_FONT_W * 2.5f - 24.0f;
-		uint32_t max = room > 0.0f ? (uint32_t)(room / (RSXKIT_FONT_W * vs)) : 1, n = cells(v);
-		float vw = (float)(n < max ? n : max) * RSXKIT_FONT_W * vs;
-		rsxkit_ui_text(x + w - pad - vw, y + pad + RSXKIT_FONT_H * (2.5f - vs), v, vs, 0x8C96A4FF, max);
+		float vs = 1.25f, room = w - 2 * pad - tw(tr("Pausa"), 2.5f) - 24.0f;
+		if (room < RSXKIT_FONT_W * vs)
+			room = RSXKIT_FONT_W * vs;
+		float vw = rsxkit_ui_text_fit_width(v, vs, room);
+		rsxkit_ui_text_fit(x + w - pad - vw, y + pad + RSXKIT_FONT_H * (2.5f - vs), v, vs, 0x8C96A4FF, room);
 	}
 	for (int i = 0; i < PM_ROWS; i++) {
 		float ry = y + pad + 60.0f + i * row_h;
@@ -209,7 +207,7 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 		uint32_t col = cur ? 0xFFFFFFFF : dim ? 0x808080FF : 0xD8D8D8FF;
 		rsxkit_ui_text(x + pad, ry, label, sc, col, 0);
 		if (val[0]) {
-			float vx = i == PM_SLOT ? x + pad : x + w - pad - cells(val) * RSXKIT_FONT_W * sc;
+			float vx = i == PM_SLOT ? x + pad : x + w - pad - tw(val, sc);
 			rsxkit_ui_text(vx, ry, val, sc, cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
 		}
 	}
@@ -243,7 +241,7 @@ void osd_accessory_menu_draw(const struct osd_accessory_menu *m, float lw, float
 			rsxkit_ui_rect(x + 8.0f, ry - 5.0f, w - 16.0f, row_h - 2.0f, 0x3A5A9AE0);
 		rsxkit_ui_text(x + pad, ry, name, sc, cur ? 0xFFFFFFFF : 0xD8D8D8FF, 0);
 		if (val[0])
-			rsxkit_ui_text(x + w - pad - cells(val) * RSXKIT_FONT_W * sc, ry, val, sc,
+			rsxkit_ui_text(x + w - pad - tw(val, sc), ry, val, sc,
 				       cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
 	}
 		rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.4f,
@@ -276,7 +274,7 @@ void osd_image_menu_draw(const struct osd_image_menu *m, float lw, float lh)
 		if (i > IM_INTERP)
 			continue;
 		snprintf(val, sizeof val, cur ? "◀ %s ▶" : "%s", tr(m->value[i]));
-		rsxkit_ui_text(x + w - pad - cells(val) * RSXKIT_FONT_W * sc, ry, val, sc, cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
+		rsxkit_ui_text(x + w - pad - tw(val, sc), ry, val, sc, cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
 	}
 	/* Una nota: de quién es el filtro, o que la escala espera a seguir. */
 	float fy = y + pad + 46.0f + rows * row_h;

@@ -163,6 +163,7 @@
 
 #include <rsxkit/post.h>
 #include <rsxkit/rsxkit.h>
+#include <rsxkit/sysfont.h>
 #include <rsxkit/ui.h>
 #include <spukit/spukit.h>
 
@@ -4992,6 +4993,119 @@ static int ui_init_once(void)
 	return rc;
 }
 
+/* ---- La fuente del texto -------------------------------------------------
+ * La del sistema (rsxkit/sysfont.h) para todo el texto si carga; si no, o
+ * con el archivo fuente-propia, la 8x13 de rsxkit. Solo con la del sistema
+ * se ofrecen el japonés, el coreano y el chino (i18n_set_cjk). Se abre una
+ * vez, con el 2D listo y antes de cualquier ROM (se queda para siempre), y
+ * se cambia de juego de fuentes con el idioma (los ideogramas del chino
+ * salen de otra fuente que los del japonés). */
+#define FONT_OWN_PATH SALSA64_DATA_DIR "/fuente-propia"
+static int font_state;        /* 0 sin probar, 1 la del sistema, −1 la 8x13 */
+static int font_script = -1;  /* rsxkit_sysfont_script abierto */
+
+static void font_log(void)
+{
+	if (font_state != 1) {
+		salsa64_log("fuente: la propia 8x13");
+		return;
+	}
+	rsxkit_sysfont_info fi;
+	rsxkit_sysfont_info_get(&fi);
+	salsa64_log("fuente: la del sistema (juego 0x%x, %.0f px, renglón %.1f y línea base %.1f según libfont, «H» en las "
+		    "filas %d–%d, glifos faltantes %s), libfont %u KB ahora y %u KB de máximo, caché de archivos %u KB, "
+		    "japonés/coreano/chino %s",
+		    (unsigned)fi.type, (double)RSXKIT_SYSFONT_PX, (double)fi.line_height, (double)fi.baseline_y, fi.cal_top,
+		    fi.cal_bottom, fi.id_check ? "por fontGetFontIdCode" : "por el error del dibujo",
+		    (unsigned)(fi.lib_bytes >> 10), (unsigned)(fi.lib_peak >> 10), (unsigned)(fi.cache_bytes >> 10),
+		    i18n_cjk() ? "sí" : "no");
+}
+
+/* El estado de la caché de glifos, para el log (al abrir un juego y al salir). */
+static void font_stats_log(const char *when)
+{
+	if (!ui_ok)
+		return;
+	rsxkit_ui_font_stats st;
+	rsxkit_ui_font_stats_get(&st);
+	if (font_state != 1) {
+		salsa64_log("fuente %s: la propia 8x13", when);
+		return;
+	}
+	rsxkit_sysfont_info fi;
+	rsxkit_sysfont_info_get(&fi);
+	salsa64_log("fuente %s: caché de glifos %u/%u casillas, %u conocidos, %u aciertos, %u rasterizados, %u "
+		    "reemplazos, %u diferidos, %u con la 8x13, %u vaciados; libfont %u KB (máx. %u KB)",
+		    when, st.resident, st.slots, st.known, st.hits, st.renders, st.evictions, st.deferred, st.fallback,
+		    st.resets, (unsigned)(fi.lib_bytes >> 10), (unsigned)(fi.lib_peak >> 10));
+}
+
+static void font_init_once(void)
+{
+	if (font_state)
+		return;
+	font_state = -1;
+	i18n_set_cjk(0);
+	if (!ui_ok)
+		return;
+	if (file_exists(FONT_OWN_PATH)) {
+		salsa64_log("fuente: %s presente, uso la 8x13", FONT_OWN_PATH);
+		font_log();
+		return;
+	}
+	int rc = rsxkit_sysfont_open(RSXKIT_SYSFONT_JAPANESE, 0);
+	if (rc != RSXKIT_OK) {
+		rsxkit_sysfont_info fi;
+		rsxkit_sysfont_info_get(&fi);
+		salsa64_log("fuente: la del sistema no abre (%d, paso %d, código 0x%08x): uso la 8x13", rc, fi.step,
+			    (unsigned)fi.error);
+		font_log();
+		return;
+	}
+	font_state = 1;
+	font_script = RSXKIT_SYSFONT_JAPANESE;
+	/* Hiragana, hangul e ideogramas del chino tradicional y del simplificado. */
+	int cjk = rsxkit_sysfont_has(0x3042) && rsxkit_sysfont_has(0xD55C) && rsxkit_sysfont_has(0x9AD4) &&
+		  rsxkit_sysfont_has(0x7B80);
+	i18n_set_cjk(cjk);
+	rsxkit_ui_font(rsxkit_sysfont_source());
+	font_log();
+}
+
+/* El juego de fuentes para el idioma en uso (`lang` ya resuelto). */
+static void font_select(int lang)
+{
+	if (font_state != 1)
+		return;
+	int script = lang == I18N_ZH_HANT ? RSXKIT_SYSFONT_TCHINESE
+		     : lang == I18N_ZH_HANS ? RSXKIT_SYSFONT_SCHINESE
+		     : lang == I18N_JA || lang == I18N_KO ? RSXKIT_SYSFONT_JAPANESE : RSXKIT_SYSFONT_LATIN;
+	if (script == font_script)
+		return;
+	rsxkit_ui_font(NULL);  /* vacía la caché */
+	int rc = rsxkit_sysfont_open((rsxkit_sysfont_script)script, 0);
+	if (rc != RSXKIT_OK && script != RSXKIT_SYSFONT_JAPANESE) {
+		rsxkit_sysfont_info fi;
+		rsxkit_sysfont_info_get(&fi);
+		salsa64_log("fuente: el juego para la escritura %d no abre (paso %d, código 0x%08x): uso el japonés", script,
+			    fi.step, (unsigned)fi.error);
+		script = RSXKIT_SYSFONT_JAPANESE;
+		rc = rsxkit_sysfont_open(RSXKIT_SYSFONT_JAPANESE, 0);
+	}
+	if (rc != RSXKIT_OK) {
+		salsa64_log("fuente: la del sistema dejó de abrir (%d): uso la 8x13", rc);
+		rsxkit_sysfont_close();
+		font_state = -1;
+		font_script = -1;
+		i18n_set_cjk(0);
+		font_log();
+		return;
+	}
+	font_script = script;
+	rsxkit_ui_font(rsxkit_sysfont_source());
+	font_log();
+}
+
 /* Una sesión de juego con la ROM ya en memoria (cualquier orden de bytes):
  * la arranca, la emula en dos hilos hasta START + SELECT, «Salir del
  * juego» o el fin de una prueba, y lo cierra todo (game_close). Llamar
@@ -5952,7 +6066,10 @@ static void language_apply(void)
 	if (sysUtilGetSystemParamInt(SYSUTIL_SYSTEMPARAM_ID_LANG, &sys) != 0)
 		sys = -1;
 	i18n_set_system(sys);
+	font_init_once();
 	i18n_set(mn.settings.lang);
+	font_select(i18n_lang());
+	i18n_set(mn.settings.lang);  /* sin la fuente del sistema, el japonés, el coreano y el chino dan inglés */
 	salsa64_log("idioma: la consola dice %d (%s), ajuste «%s», en uso «%s»", sys,
 		    sys < 0 ? "desconocido" : i18n_code(i18n_from_system(sys)), i18n_code(mn.settings.lang),
 		    i18n_code(i18n_lang()));
@@ -6058,6 +6175,7 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	opened_crc1 = e->crc1;
 	opened_crc2 = e->crc2;
 	salsa64_log("menú: abro %s (\"%s\")", path, title);
+	font_stats_log("al abrir el juego");
 	heap_report("al abrir");
 	menu.loading = title;
 	menu_show(NULL);
@@ -6726,6 +6844,11 @@ int main(int argc, char **argv)
 		u64 rv;
 		beat.quit = 1;
 		sysThreadJoin(watch_tid, &rv);
+	}
+	font_stats_log("al salir");
+	if (font_state == 1) {
+		rsxkit_ui_font(NULL);
+		rsxkit_sysfont_close();  /* libfont, su memoria y los tres módulos */
 	}
 	salsa64_log("salida normal%s", app_quit ? " («Salir del juego» del sistema)" : "");
 	salsa64_ps3_fastmem_stop();

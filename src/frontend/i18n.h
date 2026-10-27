@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Salsa64 — idiomas. tr("texto en español") da el texto en el idioma elegido
- * (Opciones > Idioma; menu.cfg «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru»).
+ * (Opciones > Idioma; menu.cfg «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru|ja|ko|
+ * zh-hant|zh-hans»). El japonés, el coreano y el chino solo se usan con una
+ * fuente que los dibuje (la del sistema): sin ella caen en inglés.
  * Lo que no está en la tabla (i18n.c) sale tal cual. Sin dependencias de
  * PSL1GHT: el idioma de la consola lo lee el frontend y se lo pasa a
  * i18n_set_system().
@@ -12,13 +14,26 @@
 #include <stddef.h>
 
 /* Idiomas con tabla (todos menos el español, que es la clave). */
-#define MENU_LANGS_TR 13
+#define MENU_LANGS_TR 17
 
 /* 0 español, 1 inglés, 2 francés, 3 alemán, 4 italiano, 5 portugués,
  * 6 neerlandés, 7 sueco, 8 danés, 9 noruego, 10 finés, 11 polaco, 12 turco,
- * 13 ruso (los valores de
- * enum menu_lang en menu.h) y I18N_AUTO: el idioma de la consola. */
-#define I18N_AUTO 14
+ * 13 ruso, 14 japonés, 15 coreano, 16 chino tradicional, 17 chino simplificado
+ * (los valores de enum menu_lang en menu.h) y I18N_AUTO: el idioma de la
+ * consola. */
+#define I18N_AUTO 18
+#define I18N_JA 14
+#define I18N_KO 15
+#define I18N_ZH_HANT 16
+#define I18N_ZH_HANS 17
+/* ¿Es japonés, coreano o chino (necesita la fuente del sistema)? */
+int i18n_is_cjk(int lang);
+/* Hay fuente para el japonés, el coreano y el chino (por omisión no: host,
+ * pruebas, PS3 sin la fuente del sistema). Sin ella, esos idiomas y
+ * «Automático» en una consola en esos idiomas dan inglés. Después de
+ * cambiarlo, volver a llamar a i18n_set. */
+void i18n_set_cjk(int available);
+int i18n_cjk(void);
 void i18n_set(int lang);
 int i18n_lang(void);  /* el idioma en uso, nunca I18N_AUTO */
 
@@ -26,10 +41,10 @@ int i18n_lang(void);  /* el idioma en uso, nunca I18N_AUTO */
  * 2 francés, 3 español, 4 alemán, 5 italiano, 6 neerlandés, 7 portugués,
  * 8 ruso, 9 coreano, 10-11 chino, 12 finés, 13 sueco, 14 danés, 15 noruego,
  * 16 polaco, 17 portugués de Brasil, 18 inglés británico, 19 turco). */
-int i18n_from_system(int sys_lang);      /* al idioma de la tabla; lo que no hay, inglés */
+int i18n_from_system(int sys_lang);      /* al idioma de la tabla; lo que no hay (o sin fuente CJK), inglés */
 void i18n_set_system(int sys_lang);      /* -1: no se sabe (host): «Automático» = español */
 int i18n_system(void);
-int i18n_resolve(int lang);              /* I18N_AUTO -> idioma de la consola; lo demás igual */
+int i18n_resolve(int lang);              /* I18N_AUTO -> idioma de la consola; CJK sin fuente -> inglés */
 const char *i18n_code(int lang);         /* «es», «en»... («auto») para el log */
 const char *tr(const char *es);
 

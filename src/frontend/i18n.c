@@ -7,15 +7,16 @@
  * tests/unit/test_i18n.c lo comprueba). La tabla va ordenada por clave
  * (strcmp) para buscar con bsearch. La tabla vive en tools/i18n/tabla.tsv (una
  * fila por texto, una columna por idioma) y tools/i18n-gen.py la vuelca en
- * i18n_tabla.inc: editar el .tsv, no el .inc. La fuente solo tiene ASCII y
- * Latin-1.
+ * i18n_tabla.inc: editar el .tsv, no el .inc. La fuente propia (8x13) tiene
+ * ASCII, Latin-1 y las letras del polaco, el turco y el ruso; el japonés, el
+ * coreano y el chino necesitan la del sistema (i18n_set_cjk).
  */
 #include "i18n.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-/* es -> en, fr, de, it, pt, nl, sv, da, no, fi, pl, tr, ru */
+/* es -> en, fr, de, it, pt, nl, sv, da, no, fi, pl, tr, ru, ja, ko, zh-hant, zh-hans */
 struct entry {
 	const char *es;
 	const char *t[MENU_LANGS_TR];
@@ -27,8 +28,26 @@ static const struct entry table[] = {
 
 static int lang_cur;
 static int sys_lang = -1;
+static int cjk_ok;
 
-static const char *const codes[] = { "es", "en", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "fi", "pl", "tr", "ru" };
+static const char *const codes[] = { "es", "en", "fr", "de", "it", "pt", "nl", "sv", "da",
+				     "no", "fi", "pl", "tr", "ru", "ja", "ko", "zh-hant", "zh-hans" };
+_Static_assert(sizeof codes / sizeof codes[0] == MENU_LANGS_TR + 1, "un código por idioma");
+
+int i18n_is_cjk(int lang)
+{
+	return lang >= I18N_JA && lang <= I18N_ZH_HANS;
+}
+
+void i18n_set_cjk(int available)
+{
+	cjk_ok = available != 0;
+}
+
+int i18n_cjk(void)
+{
+	return cjk_ok;
+}
 
 int i18n_from_system(int sys)
 {
@@ -47,7 +66,11 @@ int i18n_from_system(int sys)
 	case 13: return 7;   /* sueco */
 	case 14: return 8;   /* danés */
 	case 15: return 9;   /* noruego */
-	default: return 1;   /* inglés (también japonés, coreano, chino...) */
+	case 0:  return cjk_ok ? I18N_JA : 1;       /* japonés */
+	case 9:  return cjk_ok ? I18N_KO : 1;       /* coreano */
+	case 10: return cjk_ok ? I18N_ZH_HANT : 1;  /* chino tradicional */
+	case 11: return cjk_ok ? I18N_ZH_HANS : 1;  /* chino simplificado */
+	default: return 1;   /* inglés (y el inglés británico) */
 	}
 }
 
@@ -65,6 +88,8 @@ int i18n_resolve(int lang)
 {
 	if (lang == I18N_AUTO)
 		return sys_lang < 0 ? 0 : i18n_from_system(sys_lang);
+	if (i18n_is_cjk(lang) && !cjk_ok)
+		return 1;
 	return lang >= 0 && lang <= MENU_LANGS_TR ? lang : 0;
 }
 

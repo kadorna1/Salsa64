@@ -329,3 +329,11 @@ tiempo del RSX: `rsxSetTimeStamp(ctx, i)` y `gcmGetTimeStamp(i)` (reportes
 2048 − 64 a 2047 en rsxkit). Pendiente de confirmar en la PS3 real:
 filtrado bilineal de las texturas fp16, el modo BORDER y el orden de los
 canales de fp16 (RPCS3 los acepta).
+
+## Fuente del sistema con libfont (2026-10-26)
+
+El texto del 2D puede salir con la fuente del XMB (libfont + FreeType del
+firmware) en una caché de glifos del atlas de rsxkit. API, juegos de fuentes,
+trampas (callbacks por descriptor de 32 bits, `fontSetScalePixel` mal
+declarada en PSL1GHT, calibración de la línea base) y qué falta medir en la
+PS3: `docs/fuente-sistema.md`.
