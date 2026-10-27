@@ -380,9 +380,9 @@ static void targets_texture_policy(void)
 	CHECK(rdp_targets_readback(&s, fb, true, true));
 }
 
-/* Dr. Mario 64: reconciliation clears CPU ownership but must not turn an
- * old framebuffer into a current RSX texture. Fresh synchronized targets can
- * use the RSX; stale ones keep the normal RDRAM fallback. */
+/* Dr. Mario 64: after CPU spans have been reconciled, keep reading the
+ * RSX surface even when its last RDP draw is old. RDRAM does not contain all
+ * of this game's RSX-only pixels. The generic lookup still applies freshness. */
 static void targets_texture_synced_surface(void)
 {
 	const uint32_t FB = 0x3da800;
@@ -406,13 +406,13 @@ static void targets_texture_synced_surface(void)
 		rdp_targets_task(&s);
 	CHECK_EQ(rdp_targets_texture(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
 	CHECK_EQ(slot, fb);
-	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RSX);
 	CHECK_EQ(slot, fb);
-	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, &slot, &x0, &y0), RDP_TEXSRC_SELF);
 	CHECK_EQ(slot, fb);
-	CHECK_EQ(s.tex_rdram, 4);
-	CHECK_EQ(s.tex_rsx, 1);
-	CHECK_EQ(s.tex_self, 0);
+	CHECK_EQ(s.tex_rdram, 2);
+	CHECK_EQ(s.tex_rsx, 2);
+	CHECK_EQ(s.tex_self, 1);
 }
 
 /* La misma memoria con otro tamaño de texel. Majora's Mask: la pausa usa

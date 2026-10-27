@@ -2240,9 +2240,9 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
 	/* Reconcile CPU writes before source selection. This game's framebuffer can
 	 * contain RSX-only pixels, so upload changed spans rather than replacing the
-	 * whole surface. Reconciliation does not refresh a target that has aged out
-	 * of the normal source window; rdp_targets_texture_synced still applies the
-	 * standard freshness cutoff. */
+	 * whole surface. Once those spans are synchronized, the profile-specific
+	 * lookup intentionally keeps using that RSX surface even when its last RDP
+	 * draw is old: falling back to RDRAM would lose the RSX-only pixels. */
 	bool profile_surface_synced = false;
 	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram) {
 		if (profile_cpu_rows_changed(slot)) {
