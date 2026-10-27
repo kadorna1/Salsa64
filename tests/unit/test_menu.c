@@ -1079,12 +1079,25 @@ static void menu_options_page(void)
 	CHECK_EQ(m.page, MENU_PAGE_OPTIONS);
 	CHECK_EQ(m.opt, MENU_OPT_WAVES);
 	CHECK_EQ(menu_selected(&m), -1);
+	/* Fondo: ondas → shader → no → ondas; izquierda, al revés. */
 	menu_input(&m, 0, 20);
 	CHECK_EQ(menu_input(&m, CROSS, 30), MENU_SETTINGS);
-	CHECK(!m.set.waves);
+	CHECK(m.set.waves && m.set.shader);
 	menu_input(&m, 0, 40);
 	CHECK_EQ(menu_input(&m, RIGHT, 50), MENU_SETTINGS);
-	CHECK(m.set.waves);
+	CHECK(!m.set.waves);
+	menu_input(&m, 0, 51);
+	CHECK_EQ(menu_input(&m, RIGHT, 52), MENU_SETTINGS);
+	CHECK(m.set.waves && !m.set.shader);
+	menu_input(&m, 0, 53);
+	CHECK_EQ(menu_input(&m, LEFT, 54), MENU_SETTINGS);
+	CHECK(!m.set.waves);
+	menu_input(&m, 0, 55);
+	CHECK_EQ(menu_input(&m, LEFT, 56), MENU_SETTINGS);
+	CHECK(m.set.waves && m.set.shader);
+	menu_input(&m, 0, 57);
+	CHECK_EQ(menu_input(&m, LEFT, 58), MENU_SETTINGS);
+	CHECK(m.set.waves && !m.set.shader);
 	/* Recorte del borde: derecha avanza, izquierda vuelve, con vuelta. */
 	menu_input(&m, 0, 60);
 	menu_input(&m, DOWN, 61);
@@ -1361,9 +1374,12 @@ static void menu_settings_file(void)
 	static const char bad[] = "fondo = quizá\n";
 	menu_settings_parse(&s, bad, sizeof bad - 1);
 	CHECK(!s.waves);
+	static const char shader[] = "fondo = Shader\n";
+	menu_settings_parse(&s, shader, sizeof shader - 1);
+	CHECK(s.waves && s.shader);
 	static const char on[] = "fondo=sí";
 	menu_settings_parse(&s, on, sizeof on - 1);
-	CHECK(s.waves);
+	CHECK(s.waves && !s.shader);
 	CHECK(!s.fps);
 	static const char fps[] = "fps = si\n";
 	menu_settings_parse(&s, fps, sizeof fps - 1);
@@ -1392,6 +1408,11 @@ static void menu_settings_file(void)
 	CHECK(!t.waves);
 	CHECK(t.fps);
 	CHECK(!t.confirm);
+	s.waves = s.shader = true;
+	n = menu_settings_format(&s, text, sizeof text);
+	CHECK(n > 0 && (size_t)n < sizeof text);
+	menu_settings_parse(&t, text, (size_t)n);
+	CHECK(t.waves && t.shader);
 }
 
 static void menu_autopilot_opens_target(void)

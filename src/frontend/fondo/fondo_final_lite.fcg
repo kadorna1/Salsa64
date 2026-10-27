@@ -1,0 +1,3 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* Fondo «Shader», pasada final sin estrellas (filas sin polvo): ver fondo_final.cgh. */
+#include "fondo_final.cgh"

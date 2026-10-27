@@ -1,0 +1,3 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* Fondo «Shader», pasadas 2 a 4 de la marcha: ver fondo_marcha.cgh. */
+#include "fondo_marcha.cgh"

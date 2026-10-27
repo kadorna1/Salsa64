@@ -1,0 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* Fondo «Shader», pasada final con estrellas: ver fondo_final.cgh. */
+#define FONDO_ESTRELLAS
+#include "fondo_final.cgh"

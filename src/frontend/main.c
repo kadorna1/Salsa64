@@ -193,6 +193,7 @@
 #include "platform/ps3/rec_cache.h"
 #include "platform/ps3/thread_cleanup.h"
 #include "frontend/filters/filters.h"
+#include "frontend/fondo.h"
 #include "rdp/rdp.h"
 #include "rsp/gfx/hle.h"
 #include "replay.h"
@@ -6043,6 +6044,12 @@ static void download_poll(uint32_t buttons)
 static void menu_show(const char *shot)
 {
 	frame_begin("menú: flip anterior");
+	/* El fondo «Shader» va antes que el 2D del menú (docs/fondo-shader.md);
+	 * si no carga, el menú dibuja las ondas. */
+	bool shader = menu.set.waves && menu.set.shader;
+	menu.bg_drawn = shader && fondo_shader_draw(menu.t);
+	if (!shader)
+		fondo_shader_release();
 	rsxkit_ui_begin(mn.lw, mn.lh);
 	menu_frame(&menu, mn.lw, mn.lh, sysGetSystemTime());
 	rsxkit_ui_end();
@@ -6111,7 +6118,8 @@ static void menu_settings_load(void)
 static void menu_settings_save(void)
 {
 	bool ok = settings_write(&mn.settings);
-	salsa64_log("menú: fondo animado %s, FPS %s, confirmar al salir %s, filtro %s%s%s", mn.settings.waves ? "sí" : "no",
+	salsa64_log("menú: fondo %s, FPS %s, confirmar al salir %s, filtro %s%s%s",
+		    !mn.settings.waves ? "fijo" : mn.settings.shader ? "shader" : "ondas",
 		    mn.settings.fps ? "sí" : "no", mn.settings.confirm ? "sí" : "no", menu_filter_name(mn.settings.filter),
 		    menu_filter_has_density(mn.settings.filter) ? (mn.settings.density == MENU_DENSITY_FINE ? ", densidad fina" : ", densidad normal") : "",
 		    ok ? "" : " (no se pudo guardar)");
@@ -6207,6 +6215,7 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	menu.loading = title;
 	menu_show(NULL);
 	menu.loading = NULL;
+	fondo_shader_release();  /* su memoria, para el juego */
 	romlist_free(roms);
 	roms = NULL;
 	romlist_cache_release();
@@ -6370,8 +6379,9 @@ static int menu_loop(void)
 		mn.settings.resolution = v.resolution;
 		mn.settings.scale = v.scale;
 	}
-	salsa64_log("menú: espacio lógico de %.0fx%.0f sobre %ux%u, ROM con búfer a su medida (máx. %u MB), fondo animado %s", mn.lw,
-		    mn.lh, sc->width, sc->height, ROM_MAX >> 20, mn.settings.waves ? "sí" : "no");
+	salsa64_log("menú: espacio lógico de %.0fx%.0f sobre %ux%u, ROM con búfer a su medida (máx. %u MB), fondo %s", mn.lw,
+		    mn.lh, sc->width, sc->height, ROM_MAX >> 20,
+		    !mn.settings.waves ? "fijo" : mn.settings.shader ? "shader" : "ondas");
 
 	char last[ROMLIST_PATH_MAX];
 	bool have_last = romlist_load_last(LAST_ROM_PATH, last, sizeof last);
@@ -6579,6 +6589,7 @@ static int menu_loop(void)
 		menu_show(want_shot && ++frames == 45 ? SALSA64_DATA_DIR "/menu.ppm" : NULL);
 	}
 	dl_shutdown();
+	fondo_shader_release();
 	romlist_free(roms);
 	roms = NULL;
 	menu.list = NULL;

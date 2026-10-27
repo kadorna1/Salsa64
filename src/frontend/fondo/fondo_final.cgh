@@ -1,0 +1,51 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Salsa64 — fondo «Shader» del menú, basado en «XdGfRR» de Shadertoy, de
+ * int_45h (https://www.shadertoy.com/view/XdGfRR; ver docs/THIRD_PARTY.md).
+ *
+ * Pasada final, a la resolución de la pantalla: degradado de día o de
+ * noche, la ola (de la pasada de la malla, en blanco translúcido), el polvo
+ * de estrellas y el tramado del original. Con FONDO_ESTRELLAS, las tres
+ * capas de estrellas (solo en las filas donde hay polvo); sin él, el resto.
+ *
+ * Todo lo que es lineal en la pantalla llega interpolado (constantes afines
+ * de rsxkit_post_pass; fondo_calc.c, fondo_frame_consts):
+ * TEXCOORD0.xy  coordenada normalizada de la pantalla (la ola y lo de
+ *               resolución reducida; la pasada puede ser solo unas filas)
+ * TEXCOORD1     red de las capas 1 y 2 (celdas, ya desplazadas en su anillo)
+ * TEXCOORD2     capa 3, ya en coordenada de textura (filtro bilineal sin la
+ *               interpolación de Hermite: con celdas de 1,7 píxeles no se
+ *               nota), y el brillo de la capa 3
+ * TEXCOORD3     brillo de las capas 1 y 2 (coordenada de textura)
+ * TEXCOORD4     degradado sin el término x·y, y en w el producto del tramado
+ * TEXCOORD5     término x·y del degradado por x, y en w la y del píxel
+ */
+void main(float4 pos : TEXCOORD0, float4 p12 : TEXCOORD1, float4 p3b3 : TEXCOORD2, float4 b12 : TEXCOORD3,
+	  float4 lin : TEXCOORD4, float4 xy : TEXCOORD5, uniform sampler2D glow : TEXUNIT0,
+#ifdef FONDO_ESTRELLAS
+	  uniform sampler2D low : TEXUNIT1, uniform sampler2D star : TEXUNIT2, uniform sampler2D bri : TEXUNIT3,
+#endif
+	  out float4 color : COLOR)
+{
+	float3 c = xy.rgb * xy.w + lin.rgb;
+	/* mix(c, 1, clamp(a, 0, 1)), con a ≤ 41 pasos de 0,015 (MAX_DRAWS). */
+	float a = min(saturate(tex2D(glow, pos.xy).x), 0.615);
+	c = c * (1.0 - a) + a;
+#ifdef FONDO_ESTRELLAS
+	/* Interpolación cúbica de Hermite de las 4 esquinas con una sola
+	 * lectura bilineal: la coordenada va a floor(p) + 0,5 + w(fract(p)). */
+	const float4 inv = float4(1.0 / 2048.0, 1.0 / 1024.0, 0.5 / 2048.0, 0.5 / 1024.0);
+	float4 f = frac(p12);
+	float4 c12 = (p12 - f + f * f * (3.0 - 2.0 * f)) * inv.xyxy + inv.zwzw;
+	float3 s = float3(tex2D(star, c12.xy).x, tex2D(star, c12.zw).y, tex2D(star, p3b3.xy).z);
+	/* smoothstep(a, a + t, s) de cada capa */
+	float3 x = saturate(s * float3(1.0 / 0.71, 1.0 / 0.31, 1.0 / 0.91) -
+			    float3(0.11 / 0.71, 0.1 / 0.31, 0.1 / 0.91));
+	x = x * x * (3.0 - 2.0 * x);
+	float3 b = float3(tex2D(bri, b12.xy).x, tex2D(bri, b12.zw).y, tex2D(bri, p3b3.zw).z);
+	c += tex2D(low, pos.xy).y * dot(x * b, float3(4.0, 5.0, 2.0));
+#endif
+	/* El tramado del original: fract(52,98·fract(dot(U, k))). */
+	float d = frac(frac(lin.w) * 52.9829189);
+	color = float4(c + (d * (1.0 / 255.0) - 0.5 / 255.0), 1.0);
+}

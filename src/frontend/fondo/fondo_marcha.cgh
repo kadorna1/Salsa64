@@ -1,0 +1,52 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Salsa64 — fondo «Shader» del menú, basado en «XdGfRR» de Shadertoy, de
+ * int_45h (https://www.shadertoy.com/view/XdGfRR; ver docs/THIRD_PARTY.md).
+ * Ver fondo_marcha.fcg y fondo_marcha0.fcg, que lo incluyen.
+ *
+ * La marcha del original a resolución reducida, para saber dónde se le
+ * acaban los 100 pasos: donde la cámara corre casi pegada a la ola, el
+ * original no llega a la ola de atrás y no la dibuja. Cuatro rayos por
+ * fragmento (las 4 columnas de un texel de la tabla, una por canal) con
+ * los mismos pasos que el original: 0,05 dentro de la cáscara y 0,8·|g|
+ * fuera, desde t = 1 (su jitter medio). g = a·t + h(t) + 2,5, con h − 2,5 −
+ * B·t de la tabla (filtro lineal a lo largo de t) y a = A·dy + B en
+ * TEXCOORD1.x. Sale el t donde quedó cada rayo (40 si llegó al final).
+ * Va en 4 pasadas de 25 pasos (un programa de 100 no lo ensambla cgcomp):
+ * la primera empieza en t = 1 (FONDO_PRIMERA) y las otras siguen desde la
+ * t de la anterior.
+ * El tope de 41 pasos dentro (MAX_DRAWS) no se sigue: lo da el tope de la
+ * ola en la pasada final.
+ */
+#define NT 512.0
+#define SX ((NT - 1.0) / (40.0 * NT))
+#define OX (0.5 / NT)
+
+#define PASO                                                                   \
+	c1 = t.xxyy * float4(SX, 0.0, SX, 0.0) + v;                            \
+	c2 = t.zzww * float4(SX, 0.0, SX, 0.0) + v;                            \
+	h.x = tex2D(tab, c1.xy).x;                                             \
+	h.y = tex2D(tab, c1.zw).y;                                             \
+	h.z = tex2D(tab, c2.xy).z;                                             \
+	h.w = tex2D(tab, c2.zw).w;                                             \
+	g = abs(a * t + h + 2.5);                                              \
+	t += lerp(0.8 * g, float4(0.05, 0.05, 0.05, 0.05), step(g, float4(0.04, 0.04, 0.04, 0.04)));
+#define PASO10 PASO PASO PASO PASO PASO PASO PASO PASO PASO PASO
+
+void main(float4 pos : TEXCOORD0, float4 k : TEXCOORD1, uniform sampler2D tab : TEXUNIT0,
+#ifndef FONDO_PRIMERA
+	  uniform sampler2D prev : TEXUNIT1,
+#endif
+	  out float4 color : COLOR)
+{
+	float4 a = k.xxxx;
+	float4 v = pos.zzzz * float4(0.0, 1.0, 0.0, 1.0) + float4(OX, 0.0, OX, 0.0);
+#ifdef FONDO_PRIMERA
+	float4 t = float4(1.0, 1.0, 1.0, 1.0);
+#else
+	float4 t = tex2D(prev, pos.zw);
+#endif
+	float4 h, c1, c2, g;
+	PASO10 PASO10 PASO PASO PASO PASO PASO
+	color = min(t, float4(40.0, 40.0, 40.0, 40.0));
+}

@@ -1,0 +1,44 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Salsa64 — fondo «Shader» del menú, basado en «XdGfRR» de Shadertoy, de
+ * int_45h (https://www.shadertoy.com/view/XdGfRR; ver docs/THIRD_PARTY.md).
+ *
+ * El polvo a resolución reducida, 4 columnas por fragmento como la marcha:
+ * max(1 − g_min/3, 0), con g_min el mínimo de |g| para t en [10, 40] antes
+ * de que al rayo se le acaben los pasos (0 si cruza la ola). Mira g en 32
+ * valores de t: con todos positivos, el mínimo; con todos negativos,
+ * −máximo; con los dos signos, 0. TEXCOORD1.x = a = A·dy + B.
+ */
+#define NT 512.0
+#define X(t) (((t) * (NT - 1.0) / 40.0 + 0.5) / NT)
+#define T(k) (10.0 + 30.0 * (k) / 31.0)
+
+/* La muestra k: g = h + a·t + 2,5 (las 4 columnas); o = 1 si el rayo ya
+ * se había detenido. */
+#define MUESTRA(k, sw)                                                         \
+	g = tex2D(tab, c.sw) + (az * T(k) + 2.5);                              \
+	o = step(ts + z, float4(T(k), T(k), T(k), T(k)));                      \
+	mn = min(mn, o * 1000.0 + g);                                          \
+	mx = max(mx, g - o * 1000.0);
+/* La coordenada y la parada dependen de mn y mx (z = saturate(mn + mx −
+ * 10⁹) vale 0): sin eso, Cg adelanta las 32 lecturas, comparaciones y
+ * productos y se queda sin registros. */
+#define PAR(k)                                                                 \
+	z = saturate(mn + mx - 1.0e9);                                         \
+	az = a + z;                                                            \
+	c = v + float4(X(T(k)), 0.0, X(T(k + 1)), 0.0) + z;                    \
+	MUESTRA(k, xy) MUESTRA(k + 1, zw)
+#define OCHO(k) PAR(k) PAR(k + 2) PAR(k + 4) PAR(k + 6)
+
+void main(float4 pos : TEXCOORD0, float4 k : TEXCOORD1, uniform sampler2D tab : TEXUNIT0,
+	  uniform sampler2D marcha : TEXUNIT1, out float4 color : COLOR)
+{
+	float4 a = k.xxxx;
+	float4 ts = tex2D(marcha, pos.zw);
+	float4 v = pos.zzzz * float4(0.0, 1.0, 0.0, 1.0);
+	float4 mn = float4(1000.0, 1000.0, 1000.0, 1000.0), mx = -mn;
+	float4 c, g, o, z, az;
+	OCHO(0) OCHO(8) OCHO(16) OCHO(24)
+	float4 gmin = max(max(mn, -mx), float4(0.0, 0.0, 0.0, 0.0));
+	color = saturate(1.0 - gmin * (1.0 / 3.0));
+}
