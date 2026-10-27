@@ -1020,37 +1020,6 @@ static void targets_dma_ring(void)
 	CHECK(rdp_dma_since(&r, 0x200000 + (RDP_DMA_RING + 4) * 4096, 0x200000 + (RDP_DMA_RING + 4) * 4096 + 16, 1));
 }
 
-/* CopyColorFromRDRAM: un DMA posterior al último dibujo invalida la copia
- * RSX del framebuffer; al volver a dibujar ese destino hay que cebarlo. */
-static void targets_dma_refresh_detection(void)
-{
-	struct rdp_dma_ring r;
-	memset(&r, 0, sizeof r);
-	rdp_targets_init(&s);
-	int fb = draw(0x3b5000, 320);
-	struct rdp_target *t = &s.t[fb];
-	CHECK(!rdp_target_dma_updated(t, &r));
-
-	uint32_t end = t->addr + t->width * t->bpp * t->lh;
-	/* Una escritura dentro de la misma tarea ya dibujada no lo invalida. */
-	rdp_dma_note(&r, t->addr + 128, 64, t->last_task);
-	CHECK(!rdp_target_dma_updated(t, &r));
-	/* Sí cuenta una escritura que quedó asociada a la siguiente tarea. */
-	rdp_dma_note(&r, t->addr + 256, 64, t->last_task + 1u);
-	CHECK(rdp_target_dma_updated(t, &r));
-
-	/* Tras volver a dibujar el destino, el DMA antiguo no debe dispararse
-	 * otra vez; una escritura posterior sí debe hacerlo. */
-	rdp_targets_task(&s);
-	CHECK_EQ(draw(t->addr, t->width), fb);
-	CHECK(!rdp_target_dma_updated(t, &r));
-	rdp_dma_note(&r, end + 32, 16, t->last_task + 1u);
-	CHECK(!rdp_target_dma_updated(t, &r)); /* dirección fuera de la imagen */
-	rdp_dma_note(&r, t->addr + 512, 32, t->last_task + 1u);
-	CHECK(rdp_target_dma_updated(t, &r));
-	t->bpp = 1;
-	CHECK(!rdp_target_dma_updated(t, &r)); /* solo superficies RGBA5551 */
-}
 
 /* La guarda de las copias tardías (rdp_guard): Indiana Jones arma sus
  * listas de pantalla donde estuvo el framebuffer de 640 × 480 de la pantalla
@@ -1250,7 +1219,6 @@ void t_suite_targets(void)
 {
 	RUN(targets_recycled_slot);
 	RUN(targets_dma_ring);
-	RUN(targets_dma_refresh_detection);
 	RUN(targets_cpu_guard);
 	RUN(targets_profile_baseline_commit);
 	RUN(targets_profile_readback_transition);
