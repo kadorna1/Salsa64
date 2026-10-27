@@ -79,6 +79,9 @@ void salsa64_pif_reset(struct salsa64_bus *bus)
 	pif->parsed = 0;
 	memset(pif->held, 0, sizeof pif->held);
 	memset(pif->pak_err, 0, sizeof pif->pak_err);
+	memset(pif->rumble, 0, sizeof pif->rumble);
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+		salsa64_transferpak_reset(&pif->transferpak_state[i]);
 }
 
 void salsa64_pif_set_pad(struct salsa64_bus *bus, unsigned port, const struct salsa64_pad *pad)
@@ -172,14 +175,19 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 {
 	struct salsa64_pif *pif = &bus->pif;
 	struct salsa64_mempak *mp = bus->mempak;
-	bool pak = mp && mp->present[port];
+	bool rumble_pak = pif->accessory[port] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
+	bool transfer_pak = pif->accessory[port] == SALSA64_PIF_ACCESSORY_TRANSFER_PAK;
+	struct salsa64_transferpak_cart *tp = pif->transferpak[port];
+	bool controller_pak = pif->accessory[port] == SALSA64_PIF_ACCESSORY_CONTROLLER_PAK &&
+			      mp && mp->present[port];
+	bool pak = rumble_pak || transfer_pak || controller_pak;
 	const struct salsa64_pad *pad = &pif->pads[port];
 	switch (tx[0]) {
 	case JB_INFO:
 	case JB_RESET:
 		reply[0] = PAD_ID_HI;
 		reply[1] = PAD_ID_LO;
-		if (mp)
+		if (mp && !rumble_pak && !transfer_pak)
 			mp->cmd_status++;
 		reply[2] = pak ? (uint8_t)(PAD_PAK | (pif->pak_err[port] ? PAD_PAK_CRC : 0)) : PAD_NO_PAK;
 		return 3;
@@ -206,10 +214,24 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 		if (txlen < 3)
 			return -1;
 		uint16_t raw = (uint16_t)(tx[1] << 8 | tx[2]);
-		bool ok = pak && salsa64_mempak_read(mp, port, raw, reply);
+		bool ok = false;
+		if (salsa64_mempak_addr_ok(raw)) {
+			uint16_t addr = raw & 0xFFE0u;
+			if (rumble_pak) {
+				/* El Rumble Pak se identifica devolviendo 0x80 en 0x8000–0x8FFF. */
+				memset(reply, addr >= 0x8000u && addr < 0x9000u ? 0x80 : 0x00, PAK_BLOCK);
+				ok = true;
+			} else if (transfer_pak) {
+				salsa64_transferpak_read(&pif->transferpak_state[port], tp, addr, reply);
+				ok = true; /* sin cartucho GB, el Transfer Pak sigue contestando estado */
+			} else if (controller_pak) {
+				ok = salsa64_mempak_read(mp, port, raw, reply);
+			}
+		}
 		if (!ok)
 			memset(reply, 0, PAK_BLOCK);
-		pak_count(mp, pak, ok, raw, false);
+		if (!rumble_pak && !transfer_pak)
+			pak_count(mp, controller_pak, ok, raw, false);
 		pif->pak_err[port] = pak && !ok;
 		reply[PAK_BLOCK] = ok ? salsa64_joybus_crc8(reply, PAK_BLOCK) : 0xFF;
 		return PAK_BLOCK + 1;
@@ -219,8 +241,22 @@ static int pad_command(struct salsa64_bus *bus, unsigned port, const uint8_t *tx
 		if (txlen < 3 + PAK_BLOCK)
 			return -1;
 		uint16_t raw = (uint16_t)(tx[1] << 8 | tx[2]);
-		bool ok = pak && salsa64_mempak_write(mp, port, raw, tx + 3);
-		pak_count(mp, pak, ok, raw, true);
+		bool ok = false;
+		if (rumble_pak) {
+			ok = salsa64_mempak_addr_ok(raw);
+			if (ok && (raw & 0xFFE0u) == 0xC000u) {
+				/* El latch binario está en el bit 0 del primer byte del bloque. */
+				pif->rumble[port] = tx[3] & 1u;
+			}
+		} else if (transfer_pak) {
+			ok = salsa64_mempak_addr_ok(raw);
+			if (ok)
+				salsa64_transferpak_write(&pif->transferpak_state[port], tp, raw & 0xFFE0u, tx + 3);
+		} else if (controller_pak) {
+			ok = salsa64_mempak_write(mp, port, raw, tx + 3);
+		}
+		if (!rumble_pak && !transfer_pak)
+			pak_count(mp, controller_pak, ok, raw, true);
 		pif->pak_err[port] = pak && !ok;
 		uint8_t crc = salsa64_joybus_crc8(tx + 3, PAK_BLOCK);
 		reply[0] = ok ? crc : (uint8_t)~crc;

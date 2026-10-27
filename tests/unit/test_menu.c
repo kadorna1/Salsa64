@@ -17,6 +17,8 @@
 #include "frontend/cover.h"
 #include "test.h"
 
+void t_ziprom_suite(void);
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -139,9 +141,11 @@ static void menu_rom_extensions(void)
 	CHECK(romlist_has_rom_ext("oot.z64"));
 	CHECK(romlist_has_rom_ext("SM64.V64"));
 	CHECK(romlist_has_rom_ext("a.N64"));
+	CHECK(romlist_has_rom_ext("oot.zip"));
+	CHECK(romlist_has_rom_ext("SM64.ZIP"));
 	CHECK(!romlist_has_rom_ext(".z64"));
 	CHECK(!romlist_has_rom_ext("oot.z64.txt"));
-	CHECK(!romlist_has_rom_ext("oot.zip"));
+	CHECK(!romlist_has_rom_ext("oot.zip.bak"));
 	CHECK(!romlist_has_rom_ext("oot.x64"));
 	CHECK(!romlist_has_rom_ext("z64"));
 }
@@ -496,10 +500,16 @@ static void menu_refresh_buttons(void)
 	CHECK_EQ(menu_input(&m, CROSS, 4), MENU_REFRESH);
 	CHECK_EQ(m.page, MENU_PAGE_OPTIONS);
 	static const char *const labels[] = { "Actualizar lista", "Refresh list", "Actualiser la liste",
-					      "Liste aktualisieren", "Aggiorna elenco", "Atualizar lista" };
+					      "Liste aktualisieren", "Aggiorna elenco", "Atualizar lista",
+					      "Lijst vernieuwen", "Uppdatera listan", "Opdater listen",
+					      "Oppdater listen", "Päivitä lista", "Odśwież listę", "Listeyi yenile",
+					      "Обновить список" };
 	static const char *const notices[] = { "3 ROMs encontradas", "3 ROMs found", "3 ROM trouvées",
-					       "3 ROMs gefunden", "3 ROM trovate", "3 ROMs encontradas" };
-	for (int lang = 0; lang < MENU_LANGS; lang++) {
+					       "3 ROMs gefunden", "3 ROM trovate", "3 ROMs encontradas",
+					       "3 ROM's gevonden", "3 ROM-filer hittades", "3 ROM-filer fundet",
+					       "3 ROM-filer funnet", "3 ROMia löytyi", "Znaleziono ROM-ów: 3",
+					       "3 ROM bulundu", "Найдено ROM: 3" };
+	for (int lang = 0; lang <= MENU_LANG_RU; lang++) {
 		i18n_set(lang);
 		CHECK(!strcmp(tr("Actualizar lista"), labels[lang]));
 		menu_set_status(&m, "%u ROMs encontradas", 3u);
@@ -672,7 +682,7 @@ static void menu_density(void)
 	menu_input(&m, DOWN, 80);
 	CHECK_EQ(m.opt, MENU_OPT_RESOLUTION);
 	/* menu.cfg: ida y vuelta. */
-	char buf[512];
+	char buf[1024];
 	struct menu_settings back;
 	int n = menu_settings_format(&m.set, buf, sizeof buf);
 	CHECK(n > 0 && n < (int)sizeof buf);
@@ -821,6 +831,45 @@ static void menu_controls(void)
 	CHECK_EQ(m.page, MENU_PAGE_OPTIONS);
 }
 
+static void menu_accessory_option(void)
+{
+	struct menu m;
+	nav_setup(&m, 2, 0);
+	menu_input(&m, 0, 0);
+	m.page = MENU_PAGE_OPTIONS;
+	m.opt = MENU_OPT_ACCESSORY;
+	CHECK_EQ(m.set.accessory, MENU_ACC_PAK);
+	CHECK_EQ(menu_input(&m, RIGHT, 10), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_NONE);
+	menu_input(&m, 0, 20);
+	CHECK_EQ(menu_input(&m, CROSS, 30), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_RUMBLE);
+	menu_input(&m, 0, 40);
+	CHECK_EQ(menu_input(&m, LEFT, 50), MENU_SETTINGS);
+	CHECK_EQ(m.set.accessory, MENU_ACC_NONE);
+
+	/* Transfer Pak is persisted in both global and per-game text settings. */
+	struct menu_settings settings, parsed_settings;
+	char cfg[1024];
+	menu_settings_default(&settings);
+	settings.accessory = MENU_ACC_TRANSFER;
+	int n = menu_settings_format(&settings, cfg, sizeof cfg);
+	CHECK(n > 0 && n < (int)sizeof cfg);
+	menu_settings_default(&parsed_settings);
+	menu_settings_parse(&parsed_settings, cfg, (size_t)n);
+	CHECK_EQ(parsed_settings.accessory, MENU_ACC_TRANSFER);
+
+	struct menu_game game, parsed_game;
+	menu_game_default(&game);
+	game.accessory = MENU_ACC_TRANSFER;
+	n = menu_game_format(&game, cfg, sizeof cfg);
+	CHECK(n > 0 && n < (int)sizeof cfg);
+	menu_game_default(&parsed_game);
+	menu_game_parse(&parsed_game, cfg, (size_t)n);
+	CHECK_EQ(parsed_game.accessory, MENU_ACC_TRANSFER);
+	CHECK(!strcmp(menu_accessory_name(MENU_ACC_TRANSFER), "Transfer Pak"));
+}
+
 static void menu_game_page(void)
 {
 	struct menu m;
@@ -925,8 +974,8 @@ static void menu_game_page(void)
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_GEOMETRY);
 	back.interp = -1;
 	CHECK_EQ(menu_game_interp(&m.set, &back), MENU_INTERP_OFF);  /* la de Opciones */
-	/* Accesorio: Controller Pak por omisión, «ninguno» se guarda y se lee. */
-	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	/* Por omisión el accesorio hereda de Opciones; las elecciones explícitas van al archivo del juego. */
+	CHECK_EQ(back.accessory, -1);
 	m.game.accessory = MENU_ACC_NONE;
 	n = menu_game_format(&m.game, buf, sizeof buf);
 	CHECK(strstr(buf, "accesorio = ninguno") != NULL);
@@ -937,6 +986,25 @@ static void menu_game_page(void)
 	CHECK(strstr(buf, "accesorio = controller-pak") != NULL);
 	menu_game_parse(&back, buf, (size_t)n);
 	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	m.game.accessory = MENU_ACC_RUMBLE;
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	CHECK(strstr(buf, "accesorio = rumble-pak") != NULL);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.accessory, MENU_ACC_RUMBLE);
+	CHECK(!strcmp(menu_accessory_name(MENU_ACC_RUMBLE), "Rumble Pak"));
+	m.game.accessory = MENU_ACC_PAK;
+	n = menu_game_format(&m.game, buf, sizeof buf);
+	menu_game_parse(&back, buf, (size_t)n);
+	CHECK_EQ(back.accessory, MENU_ACC_PAK);
+	/* Global → Controller Pak and back: games can inherit or pin an accessory. */
+	m.game.accessory = -1;
+	m.game_sel = MENU_GAME_ACCESSORY;
+	menu_input(&m, 0, 179);
+	CHECK_EQ(menu_input(&m, RIGHT, 180), MENU_GAME_CHANGED);
+	CHECK_EQ(m.game.accessory, MENU_ACC_PAK);
+	menu_input(&m, 0, 181);
+	CHECK_EQ(menu_input(&m, LEFT, 182), MENU_GAME_CHANGED);
+	CHECK_EQ(m.game.accessory, -1);
 	const char *junk = "aspecto = 5:4\nfiltro = raro\nrecorte = x\nescala = 9\nescala-estable = 9\n";
 	menu_game_parse(&back, junk, strlen(junk));
 	CHECK_EQ(back.aspect, -1);
@@ -972,6 +1040,7 @@ static void menu_game_page(void)
 	st.filter = MENU_FILTER_SCAN_SOFT;
 	st.lang = MENU_LANG_DE;
 	st.interp = MENU_INTERP_GEOMETRY;
+	st.accessory = MENU_ACC_RUMBLE;
 	n = menu_settings_format(&st, buf, sizeof buf);
 	CHECK(n > 0 && n < (int)sizeof buf);
 	struct menu_settings st2;
@@ -981,6 +1050,26 @@ static void menu_game_page(void)
 	CHECK_EQ(st2.filter, MENU_FILTER_SCAN_SOFT);
 	CHECK_EQ(st2.lang, MENU_LANG_DE);
 	CHECK_EQ(st2.interp, MENU_INTERP_GEOMETRY);
+	CHECK_EQ(st2.accessory, MENU_ACC_RUMBLE);
+	/* Todos los idiomas, y «auto», van y vienen; una elección guardada no se pisa. */
+	for (int l = 0; l < MENU_LANGS; l++) {
+		st.lang = l;
+		n = menu_settings_format(&st, buf, sizeof buf);
+		menu_settings_default(&st2);
+		menu_settings_parse(&st2, buf, (size_t)n);
+		CHECK_EQ(st2.lang, l);
+	}
+	{
+		static const char old_cfg[] = "aspecto = 16:9\nidioma = fr\n";
+		menu_settings_default(&st2);
+		CHECK_EQ(st2.lang, MENU_LANG_AUTO);
+		menu_settings_parse(&st2, old_cfg, sizeof old_cfg - 1);
+		CHECK_EQ(st2.lang, MENU_LANG_FR);
+		static const char no_lang[] = "aspecto = 16:9\n";
+		menu_settings_default(&st2);
+		menu_settings_parse(&st2, no_lang, sizeof no_lang - 1);
+		CHECK_EQ(st2.lang, MENU_LANG_AUTO);
+	}
 }
 
 static void menu_options_page(void)
@@ -1147,6 +1236,9 @@ static void menu_options_page(void)
 	CHECK_EQ(m.opt, MENU_OPT_LANG);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_ACCESSORY);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
 	CHECK_EQ(m.opt, MENU_OPT_CONFIRM);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
@@ -1190,10 +1282,19 @@ static void menu_options_page(void)
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
 	CHECK(m.set.confirm);
-	/* Idioma: derecha avanza con vuelta; izquierda al revés. */
+	/* La selección de accesorio global queda entre confirmar e idioma. */
+	menu_input(&m, 0, 79);
+	menu_input(&m, DOWN, 79);
+	CHECK_EQ(m.opt, MENU_OPT_ACCESSORY);
 	menu_input(&m, 0, 79);
 	menu_input(&m, DOWN, 79);
 	CHECK_EQ(m.opt, MENU_OPT_LANG);
+	/* Idioma: derecha avanza con vuelta; izquierda al revés. Por omisión
+	 * «Automático», que va antes de español y después de finés. */
+	menu_input(&m, 0, 79);
+	CHECK_EQ(m.set.lang, MENU_LANG_AUTO);
+	menu_input(&m, 0, 79);
+	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
 	CHECK_EQ(m.set.lang, MENU_LANG_ES);
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
@@ -1202,7 +1303,10 @@ static void menu_options_page(void)
 	CHECK_EQ(menu_input(&m, LEFT, 79), MENU_SETTINGS);
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, LEFT, 79), MENU_SETTINGS);
-	CHECK_EQ(m.set.lang, MENU_LANG_PT);
+	CHECK_EQ(m.set.lang, MENU_LANG_AUTO);
+	menu_input(&m, 0, 79);
+	CHECK_EQ(menu_input(&m, LEFT, 79), MENU_SETTINGS);
+	CHECK_EQ(m.set.lang, MENU_LANG_RU);
 	m.set.lang = MENU_LANG_ES;
 	/* Orden y descargas: cambia y guarda la forma de ordenar; × pide bajar. */
 	menu_input(&m, 0, 79);
@@ -1387,6 +1491,8 @@ static void text_clip_utf8_ellipsis(void)
 
 /* ---- Geometría del menú y vista previa ---------------------------------------- */
 
+int rsxkit_glyph_total(void); /* lib/rsxkit/src/font.h (interna) */
+
 static uint8_t atlas[RSXKIT_UI_ATLAS_H][RSXKIT_UI_ATLAS_W * 4];
 static rsxkit_vertex verts[RSXKIT_UI_MAX_QUADS * 6];
 
@@ -1404,6 +1510,15 @@ static void ui_atlas_scale2x(void)
 			opaque += p[3] != 0;
 		}
 	CHECK(opaque > 0);
+	/* Todos los glifos y el bloque blanco caben: si el atlas se queda corto, el
+	 * bloque no se pinta y los rectángulos del menú salen negros. */
+	{
+		int solid = rsxkit_glyph_total();
+		int sx = (solid % 16) * 18 + 1, sy = (solid / 16) * 28 + 1;
+		CHECK(sy + 26 < RSXKIT_UI_ATLAS_H);
+		if (sy + 26 < RSXKIT_UI_ATLAS_H)
+			CHECK_EQ(atlas[sy + 13][4 * (sx + 8) + 3], 0xFF);
+	}
 	/* «A» (U+0041, índice 33): la barra de la fila 7 se vuelve las filas
 	 * 14 y 15 del glifo al doble; arriba de la letra (filas 0–3), nada. */
 	int ox = (33 % 16) * 18 + 1, oy = (33 / 16) * 28 + 1;
@@ -1454,6 +1569,131 @@ static void ui_geometry(void)
 	rsxkit_ui_batch(NULL, 0, 0, 0);
 	rsxkit_ui_rect(0, 0, 1, 1, 0xFFFFFFFF);
 	CHECK_EQ(rsxkit_ui_count(), 0);
+}
+
+/* Una fuente externa de prueba: anchos proporcionales, «X» no la tiene. */
+static unsigned fake_renders;
+
+static int fake_render(void *user, uint32_t cp, uint8_t *alpha, uint32_t pitch, rsxkit_glyph_info *g)
+{
+	(void)user;
+	fake_renders++;
+	if (cp == 'X')
+		return -1;
+	if (cp == ' ') {
+		g->advance = 10.0f, g->left = 0, g->width = 0;
+		return 0;
+	}
+	int w = cp == 0x3042 ? 22 : 6 + (int)(cp % 5) * 2;
+	for (int y = 0; y < RSXKIT_GLYPH_BOX; y++)
+		for (int x = 0; x < w; x++)
+			alpha[y * pitch + (uint32_t)x] = 0xFF;
+	g->left = 1;
+	g->width = w;
+	g->advance = (float)w + 2.0f;
+	return 0;
+}
+
+static const rsxkit_glyph_source fake_font = { "prueba", NULL, fake_render };
+
+static void ui_external_font(void)
+{
+	rsxkit_ui_atlas(&atlas[0][0], RSXKIT_UI_ATLAS_W * 4);
+	/* Con la 8x13, el ancho es celdas × 8 × escala, como siempre. */
+	rsxkit_ui_font(NULL);
+	CHECK(rsxkit_ui_text_width("año ñ…", 1.5f) == 6 * 8 * 1.5f);
+	CHECK(rsxkit_ui_text_fit_width("abcdefgh", 1.0f, 33.0f) == 32.0f);
+	const char *next;
+	CHECK_EQ(rsxkit_ui_text_wrap("hola mundo cruel", 1.0f, 11 * 8.0f, &next), 10);
+	CHECK(!strcmp(next, "cruel"));
+	CHECK_EQ(rsxkit_ui_text_wrap("abcdefghij", 1.0f, 4 * 8.0f, &next), 4);  /* sin espacios: entre letras */
+	CHECK(!strcmp(next, "efghij"));
+	CHECK_EQ(rsxkit_ui_text_wrap("corto", 1.0f, 100.0f, &next), 5);
+	CHECK(*next == '\0');
+
+	rsxkit_ui_font(&fake_font);
+	CHECK(rsxkit_ui_font_source() == &fake_font);
+	fake_renders = 0;
+	/* «a» (97): 10 de tinta, avance 12 téxeles = 6 unidades; «b» (98): 14 = 7. */
+	CHECK(rsxkit_ui_text_width("ab", 2.0f) == 26.0f);
+	CHECK_EQ(fake_renders, 2);
+	CHECK(rsxkit_ui_text_width("ab", 1.0f) == 13.0f);
+	CHECK_EQ(fake_renders, 2);  /* medido una vez, nada más */
+	CHECK(rsxkit_ui_text_width("X", 1.0f) == 8.0f);  /* no la tiene: la 8x13 */
+
+	rsxkit_ui_batch(verts, sizeof verts / sizeof verts[0], 1280, 720);
+	float w = rsxkit_ui_text(100, 50, "a Xb", 2.0f, 0xFFFFFFFF, 0);
+	CHECK(w == 2.0f * (6 + 5 + 8 + 7));
+	CHECK_EQ(rsxkit_ui_count(), 3 * 6);
+	/* «a»: desde la pluma + 1 téxel (media unidad), 10 téxeles de ancho;
+	 * su imagen en una casilla de la caché (fuera de la zona de la 8x13). */
+	CHECK(verts[0].pos[0] == 101.0f && verts[1].pos[0] == 111.0f && verts[2].pos[1] == 50.0f + 26.0f);
+	CHECK(verts[0].st[0] >= RSXKIT_UI_ATLAS_FIXED_W || verts[0].st[1] >= RSXKIT_UI_ATLAS_FIXED_H);
+	CHECK(verts[1].st[0] - verts[0].st[0] == 10.0f && verts[2].st[1] - verts[0].st[1] == 26.0f);
+	{
+		int sx = (int)verts[0].st[0], sy = (int)verts[0].st[1];
+		CHECK_EQ(atlas[sy + 5][4 * (sx + 3) + 3], 0xFF);
+		CHECK_EQ(atlas[sy + 5][4 * (sx + 10) + 3], 0);  /* fuera de la tinta */
+		CHECK_EQ(atlas[sy - 1][4 * (sx + 3) + 3], 0);   /* borde de la casilla */
+	}
+	/* «X», con la celda de la 8x13. */
+	CHECK(verts[6].pos[0] == 100.0f + 2.0f * 11 && verts[6].st[0] < RSXKIT_UI_ATLAS_FIXED_W &&
+	      verts[6].st[1] < RSXKIT_UI_ATLAS_FIXED_H);
+	rsxkit_ui_font_stats st;
+	rsxkit_ui_font_stats_get(&st);
+	CHECK_EQ(st.fallback, 1);
+	CHECK_EQ(st.resident, 2);
+	CHECK(st.hits >= 2);
+
+	/* Corte con «…» (U+2026: 8230 % 5 = 0, 6 de tinta, avance 4 unidades). */
+	float full = rsxkit_ui_text_width("abababab", 1.0f);
+	CHECK(full == 52.0f);
+	float cut = rsxkit_ui_text_fit_width("abababab", 1.0f, 30.0f);
+	CHECK(cut <= 30.0f && cut > 30.0f - 7.0f - 6.0f);
+	CHECK(rsxkit_ui_text_fit_width("abababab", 1.0f, 52.0f) == 52.0f);
+	/* Corte de línea en japonés: entre caracteres (あ avanza 12 unidades),
+	 * sin dejar «。» al principio del renglón. */
+	CHECK_EQ(rsxkit_ui_text_wrap("あああ", 1.0f, 25.0f, &next), 6);
+	CHECK(!strcmp(next, "あ"));
+	CHECK_EQ(rsxkit_ui_text_wrap("ああ。", 1.0f, 25.0f, &next), 3);
+	CHECK(!strcmp(next, "あ。"));
+
+	/* LRU: llenar la caché en un cuadro; uno más ya no cabe (todas en uso
+	 * en este cuadro) y espera; dos cuadros después, reemplaza la menos usada. */
+	rsxkit_ui_font(NULL);
+	rsxkit_ui_font(&fake_font);
+	rsxkit_ui_batch(verts, sizeof verts / sizeof verts[0], 1280, 720);
+	char buf[8];
+	for (uint32_t i = 0; i < RSXKIT_UI_GLYPH_SLOTS; i++) {
+		uint32_t cp = 0x4E00 + i;
+		buf[0] = (char)(0xE0 | cp >> 12), buf[1] = (char)(0x80 | (cp >> 6 & 0x3F)), buf[2] = (char)(0x80 | (cp & 0x3F)), buf[3] = 0;
+		rsxkit_ui_batch(verts, sizeof verts / sizeof verts[0], 1280, 720);  /* un cuadro por glifo: el primero es el más viejo */
+		rsxkit_ui_text(0, 0, buf, 1.0f, 0xFFFFFFFF, 0);
+	}
+	rsxkit_ui_font_stats_get(&st);
+	CHECK_EQ(st.resident, RSXKIT_UI_GLYPH_SLOTS);
+	CHECK_EQ(st.evictions, 0);
+	uint32_t deferred = st.deferred, ev = st.evictions;
+	rsxkit_ui_batch(verts, sizeof verts / sizeof verts[0], 1280, 720);
+	rsxkit_ui_text(0, 0, "a", 1.0f, 0xFFFFFFFF, 0);
+	rsxkit_ui_font_stats_get(&st);
+	CHECK_EQ(st.evictions, ev + 1);  /* el de U+4E00, usado hace muchos cuadros */
+	CHECK_EQ(st.deferred, deferred);
+	CHECK_EQ(rsxkit_ui_count(), 6);
+	/* Todas usadas en este cuadro: lo nuevo espera al siguiente. */
+	rsxkit_ui_batch(verts, sizeof verts / sizeof verts[0], 1280, 720);
+	for (uint32_t i = 0; i < RSXKIT_UI_GLYPH_SLOTS; i++) {
+		uint32_t cp = 0x5000 + i;
+		buf[0] = (char)(0xE0 | cp >> 12), buf[1] = (char)(0x80 | (cp >> 6 & 0x3F)), buf[2] = (char)(0x80 | (cp & 0x3F)), buf[3] = 0;
+		rsxkit_ui_text(0, 0, buf, 1.0f, 0xFFFFFFFF, 0);
+	}
+	rsxkit_ui_font_stats_get(&st);
+	CHECK(st.deferred > deferred);
+	CHECK(st.resident == RSXKIT_UI_GLYPH_SLOTS);
+
+	rsxkit_ui_batch(NULL, 0, 0, 0);
+	rsxkit_ui_font(NULL);
+	rsxkit_ui_atlas(&atlas[0][0], RSXKIT_UI_ATLAS_W * 4);
 }
 
 /* Rasteriza el lote como lo haría el RSX (téxeles con filtro bilineal,
@@ -2162,6 +2402,7 @@ void t_suite_menu(void)
 	RUN(menu_video_file);
 	RUN(menu_pages);
 	RUN(menu_options_page);
+	RUN(menu_accessory_option);
 	RUN(menu_game_page);
 	RUN(menu_density);
 	RUN(menu_controls);
@@ -2171,6 +2412,7 @@ void t_suite_menu(void)
 	RUN(text_clip_utf8_ellipsis);
 	RUN(ui_atlas_scale2x);
 	RUN(ui_geometry);
+	RUN(ui_external_font);
 	RUN(menu_frame_geometry);
 	RUN(menu_options_help);
 	RUN(menu_cfg_differs);
@@ -2179,6 +2421,7 @@ void t_suite_menu(void)
 	RUN(version_texts);
 	RUN(menu_version_place);
 	RUN(menu_preview);
+	t_ziprom_suite();
 	romlist_free(nav_list);
 	romlist_free(frame_list);
 }

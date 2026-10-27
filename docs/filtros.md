@@ -210,3 +210,9 @@ va sobre la imagen chica (lineal, resplandor, señal y decodificación) no.
 Las propuestas para bajarlo (escala 2× con un CRT, no rehacer el filtro en
 los campos repetidos, la señal del cable en un SPE) y sus estimados están
 en el mismo lugar.
+
+## Caché final y autoprueba exacta
+
+`filtros-sin-optimizar` conserva la ruta original; sin ella se guarda la salida X8R8G8B8 a viewport idéntico y se copia con NEAREST en imágenes con generación válida. La caché se invalida al cambiar filtro, tamaño, aspecto o textura; una imagen sin generación sigue por la ruta original.
+`filtros-autoprueba` al arrancar dibuja seis CRT con cuatro patrones propios y compara todos los píxeles RGB (incluidas las bandas) en 96 casos: vieja, nueva, repetida y sin generación; registra diferencias, máximo y tiempo RSX, y sale. Ante un fallo crea `filtros-opt-fallo`, que desactiva la caché también en próximas aperturas.
+PS3: activar la autoprueba, abrir «Salsa64 Filtros», esperar la salida y bajar el log antes de otra apertura; exigir 96/96, cero diferencias y `RESULTADO filtros: OK`. Después renombrar la bandera a `.off` y jugar el mismo recorrido 2 min con Trinitron a 3× fijo, con y sin `filtros-sin-optimizar`, guardando cada log. Repetir la autoprueba en cada resolución usada; ante un píxel distinto, descartar la variante. Inventario y estimaciones: `docs/perf-log.md`.

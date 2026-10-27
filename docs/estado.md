@@ -1,5 +1,32 @@
 # Estado
 
+## 2026-10-26 — #34, profundidad de LEGO Racers
+- Las cajas 2219/2277 muestran la parrilla y 2650/2842 la carrera; sus 58 tareas crudas conservan coches, pista y HUD.
+- En la carrera de ares, HLE y RDP real coinciden en escena; el framebuffer da 23,80 dB por píxel, 29,97 dB en 4×4 y diferencia media <1/255 por canal.
+- Cada tarea borra `3c3f00`, dibuja un auxiliar de 32/64 y vuelve a borrar antes del framebuffer 320 × 240 (`1853c0`/`1aac00`).
+- En PS3 los auxiliares van a 5× y el framebuffer a 3×: el segundo borrado se ejecutaba aún ligado al auxiliar y solo cubría 160/320 frente a 960 × 720.
+- No es el caso de RE2: hay cero color images reutilizadas como z image y cero cargas de z desde RDRAM.
+- Para NLG el borrado queda pendiente hasta ligar el destino siguiente y sobrevive si esa profundidad crece; `zclear-inmediato` restaura el camino anterior.
+- LEGO Racers figura explícitamente sin chip de guardado; el Controller Pak no cambia.
+- `test-host`: 713/713; `test-roms` y build PS3 completos; 8/8 escenas doradas, RE2 y Conker idénticos al árbol anterior.
+
+## 2026-10-26 — Rumble Pak y Transfer Pak experimental
+- Accesorio global, por juego y por puerto en pausa; el DS3 usa solo el motor grande y se apaga en todo cierre.
+- Transfer Pak propio: secuencias 8D→89→89 y 88→84→80, acceso protegido y MBC1/2/3/5 con SRAM.
+- Las ROM GB validan tamaño y cabecera; MBC3 RTC no avanza y MBC5 con rumble se rechaza.
+- La sección aditiva TPAK guarda identidad, registros, SRAM y latch; estados sin ella reinician los accesorios.
+- Pruebas del protocolo, SI diferido, mappers, archivos y estados; falta validación en PS3 real.
+
+## 2026-10-25 — #37, vida de las texturas en el RSX
+
+- La caché normal solo recicla entradas tras la barrera del RSX; las tres arenas y el staging SPE también esperan su consumidor.
+- La TLUT se decodifica a RGBA8888 dentro de cada entrada: no hay una paleta mutable que el RSX lea en paralelo.
+- Las listas XBUS sí tenían otro directorio sobre la misma región XDR y podían pisar una tarea SPE aún en vuelo.
+- Ahora XBUS recoge primero el SPE y usa solo el arena de su tarea; `texturas-xbus-viejo` restaura el camino anterior.
+- `texturas-espera-rsx` espera todas las tareas anteriores antes de escribir texturas y sirve como diagnóstico fuerte.
+- El log cuenta listas XBUS, llegadas en vuelo, esperas y tiempo, además de las esperas del diagnóstico.
+- Exotica produjo 0 listas XBUS en el host: el riesgo es real y general, pero no explica todavía su cuadro intermitente.
+
 ## 2026-10-25 — Monaco: atraso gráfico acotado sin quitar el solape
 
 - El volcado mostró al hilo de audio muerto por TLBL: una lista de 101,94 ms atrasó la IRQ del SP 8,63 M ciclos y agotó sus 11 nodos.
@@ -15,6 +42,22 @@
 - Joust: 45/45 tareas idénticas al RSP real; Tapper: 2/2, con cero píxeles distintos.
 - El RDP sí escribe los destinos que cubren el VI; no cambió la presentación ni requiere interruptor.
 - Host: 692 pruebas y tres gfxtest sin fallos; lockstep de cinco juegos y MGAH, 600 campos.
+
+## 2026-10-25 — Filtros, segunda ronda: salida directa
+- La final dibuja en pantalla; los repetidos leen el búfer anterior, sin reserva extra.
+- UI/sistema invalidan la caché; `filtros-sin-optimizar` conserva la ruta original.
+- Autoprueba: 192 casos, máximo RGB ≤1; verifica cero copias en cuadros completos.
+- Host 691/887841/0; RPCS3 720p/1080p 192/192, máximo 0; pendientes tiempos PS3.
+- `crt_spe` idéntico, holgura 74688 B; shaders originales idénticos.
+- Variante fp16 descartada tras dos fallos de ensamblado H→R; detalle en `docs/perf-log.md`.
+
+## 2026-10-25 — Caché de salida CRT y comparación exacta
+- Misma aritmética y viewport; salida X8R8G8B8 reutilizada con generación válida.
+- `filtros-sin-optimizar`: ruta anterior; `filtros-autoprueba`: 96 casos propios.
+- Comparación de todos los píxeles RGB, tolerancia cero; cualquier fallo rechaza la caché.
+- Inventario y estimaciones en `docs/perf-log.md`; exactitud y tiempos pendientes de PS3.
+- Host: 691/887841/0; RPCS3: 96/96 a 720p y 1080p, gfxtest 42/42 normal y fase 8.
+- Envoltura gráfica compacta: holguras 1728/1568 B; CRT idéntico, 74688 B.
 
 ## 2026-10-25 — #37, Cruis'n USA supera la pantalla de copyright
 

@@ -6,6 +6,9 @@
 
 #include <string.h>
 
+#include "core/endian.h"
+#include "core/mempak.h"
+#include "core/transferpak.h"
 #include "frontend/padmap.h"
 
 #define SI_DRAM_ADDR      0x04800000u
@@ -325,6 +328,213 @@ static void pif_crc8(void)
 	CHECK_EQ(salsa64_joybus_crc8(d, 32), 0x33);
 }
 
+/* Rumble Pak: detección por el bloque 0x8000 y motor por escritura en 0xC000. */
+static void pif_rumble_pak(void)
+{
+	uint8_t cmds[64];
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
+	pad(0, 0, 0, 0);
+
+	/* Consulta de identificación: el accesorio está presente. */
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x01; cmds[1] = 0x03; cmds[2] = 0x00; cmds[6] = 0xFE;
+	pif_load(cmds, 7, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[3], 0x05);
+	CHECK_EQ(ram()[4], 0x00);
+	CHECK_EQ(ram()[5], 0x01);
+
+	/* El área 0x8000 devuelve 32 bytes de 0x80, con CRC de datos válido. */
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x03; cmds[1] = 0x21; cmds[2] = 0x02; cmds[3] = 0x80; cmds[4] = 0x01; cmds[38] = 0xFE;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	for (unsigned i = 0; i < 32; i++)
+		CHECK_EQ(ram()[5 + i], 0x80);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	/* Solo el bit 0 del primer byte del bloque C000 controla el latch. */
+	memset(cmds, 0, sizeof cmds);
+	cmds[0] = 0x23; cmds[1] = 0x01; cmds[2] = 0x03; cmds[3] = 0xC0; cmds[4] = 0x1B;
+	cmds[38] = 0xFE;
+	cmds[6] = 0xFF; /* otros bytes no encienden */
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	cmds[5] = 0x02; /* tampoco otro bit del primer byte */
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	memset(cmds + 5, 0, 32);
+	cmds[5] = 0x01;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 1);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	cmds[5] = 0;
+	cmds[36] = 0x80; /* bloque mixto con el latch apagado */
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_NONE;
+}
+
+/* PIF → Transfer Pak: el Joybus routing debe respetar el CRC de dirección,
+ * la identificación de accesorio, los registros de control y el acceso al GB ROM. */
+static uint16_t tpak_raw_addr(uint16_t address)
+{
+	return (uint16_t)((address & 0xFFE0u) | salsa64_mempak_addr_crc(address));
+}
+
+static void pif_tpak_write(uint16_t address, uint8_t value)
+{
+	uint8_t cmds[64];
+	uint16_t raw = tpak_raw_addr(address);
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x23; /* TX: comando + dirección + 32 datos */
+	cmds[1] = 0x01; /* RX: CRC de escritura */
+	cmds[2] = 0x03;
+	cmds[3] = (uint8_t)(raw >> 8);
+	cmds[4] = (uint8_t)raw;
+	memset(cmds + 5, value, 32);
+	cmds[38] = 0xFE;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+}
+
+static void pif_tpak_read(uint16_t address, uint8_t out[32])
+{
+	uint8_t cmds[64];
+	uint16_t raw = tpak_raw_addr(address);
+	memset(cmds, 0xFF, sizeof cmds);
+	cmds[0] = 0x03; /* TX: comando + dirección */
+	cmds[1] = 0x21; /* RX: 32 datos + CRC */
+	cmds[2] = 0x02;
+	cmds[3] = (uint8_t)(raw >> 8);
+	cmds[4] = (uint8_t)raw;
+	cmds[38] = 0xFE;
+	pif_load(cmds, 39, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[37], salsa64_joybus_crc8(ram() + 5, 32));
+	memcpy(out, ram() + 5, 32);
+}
+
+static void pif_transferpak(void)
+{
+	static uint8_t gb_rom[0x8000];
+	struct salsa64_transferpak_cart cart;
+	uint8_t data[32], info[] = { 0x01, 0x03, 0x00, 0xFF, 0xFF, 0xFF, 0xFE };
+
+	memset(gb_rom, 0xA5, sizeof gb_rom);
+	gb_rom[0x147] = 0x00; /* ROM only */
+	gb_rom[0x148] = 0x00; /* 32 KiB */
+	gb_rom[0x149] = 0x00;
+	uint8_t sum = 0;
+	for (unsigned i = 0x134; i <= 0x14C; i++)
+		sum = (uint8_t)(sum - gb_rom[i] - 1u);
+	gb_rom[0x14D] = sum;
+	CHECK(salsa64_transferpak_cart_init(&cart, gb_rom, sizeof gb_rom, NULL, 0));
+	bus()->pif.transferpak[0] = &cart;
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_TRANSFER_PAK;
+	salsa64_transferpak_reset(&bus()->pif.transferpak_state[0]);
+	pad(0, 0, 0, 0);
+
+	pif_load(info, sizeof info, 0x01);
+	salsa64_pif_execute(bus());
+	CHECK_EQ(ram()[3], 0x05); /* ordinary controller ID */
+	CHECK_EQ(ram()[4], 0x00);
+	CHECK_EQ(ram()[5], 0x01); /* accessory present */
+
+	pif_tpak_write(0x8000, 0x84); /* power on */
+	pif_tpak_read(0x8000, data);
+	CHECK_EQ(data[0], 0x84);
+	CHECK_EQ(data[31], 0x84);
+	pif_tpak_write(0xA000, 0); /* map the first 16 KiB GB bank */
+	pif_tpak_write(0xB000, 1); /* enable GB cartridge access */
+	pif_tpak_read(0xC000, data);
+	CHECK_EQ(data[0], 0xA5);
+	CHECK_EQ(data[31], 0xA5);
+
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_NONE;
+	bus()->pif.transferpak[0] = NULL; /* don't retain a pointer to this test's cart */
+	salsa64_transferpak_reset(&bus()->pif.transferpak_state[0]);
+}
+
+static void si_write_block(uint32_t pa, uint16_t address, uint8_t value)
+{
+	uint8_t cmd[64];
+	uint16_t raw = tpak_raw_addr(address);
+	memset(cmd, 0, sizeof cmd);
+	cmd[0] = 0x23;
+	cmd[1] = 0x01;
+	cmd[2] = 0x03;
+	cmd[3] = (uint8_t)(raw >> 8);
+	cmd[4] = (uint8_t)raw;
+	memset(cmd + 5, value, 32);
+	cmd[38] = 0xFE;
+	cmd[63] = 0x01;
+	for (unsigned i = 0; i < sizeof cmd; i += 4)
+		t_wr32(pa + i, salsa64_rd32(cmd + i));
+}
+
+/* Los efectos de accesorios y su respuesta ocurren al terminar el DMA de
+ * lectura del SI, no al programarlo ni mientras STATUS conserva BUSY. */
+static void pif_accessories_deferred_si(void)
+{
+	uint32_t src = 0x7000, dst = 0x7100;
+	pad(0, 0, 0, 0);
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
+	bus()->pif.rumble[0] = 0;
+	si_write_block(src, 0xC000, 1);
+	salsa64_bus_write32(bus(), SI_DRAM_ADDR, src, ~0u);
+	salsa64_bus_write32(bus(), SI_PIF_WR64B, PIF_RAM, ~0u);
+	CHECK_EQ(salsa64_bus_read32(bus(), SI_STATUS), 0x411);
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	si_finish();
+	salsa64_bus_write32(bus(), SI_STATUS, 0, ~0u);
+	salsa64_bus_write32(bus(), SI_DRAM_ADDR, dst, ~0u);
+	salsa64_bus_write32(bus(), SI_PIF_RD64B, PIF_RAM, ~0u);
+	CHECK_EQ(salsa64_bus_read32(bus(), SI_STATUS), 0x141);
+	CHECK_EQ(bus()->pif.rumble[0], 0);
+	si_finish();
+	CHECK_EQ(bus()->pif.rumble[0], 1);
+	CHECK_EQ(bus()->rdram[dst + 37], salsa64_joybus_crc8(bus()->rdram + src + 5, 32));
+	salsa64_bus_write32(bus(), SI_STATUS, 0, ~0u);
+
+	struct salsa64_transferpak_cart empty;
+	memset(&empty, 0, sizeof empty);
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_TRANSFER_PAK;
+	bus()->pif.transferpak[0] = &empty;
+	salsa64_transferpak_reset(&bus()->pif.transferpak_state[0]);
+	si_write_block(src, 0x8000, 0x84);
+	salsa64_bus_write32(bus(), SI_DRAM_ADDR, src, ~0u);
+	salsa64_bus_write32(bus(), SI_PIF_WR64B, PIF_RAM, ~0u);
+	CHECK_EQ(salsa64_bus_read32(bus(), SI_STATUS), 0x411);
+	CHECK_EQ(bus()->pif.transferpak_state[0].power, 0);
+	si_finish();
+	salsa64_bus_write32(bus(), SI_STATUS, 0, ~0u);
+	salsa64_bus_write32(bus(), SI_DRAM_ADDR, dst, ~0u);
+	salsa64_bus_write32(bus(), SI_PIF_RD64B, PIF_RAM, ~0u);
+	CHECK_EQ(salsa64_bus_read32(bus(), SI_STATUS), 0x141);
+	CHECK_EQ(bus()->pif.transferpak_state[0].power, 0);
+	si_finish();
+	CHECK_EQ(bus()->pif.transferpak_state[0].power, 1);
+	CHECK_EQ(bus()->rdram[dst + 37], salsa64_joybus_crc8(bus()->rdram + src + 5, 32));
+	salsa64_bus_write32(bus(), SI_STATUS, 0, ~0u);
+	bus()->pif.accessory[0] = SALSA64_PIF_ACCESSORY_NONE;
+	bus()->pif.transferpak[0] = NULL;
+	salsa64_transferpak_reset(&bus()->pif.transferpak_state[0]);
+	bus()->pif.rumble[0] = 0;
+}
+
 /* Respuesta más corta que lo pedido: bit 0x40; más larga: se recorta. */
 static void pif_rx_length(void)
 {
@@ -554,6 +764,9 @@ void t_suite_pif(void)
 	RUN(pif_reset_combo);
 	RUN(pif_held_press);
 	RUN(pif_no_pak);
+	RUN(pif_rumble_pak);
+	RUN(pif_transferpak);
+	RUN(pif_accessories_deferred_si);
 	RUN(pif_crc8);
 	RUN(pif_rx_length);
 	RUN(pif_reset_keeps_pads);

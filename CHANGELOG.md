@@ -4,6 +4,52 @@ All notable changes to Salsa64. Speeds are measured on a real PS3 (HEN,
 NTSC backups); `docs/perf-log.md` has the detailed numbers and
 `docs/estado.md` the work log (both in Spanish).
 
+## [Unreleased]
+
+### Added
+- **ZIP ROM loading:** the browser detects `.zip` archives, reads the embedded N64 header for the game list, and extracts the first supported `.z64`/`.v64`/`.n64` member using zlib. Deflate and stored entries are supported; full extraction checks the uncompressed size and CRC-32 before launch.
+
+## [0.2.13] — 2026-10-26
+
+### Added
+- **PS3 system font for all text, and Japanese, Korean and Chinese menus:**
+  menus, pause, notices and option panels now use the console's own XMB font
+  (read from the PS3 at run time), with proportional spacing, word wrapping
+  and a glyph cache. Japanese, Korean, Traditional Chinese and Simplified
+  Chinese are offered (and picked by "Automatic") only when the system font
+  loads; otherwise they fall back to English as before. The built-in 8x13
+  font remains as a fallback, and the file `/dev_hdd0/salsa64/fuente-propia`
+  forces it.
+- **Eight more languages and an "Automatic" setting:** Dutch, Swedish, Danish,
+  Norwegian, Finnish, Polish, Turkish and Russian (the menu font gains the
+  Polish and Turkish letters and basic Cyrillic) join Spanish, English, French, German, Italian and
+  Portuguese. "Automatic" (the default for new setups) follows the console's
+  system language; languages without a translation fall back to English.
+  An explicit choice already saved in `menu.cfg` is kept. Every on-screen
+  text, including download, save-state and region messages, is now
+  translated, and `make test-host` checks that none is missing.
+- **Rumble Pak and live accessory selection:** choose Controller Pak, Rumble
+  Pak, Transfer Pak or no accessory globally, per game and per controller
+  from the pause menu. DualShock 3 vibration stops on pause and exit (thanks
+  to kadorna1, #45/#46).
+- **Experimental Transfer Pak:** load a validated `<n64-rom>.gb` or `.gbc`
+  sidecar, use ROM-only/MBC1/MBC2/MBC3/MBC5 cartridges, persist their SRAM
+  and keep Transfer Pak state in save states (thanks to kadorna1, #45/#46).
+
+### Fixed
+- **LEGO Racers:** cars and scenery no longer disappear when its 32/64-pixel
+  auxiliary targets and 320-pixel framebuffer share one depth image. Depth
+  clears now wait for the colour target they precede; `zclear-inmediato`
+  restores the previous path for comparison. The game is also recognized as
+  using no save chip, without affecting its Controller Pak support (#34).
+- XBUS RDP lists no longer share decoded-texture cache storage with an
+  in-flight graphics SPE task (`texturas-xbus-viejo` restores the old path).
+
+### Changed
+- **Faster CRT filters:** the filter output is reused when a frame repeats and
+  full frames skip one copy, so the RSX does less work per frame (about 23 %
+  less GPU time in Diddy Kong Racing on a real PS3).
+
 ## [0.2.12] — 2026-10-26
 
 ### Added
@@ -16,6 +62,12 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   of SPU stack (thanks to kadorna1, #41). The output is identical.
 - Builds with GCC 13 and warnings enabled, and the directory scan test no
   longer depends on the file system order (thanks to Manfline).
+
+### Changed
+- CRT cache now reuses screen buffers without copying complete frames; on-console self-test checks 192 cases with a one-level RGB tolerance.
+
+### Added
+- CRT output cache with an exact on-console A/B self-test and an original-path switch (hardware validation pending).
 
 ### Fixed
 - **Monaco Grand Prix:** no longer freezes after choosing Single when a slow graphics task finishes; SP interrupt delay is capped at one video field.

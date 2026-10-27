@@ -1,0 +1,6 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/* Presentación del CRT ya cuantizado a X8R8G8B8, un texel por píxel. */
+void main(float4 pos : TEXCOORD0, uniform sampler2D image : TEXUNIT0, out float4 color : COLOR)
+{
+	color = tex2D(image, floor(pos.xy) + 0.5);
+}

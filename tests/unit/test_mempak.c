@@ -114,6 +114,7 @@ static void plug(void)
 	salsa64_mempak_init(&mp);
 	for (unsigned p = 0; p < 4; p++) {
 		mp.present[p] = 1;
+		bus()->pif.accessory[p] = SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
 		connect(p, true);
 	}
 	bus()->mempak = &mp;
@@ -122,8 +123,10 @@ static void plug(void)
 static void unplug(void)
 {
 	bus()->mempak = NULL;
-	for (unsigned p = 0; p < 4; p++)
+	for (unsigned p = 0; p < 4; p++) {
 		connect(p, false);
+		bus()->pif.accessory[p] = SALSA64_PIF_ACCESSORY_NONE;
+	}
 }
 
 /* ---- Verificaciones ------------------------------------------------------- */
@@ -231,6 +234,20 @@ static void status_bits(void)
 {
 	plug();
 	CHECK_EQ(pad_status(0), 0x01);  /* hay pak */
+	/* El tipo es por puerto: el mismo juego puede alternar Pak, sin accesorio
+	 * y Rumble Pak mientras está en marcha. */
+	uint8_t data[32];
+	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_NONE;
+	CHECK_EQ(pad_status(1), 0x02);
+	CHECK_EQ(pak_read(1, 0x8000, data), 0xFF);
+	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_RUMBLE_PAK;
+	CHECK_EQ(pad_status(1), 0x01);
+	uint8_t rumble_crc = pak_read(1, 0x8000, data);
+	CHECK_EQ(rumble_crc, salsa64_joybus_crc8(data, 32));
+	for (unsigned i = 0; i < 32; i++)
+		CHECK_EQ(data[i], 0x80);
+	bus()->pif.accessory[1] = SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
+	CHECK_EQ(pad_status(1), 0x01);
 	mp.present[2] = 0;
 	CHECK_EQ(pad_status(2), 0x02);  /* sin pak */
 	CHECK_EQ(pad_status(1), 0x01);

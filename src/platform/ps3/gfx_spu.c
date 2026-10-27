@@ -773,8 +773,19 @@ static uint32_t spu_finish(void *ctx)
 static uint32_t spu_dpc_run(void *ctx, uint32_t start, uint32_t end, const uint8_t *dmem)
 {
 	struct salsa64_gfx_spu *s = ctx;
-	if (dmem && s->xbus)
+	if (dmem && s->xbus) {
+		s->xbus_runs++;
+		if (s->pending) {
+			s->xbus_inflight++;
+			if (s->xbus_safe) {
+				uint64_t t0 = sysGetSystemTime();
+				salsa64_rsp_quiesce((struct salsa64_bus *)s->bus);
+				s->xbus_waits++;
+				s->xbus_wait_us += sysGetSystemTime() - t0;
+			}
+		}
 		return s->xbus->run(s->xbus->ctx, start, end, dmem);
+	}
 	if (s->pending)
 		salsa64_rsp_quiesce((struct salsa64_bus *)s->bus);
 	if (!need_image(s, SALSA64_GBI_UNKNOWN))

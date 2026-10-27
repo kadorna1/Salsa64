@@ -62,6 +62,7 @@ enum {
 	RSXKIT_ENOMEM = -3,    /* memoria local del RSX */
 	RSXKIT_EARG = -4,      /* argumento fuera de rango */
 	RSXKIT_EDEPTH = -5,    /* ninguna zeta cubre el destino (rsxkit_depth_reserve) */
+	RSXKIT_EFONT = -6,     /* la fuente del sistema: módulo, biblioteca o juego de fuentes (sysfont.h) */
 };
 
 typedef struct rsxkit_screen {
@@ -350,6 +351,15 @@ typedef struct rsxkit_texture {
 	uint8_t pad[2];
 	float xf[4];
 } rsxkit_texture;
+
+/* Vista prestada del búfer actual, sin copiar ni reservar memoria. El ticket
+ * más reciente permite leerlo tras el flip, mientras no se haya vuelto a dibujar en
+ * él. Comprobar valid antes de cada lectura; guardar de nuevo tras copiarlo
+ * al otro búfer. La UI, el sistema y un cambio de salida invalidan la vista.
+ * Quien escriba directamente en la pantalla debe invalidarla primero. */
+uint64_t rsxkit_screen_texture(rsxkit_texture *out);
+bool rsxkit_screen_texture_valid(uint64_t ticket);
+void rsxkit_screen_texture_invalidate(void);
 
 /* Canales que lee una textura: los de su formato, o el rojo en los cuatro
  * (una imagen de intensidad dibujada en un destino: R = G = B = A). */

@@ -37,7 +37,7 @@
  * existe y si no gfxtest. START + SELECT sale al XMB.
  *
  * Sin embedded, el menú (menu.c, romlist.c), con una disposición inspirada
- * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64
+ * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64 y archivos .zip compatibles
  * de SALSA64_DATA_DIR y de /dev_usbNNN/salsa64 en una columna, con carpetas
  * primero y navegación por subcarpetas; las ROMs se ordenan por título o
 	* nombre de archivo (menu.cfg). Admite 4096 filas totales por carpeta
@@ -163,6 +163,7 @@
 
 #include <rsxkit/post.h>
 #include <rsxkit/rsxkit.h>
+#include <rsxkit/sysfont.h>
 #include <rsxkit/ui.h>
 #include <spukit/spukit.h>
 
@@ -197,9 +198,11 @@
 #include "replay.h"
 #include "cuelgue.h"
 #include "romlist.h"
+#include "ziprom.h"
 #include "savefile.h"
 #include "scale_auto.h"
 #include "mempakfile.h"
+#include "transferpakfile.h"
 #include "screenshot.h"
 #include "selftest.h"
 #include "selftest_audio.h"
@@ -373,6 +376,7 @@ static struct salsa64_save save;
 static struct savefile save_file;
 static struct salsa64_mempak mempak;
 static struct mempakfile mempak_file;
+static struct transferpakfile transferpak_files[SALSA64_PIF_PORTS];
 static uint8_t *rdram;
 static volatile int running;    /* la sesión de juego sigue */
 static volatile int emu_done;   /* el hilo de emulación salió de su bucle */
@@ -562,6 +566,14 @@ static struct {
 	volatile uint32_t pressed[SALSA64_PIF_PORTS];
 } pad_box;
 
+/* The emulation thread publishes the Rumble Pak latch; only the presentation
+ * thread calls libpad's actuator API alongside the normal pad polling. */
+static struct {
+	volatile uint32_t seq;
+	uint8_t on[SALSA64_PIF_PORTS];
+} rumble_box;
+static uint8_t rumble_applied[SALSA64_PIF_PORTS];
+
 static uint16_t pad_published[SALSA64_PIF_PORTS];
 
 static void pads_publish(const struct salsa64_pad pads[SALSA64_PIF_PORTS])
@@ -576,6 +588,44 @@ static void pads_publish(const struct salsa64_pad pads[SALSA64_PIF_PORTS])
 		if (rise)
 			__sync_fetch_and_or(&pad_box.pressed[i], rise);
 		pad_published[i] = pads[i].buttons;
+	}
+}
+
+static void rumble_publish(void)
+{
+	rumble_box.seq++;
+	lwsync();
+	memcpy(rumble_box.on, n64.bus.pif.rumble, sizeof rumble_box.on);
+	lwsync();
+	rumble_box.seq++;
+}
+
+static void rumble_snapshot(uint8_t on[SALSA64_PIF_PORTS])
+{
+	for (unsigned spins = 0;; spins++) {
+		uint32_t s1 = rumble_box.seq;
+		if (s1 & 1) {
+			if (spins > 64)
+				sysUsleep(20);
+			continue;
+		}
+		lwsync();
+		memcpy(on, rumble_box.on, SALSA64_PIF_PORTS);
+		lwsync();
+		if (rumble_box.seq == s1)
+			return;
+	}
+}
+
+static void rumble_stop_all(void)
+{
+	padActParam act;
+	memset(&act, 0, sizeof act);
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+		/* También se manda cero si el estado local quedó desfasado por una
+		 * desconexión o por un cierre de emergencia. */
+		ioPadSetActDirect(i, &act);
+		rumble_applied[i] = 0;
 	}
 }
 
@@ -603,6 +653,7 @@ static void pads_apply(void)
 			pads[i].buttons |= (uint16_t)__sync_fetch_and_and(&pad_box.pressed[i], 0);
 		salsa64_pif_set_pad(&n64.bus, i, &pads[i]);
 	}
+	rumble_publish();
 }
 
 /* Flancos de lo que el PIF entregó al juego (respuestas de estado): los
@@ -1035,6 +1086,8 @@ static void state_slot_step(int d)
 static bool pm_slot_have;  /* la ranura actual tiene estado (para el menú de pausa) */
 
 static void image_events(void);
+static void accessory_menu_events(void);
+static int menu_accessory_default(void);
 
 /* Lo que pidió el menú de pausa (pausectl): estados, ranura, FPS. */
 static void pause_menu_events(void)
@@ -1191,22 +1244,49 @@ static int update_pads(uint32_t *buttons)
 	pad_poll.last_us = now;
 	pad_poll.polls++;
 	pif_edges_log();
-	if (ioPadGetInfo(&info) != 0)
+	if (ioPadGetInfo(&info) != 0) {
+		/* A transient pad query failure must not leave a motor running. */
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+			if (!rumble_applied[i])
+				continue;
+			padActParam act;
+			memset(&act, 0, sizeof act);
+			if (ioPadSetActDirect(i, &act) == PAD_OK)
+				rumble_applied[i] = 0;
+		}
 		return 0;
+	}
 	bool intercepted = (info.info & 1) != 0;
 	if (intercepted != pause_ctl.intercepted)
 		salsa64_log("mandos: %s", intercepted ? "los tiene el sistema" : "de vuelta del sistema");
 	bool sys = intercepted || pausectl_overlay(&pause_ctl);
+	uint8_t rumble_wanted[SALSA64_PIF_PORTS];
+	rumble_snapshot(rumble_wanted);
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
 		if (present[i] != !!info.status[i]) {
 			present[i] = !!info.status[i];
 			salsa64_log("mando %u %s", i + 1, present[i] ? "conectado" : "desconectado");
 			last[i] = neutral;  /* nada pegado */
+			if (!present[i])
+				rumble_applied[i] = 0; /* volver a aplicar si el mando se reconecta */
 		}
 		if (info.status[i] && ioPadGetData(i, &data) == 0 && data.len > 0 && !sys)
 			last[i] = ds3_from(&data);
 		if (sys)
 			last[i] = neutral;
+
+		/* El Rumble Pak de N64 es binario: se representa con el motor grande
+		 * del DualShock 3 a plena fuerza; el pequeño queda siempre apagado. */
+		bool rumble_ui_paused = pause_ctl.dialog || pause_ctl.panel || pause_ctl.menu || pause_ctl.image || pause_ctl.accessory;
+		bool want_rumble = info.status[i] && !sys && !rumble_ui_paused && rumble_wanted[i];
+		if (want_rumble != !!rumble_applied[i]) {
+			padActParam act;
+			memset(&act, 0, sizeof act);
+			if (want_rumble)
+				act.large_motor = 0xFF;
+			if (ioPadSetActDirect(i, &act) == PAD_OK)
+				rumble_applied[i] = (uint8_t)want_rumble;
+		}
 		raw[i] = info.status[i] ? last[i].buttons : 0;
 		stick[i] = info.status[i] ? stick_dirs(stick[i], last[i].lx - 128, last[i].ly - 128) : 0;
 		pad_stick_dirs |= stick[i];
@@ -1216,6 +1296,7 @@ static int update_pads(uint32_t *buttons)
 	enum pausectl_action act = pausectl_pads(&pause_ctl, raw, intercepted, combos_on != 0, game);
 	cheat_panel_events();
 	pause_menu_events();
+	accessory_menu_events();
 	image_events();
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
 		struct salsa64_pad p = { 0, 0, 0, i == 0 };
@@ -1393,6 +1474,32 @@ static void heap_report(const char *when)
  * no se pudo o no mide entre 0x1000 bytes y ROM_MAX (o cap). */
 static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint32_t *size)
 {
+	/* ZIP: inspect the selected member before allocating so the archive itself
+	 * never needs a second large buffer. Full extraction verifies the member's
+	 * Deflate stream, uncompressed size and CRC-32 before the game sees it. */
+	if (salsa64_ziprom_is_path(path)) {
+		uint8_t header[SALSA64_ROM_HEADER_SIZE];
+		uint32_t rom_len = 0, actual_len = 0;
+		uint32_t limit = buf ? cap : ROM_MAX;
+		if (salsa64_ziprom_read_header(path, header, &rom_len, NULL, 0) != 0 ||
+		    rom_len < 0x1000u || rom_len > limit || rom_len > SALSA64_ZIPROM_MAX_SIZE)
+			return NULL;
+		uint8_t *dst = buf ? buf : rom_alloc(rom_len);
+		if (!dst)
+			return NULL;
+		/* Match the extractor's bound to the memory actually allocated.
+		 * The archive is opened twice (header peek, then extraction), so
+		 * it must remain safe even if the file changes between those reads. */
+		uint32_t dst_cap = buf ? cap : rom_len;
+		if (salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
+			if (!buf)
+				rom_free(dst);
+			return NULL;
+		}
+		*size = actual_len;
+		return dst;
+	}
+
 	FILE *f = fopen(path, "rb");
 	if (!f)
 		return NULL;
@@ -1800,6 +1907,14 @@ static void gfx_window(uint64_t now, uint64_t us_field)
 			    "el PPE esperó al SPE %u veces, %.2f ms en total",
 			    (unsigned long long)median, (unsigned long long)maximum, (unsigned long long)samples,
 			    s->waits - s0->waits, (s->wait_us - s0->wait_us) / 1e3);
+		uint32_t xbus = s->xbus_runs - s0->xbus_runs;
+		uint32_t tw = rs.tex_waits - gwin.rdp.tex_waits;
+		if (xbus || tw)
+			salsa64_log("gfx texturas: %u listas XBUS, %u llegaron con el SPE en vuelo y %u esperaron %.2f ms; "
+			    "espera diagnóstica %u veces, %.2f ms en la ventana", xbus,
+			    s->xbus_inflight - s0->xbus_inflight, s->xbus_waits - s0->xbus_waits,
+			    (s->xbus_wait_us - s0->xbus_wait_us) / 1e3, tw,
+			    (rs.us_tex_wait - gwin.rdp.us_tex_wait) / 1e3);
 	}
 	gwin.field0 = field;
 	gwin.t0 = now;
@@ -2168,6 +2283,8 @@ static void emu_thread(void *arg)
 			pacer_advance(&pacer, cycles);
 		savefile_stage(&save_file, t1);
 		mempakfile_stage(&mempak_file, t1);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_stage(&transferpak_files[i], t1);
 		if (rprof.on && ++rprof.fold_fields >= PROFILE_FOLD_FIELDS) {
 			salsa64_rec_profile_fold(&rec);  /* entre campos, fuera del código generado */
 			rprof.fold_fields = 0;
@@ -2396,7 +2513,10 @@ static bool filter_announce(uint64_t now)
  * filtro…», ya está: se quita el aviso. */
 static bool filter_draw(rsxkit_rect *r)
 {
-	bool ok = salsa64_filters_draw(flt.cur, &flt.src, r);
+	struct salsa64_filter_src src = flt.src;
+	/* El sistema puede escribir en los búferes presentados. */
+	src.screen_busy = pause_ctl.system || pause_ctl.drawing || pause_ctl.intercepted;
+	bool ok = salsa64_filters_draw(flt.cur, &src, r);
 	if (flt.announced) {
 		flt.announced = false;
 		osd_notice_clear();
@@ -2518,7 +2638,7 @@ static void filter_cycle(uint64_t now)
 		salsa64_log("filtros: ciclo, otra vuelta: la señal del cable en %s", flt.spe ? "el SPE" : "el RSX");
 	}
 	salsa64_log("filtros: ciclo → «%s»", salsa64_crt_name(flt.cur));
-	osd_notice(now, "Filtro: %s", salsa64_crt_name(flt.cur));
+	osd_notice(now, "Filtro: %s", tr(salsa64_crt_name(flt.cur)));
 }
 
 /* rsxkit_frame_begin y _end con el tiempo que se esperó el flip anterior:
@@ -2656,6 +2776,16 @@ static void present_overlay(uint64_t now)
 		struct osd_pause_menu pm = { pause_ctl.menu_sel, state_slot, pm_slot_have, fps.on, in_menu,
 					     game_cheats.n, cheats_active(&game_cheats), version_text };
 		osd_pause_menu_draw(&pm, ui_lw, ui_lh);
+	} else if (pause_ctl.accessory) {
+		struct osd_accessory_menu am;
+		am.sel = pause_ctl.accessory_sel;
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+			int a = n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_NONE ? MENU_ACC_NONE
+				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE
+				: n64.bus.pif.accessory[i] == SALSA64_PIF_ACCESSORY_TRANSFER_PAK ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
+			am.value[i] = menu_accessory_name(a);
+		}
+		osd_accessory_menu_draw(&am, ui_lw, ui_lh);
 	} else if (pause_ctl.image) {
 		char sbuf[24];
 		struct osd_image_menu im = {
@@ -3299,6 +3429,12 @@ static void stats(uint64_t now)
 			if (gfx_spu.dpc_jobs)
 				salsa64_log("gfx: %u listas del CPU al RDP hechas en el SPE desde el arranque, %.2f ms "
 					    "de espera cada una", gfx_spu.dpc_jobs, gfx_spu.dpc_us / 1e3 / gfx_spu.dpc_jobs);
+			if (gfx_spu.xbus_runs || rs.tex_waits != sw.rdp0.tex_waits)
+				salsa64_log("gfx: XBUS %u desde el arranque (%u con SPE en vuelo, %u esperas, %.2f ms); "
+				    "espera diagnóstica %u veces, %.2f ms en la ventana", gfx_spu.xbus_runs,
+				    gfx_spu.xbus_inflight, gfx_spu.xbus_waits, gfx_spu.xbus_wait_us / 1e3,
+				    rs.tex_waits - sw.rdp0.tex_waits,
+				    (rs.us_tex_wait - sw.rdp0.us_tex_wait) / 1e3);
 			if (rs.dpc_cont)
 				salsa64_log("gfx: listas del RDP: %u trabajos continuaban una lista abierta (GFX_JOB_DPC_CONT, sin "
 				    "envejecer destinos; %u de ellos del SPE); %u destinos que el envejecimiento por tramo "
@@ -4091,6 +4227,41 @@ static void image_save(void)
  * recorte se ven al momento, también en el cuadro en pausa; la escala se
  * pone al seguir jugando (image_scale_apply), porque soltar los destinos
  * con el juego quieto dejaría la pantalla en negro. */
+static void accessory_menu_events(void)
+{
+	int port = pause_ctl.accessory_do;
+	if (port < 0)
+		return;
+	/* Presentación pide la pausa, pero solo emulación puede confirmar que ya
+	 * terminó el campo. Mantener la petición pendiente hasta ese acuse evita
+	 * tocar los registros del Transfer Pak mientras el juego los usa. */
+	lwsync();
+	if (!emu_paused)
+		return;
+	pause_ctl.accessory_do = -1;
+	if ((unsigned)port >= SALSA64_PIF_PORTS)
+		return;
+	int delta = pause_ctl.accessory_arg < 0 ? -1 : 1;
+	int current = n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_NONE ? MENU_ACC_NONE
+		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_RUMBLE_PAK ? MENU_ACC_RUMBLE
+		      : n64.bus.pif.accessory[port] == SALSA64_PIF_ACCESSORY_TRANSFER_PAK ? MENU_ACC_TRANSFER : MENU_ACC_PAK;
+	int next = (current + delta + MENU_ACCS) % MENU_ACCS;
+	n64.bus.pif.accessory[port] = next == MENU_ACC_NONE ? SALSA64_PIF_ACCESSORY_NONE
+					 : next == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
+					 : next == MENU_ACC_TRANSFER ? SALSA64_PIF_ACCESSORY_TRANSFER_PAK
+					 : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
+	/* Swapping accessories resets the Transfer Pak control registers. */
+	salsa64_transferpak_reset(&n64.bus.pif.transferpak_state[port]);
+	/* Replacing a Rumble Pak drops its motor state immediately. */
+	n64.bus.pif.rumble[port] = 0;
+	n64.bus.pif.pak_err[port] = 0;
+	/* The emulation thread owns rumble_box's seqlock writer. The UI already
+	 * stops physical motors while this pause page is open. */
+	osd_notice(sysGetSystemTime(), "%s", menu_accessory_name(next));
+	salsa64_log("accesorio: control %u -> %s", (unsigned)port + 1, menu_accessory_name(next));
+}
+
+/* Lo que pide la página «Imagen» del menú de pausa (pausectl). */
 static void image_events(void)
 {
 	int d = pause_ctl.image_do, k = pause_ctl.image_arg;
@@ -4502,6 +4673,9 @@ static void profile_close(void)
  * proceso con sys_process_exit, con lo que haya quedado en el log. */
 static void forced_exit(const char *why, unsigned secs)
 {
+	/* Mejor esfuerzo antes de cualquier espera de cierre: no dejar actuadores
+	 * encendidos aunque la emulación o el RSX ya no respondan. */
+	rumble_stop_all();
 	salsa64_log("cierre forzado: %s tras %u s (pc 0x%08llx, ciclos %llu, marca %u, bloque %u); se paran los SPE y se sale",
 		    why, secs, (unsigned long long)n64.cpu.cur_pc, (unsigned long long)n64.cpu.cycles,
 		    n64.cpu.rec_mark, n64.cpu.rec_cur);
@@ -4607,6 +4781,8 @@ static void rsx_stuck_exit(const char *why, const rsxkit_wait_info *wi)
 	if (emu_live) {
 		savefile_write_staged(&save_file, ~0ull);  /* lo diferido que no llegó al disco */
 		mempakfile_write_staged(&mempak_file, ~0ull);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_write_staged(&transferpak_files[i], ~0ull);
 		if (emu_paused || emu_done) {
 			savefile_flush(&save_file);
 			mempakfile_flush(&mempak_file);
@@ -4742,6 +4918,10 @@ static void mem_close_report(const struct mem_close_in *in)
 static void game_close(void)
 {
 	struct mem_close_in mem_in = { cajanegra_reserved(), (uint32_t)salsa64_rdp_interp_bytes() };
+	/* Never leave a motor latched across game changes or a return to the menu. */
+	memset(n64.bus.pif.rumble, 0, sizeof n64.bus.pif.rumble);
+	rumble_publish();
+	rumble_stop_all();
 	cajanegra_shutdown(10000000);
 	states_shutdown(10000000);  /* un estado a medio escribir se termina antes de soltar nada */
 	salsa64_filters_release();
@@ -4749,6 +4929,8 @@ static void game_close(void)
 		    n64.bus.vi.fields, emu_stats.fields, emu_stats.dropped, emu_stats.no_slot);
 	savefile_close(&save_file);
 	mempakfile_close(&mempak_file);
+	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+		transferpakfile_close(&transferpak_files[i]);
 	salsa64_log("cierre: guardado escrito y desconectado");
 	/* audio_out: cierre (con el hilo de emulación ya terminado). */
 	audio_out_shutdown();
@@ -4838,6 +5020,136 @@ static int ui_init_once(void)
 	return rc;
 }
 
+/* ---- La fuente del texto -------------------------------------------------
+ * La del sistema (rsxkit/sysfont.h) para todo el texto si carga; si no, o
+ * con el archivo fuente-propia, la 8x13 de rsxkit. Solo con la del sistema
+ * se ofrecen el japonés, el coreano y el chino (i18n_set_cjk). Se abre una
+ * vez, con el 2D listo y antes de cualquier ROM (se queda para siempre), y
+ * se cambia de juego de fuentes con el idioma (los ideogramas del chino
+ * salen de otra fuente que los del japonés). */
+#define FONT_OWN_PATH SALSA64_DATA_DIR "/fuente-propia"
+static int font_state;        /* 0 sin probar, 1 la del sistema, −1 la 8x13 */
+static int font_script = -1;  /* rsxkit_sysfont_script abierto */
+
+/* El registro de la apertura (rsxkit_sysfont_info.trace), una línea por
+ * juego de fuentes intentado (van separados por «|»). */
+static void font_trace_log(const char *t)
+{
+	while (*t) {
+		const char *bar = strchr(t, '|');
+		size_t n = bar ? (size_t)(bar - t) : strlen(t);
+		salsa64_log("fuente: apertura: %.*s", (int)(n > 900 ? 900 : n), t);
+		t += n;
+		while (*t == '|' || *t == ' ')
+			t++;
+	}
+}
+
+static void font_log(void)
+{
+	if (font_state != 1) {
+		salsa64_log("fuente: la propia 8x13");
+		return;
+	}
+	rsxkit_sysfont_info fi;
+	rsxkit_sysfont_info_get(&fi);
+	font_trace_log(fi.trace);
+	salsa64_log("fuente: la del sistema (juego 0x%x, modo %d, %.0f px, renglón %.1f y línea base %.1f según libfont, «H» en las "
+		    "filas %d–%d, glifos faltantes %s), libfont %u KB ahora y %u KB de máximo, caché de archivos %u KB, "
+		    "japonés/coreano/chino %s",
+		    (unsigned)fi.type, fi.mode, (double)RSXKIT_SYSFONT_PX, (double)fi.line_height, (double)fi.baseline_y, fi.cal_top,
+		    fi.cal_bottom, fi.id_check ? "por fontGetFontIdCode" : "por el error del dibujo",
+		    (unsigned)(fi.lib_bytes >> 10), (unsigned)(fi.lib_peak >> 10), (unsigned)(fi.cache_bytes >> 10),
+		    i18n_cjk() ? "sí" : "no");
+}
+
+/* El estado de la caché de glifos, para el log (al abrir un juego y al salir). */
+static void font_stats_log(const char *when)
+{
+	if (!ui_ok)
+		return;
+	rsxkit_ui_font_stats st;
+	rsxkit_ui_font_stats_get(&st);
+	if (font_state != 1) {
+		salsa64_log("fuente %s: la propia 8x13", when);
+		return;
+	}
+	rsxkit_sysfont_info fi;
+	rsxkit_sysfont_info_get(&fi);
+	salsa64_log("fuente %s: caché de glifos %u/%u casillas, %u conocidos, %u aciertos, %u rasterizados, %u "
+		    "reemplazos, %u diferidos, %u con la 8x13, %u vaciados; libfont %u KB (máx. %u KB)",
+		    when, st.resident, st.slots, st.known, st.hits, st.renders, st.evictions, st.deferred, st.fallback,
+		    st.resets, (unsigned)(fi.lib_bytes >> 10), (unsigned)(fi.lib_peak >> 10));
+}
+
+static void font_init_once(void)
+{
+	if (font_state)
+		return;
+	font_state = -1;
+	i18n_set_cjk(0);
+	if (!ui_ok)
+		return;
+	if (file_exists(FONT_OWN_PATH)) {
+		salsa64_log("fuente: %s presente, uso la 8x13", FONT_OWN_PATH);
+		font_log();
+		return;
+	}
+	int rc = rsxkit_sysfont_open(RSXKIT_SYSFONT_JAPANESE, 0);
+	if (rc != RSXKIT_OK) {
+		rsxkit_sysfont_info fi;
+		rsxkit_sysfont_info_get(&fi);
+		font_trace_log(fi.trace);
+		salsa64_log("fuente: la del sistema no abre (%d, paso %d, código 0x%08x): uso la 8x13", rc, fi.step,
+			    (unsigned)fi.error);
+		font_log();
+		return;
+	}
+	font_state = 1;
+	font_script = RSXKIT_SYSFONT_JAPANESE;
+	/* Hiragana, hangul e ideogramas del chino tradicional y del simplificado. */
+	int cjk = rsxkit_sysfont_has(0x3042) && rsxkit_sysfont_has(0xD55C) && rsxkit_sysfont_has(0x9AD4) &&
+		  rsxkit_sysfont_has(0x7B80);
+	i18n_set_cjk(cjk);
+	rsxkit_ui_font(rsxkit_sysfont_source());
+	font_log();
+}
+
+/* El juego de fuentes para el idioma en uso (`lang` ya resuelto). */
+static void font_select(int lang)
+{
+	if (font_state != 1)
+		return;
+	int script = lang == I18N_ZH_HANT ? RSXKIT_SYSFONT_TCHINESE
+		     : lang == I18N_ZH_HANS ? RSXKIT_SYSFONT_SCHINESE
+		     : lang == I18N_JA || lang == I18N_KO ? RSXKIT_SYSFONT_JAPANESE : RSXKIT_SYSFONT_LATIN;
+	if (script == font_script)
+		return;
+	rsxkit_ui_font(NULL);  /* vacía la caché */
+	int rc = rsxkit_sysfont_open((rsxkit_sysfont_script)script, 0);
+	if (rc != RSXKIT_OK && script != RSXKIT_SYSFONT_JAPANESE) {
+		rsxkit_sysfont_info fi;
+		rsxkit_sysfont_info_get(&fi);
+		font_trace_log(fi.trace);
+		salsa64_log("fuente: el juego para la escritura %d no abre (paso %d, código 0x%08x): uso el japonés", script,
+			    fi.step, (unsigned)fi.error);
+		script = RSXKIT_SYSFONT_JAPANESE;
+		rc = rsxkit_sysfont_open(RSXKIT_SYSFONT_JAPANESE, 0);
+	}
+	if (rc != RSXKIT_OK) {
+		salsa64_log("fuente: la del sistema dejó de abrir (%d): uso la 8x13", rc);
+		rsxkit_sysfont_close();
+		font_state = -1;
+		font_script = -1;
+		i18n_set_cjk(0);
+		font_log();
+		return;
+	}
+	font_script = script;
+	rsxkit_ui_font(rsxkit_sysfont_source());
+	font_log();
+}
+
 /* Una sesión de juego con la ROM ya en memoria (cualquier orden de bytes):
  * la arranca, la emula en dos hilos hasta START + SELECT, «Salir del
  * juego» o el fin de una prueba, y lo cierra todo (game_close). Llamar
@@ -4871,6 +5183,11 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_log("gfx: HLE Acclaim %s (sin-acclaim)", acclaim ? "activa" : "apagada");
 	bool eurocom = !file_exists(SALSA64_DATA_DIR "/sin-eurocom");
 	salsa64_log("gfx: HLE Eurocom %s (sin-eurocom)", eurocom ? "activa" : "apagada");
+	bool xbus_old = file_exists(SALSA64_DATA_DIR "/texturas-xbus-viejo");
+	bool texture_wait = file_exists(SALSA64_DATA_DIR "/texturas-espera-rsx");
+	salsa64_rdp_set_texture_wait(texture_wait);
+	salsa64_log("gfx: texturas XBUS %s (texturas-xbus-viejo); espera diagnóstica del RSX %s (texturas-espera-rsx)",
+		    xbus_old ? "sin aislar" : "aisladas", texture_wait ? "activa" : "apagada");
 	if (gfx_on_spu) {
 		spukit_init(6);
 		if ((rc = salsa64_gfx_spu_init(&gfx_spu, &n64.bus, &front_sink)) != 0) {
@@ -4900,6 +5217,10 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (gfx_on_spu) {
 		/* Solo para las listas en la DMEM (xbus), que el SPE no lee. */
 		salsa64_gfx_sync_init(&gfx_ppe, &gfx_ppe_state, &n64.bus, &front_sink);
+		/* Este backend tiene un directorio distinto al del SPE sobre la misma
+		 * región. Su arena de tarea sí comparte las barreras del consumidor. */
+		gfx_ppe.nocache = !xbus_old;
+		gfx_spu.xbus_safe = !xbus_old;
 		gfx_spu.xbus = &gfx_ppe.dpc;
 	}
 	salsa64_rsp_set_dpc(&n64.bus, gfx_on_spu ? &gfx_spu.dpc : &gfx_ppe.dpc);
@@ -4945,7 +5266,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_bus_set_rom(&n64.bus, rom, rom_size);
 	if (!salsa64_boot_hle(&n64, SALSA64_BOOT_TV_AUTO, &boot_info)) {
 		salsa64_log("%s: FALLO al arrancar %s: %s", res_tag, source, boot_info.error);
-		snprintf(err, err_size, "No arrancó %s: %s", source, boot_info.error);
+		snprintf(err, err_size, tr("No arrancó %s: %s"), source, boot_info.error);
 		emu_done = 1;
 		game_close();
 		return GAME_FAILED;
@@ -4982,15 +5303,42 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	savefile_open(&save_file, &save, &n64.bus, rom, SAVES_DIR, SAVE_CFG, SALSA64_SAVE_AUTO, salsa64_log);
 	/* Yoshi's Story (NYS, todas las regiones) lee sus capas de fondo CI8 desde la RDRAM: espera sus copias. */
 	salsa64_rdp_set_big8_wait(rom[0x3B] == 'N' && rom[0x3C] == 'Y' && rom[0x3D] == 'S');
+	/* LEGO Racers (NLG) comparte la z image entre auxiliares de 32 x 32 y el
+	 * framebuffer: cada borrado se difiere hasta ligar su color image. */
+	bool lego_zclear = rom[0x3B] == 'N' && rom[0x3C] == 'L' && rom[0x3D] == 'G';
+	bool zclear_old = file_exists(SALSA64_DATA_DIR "/zclear-inmediato");
+	lego_zclear = lego_zclear && !zclear_old;
+	salsa64_rdp_zclear_target(lego_zclear);
+	if (rom[0x3B] == 'N' && rom[0x3C] == 'L' && rom[0x3D] == 'G')
+		salsa64_log("profundidad: borrados %s (zclear-inmediato)",
+			lego_zclear ? "ligados al próximo destino" : "inmediatos");
 	{
-		/* Un Controller Pak en cada control, salvo que el juego pida «Ninguno» (en las pruebas, ninguno). */
 		struct menu_game gc;
 		menu_game_default(&gc);
 		if (source && !(selftest_on || gfxtest_on || audiotest_on))
 			game_cfg_read(source, &gc);
+		/* Global defaults come from Opciones; per-game files may override them. */
+		int configured_accessory = gc.accessory < 0 ? menu_accessory_default() : gc.accessory;
+		enum salsa64_pif_accessory accessory =
+			(selftest_on || gfxtest_on || audiotest_on || configured_accessory == MENU_ACC_NONE)
+				? SALSA64_PIF_ACCESSORY_NONE
+				: configured_accessory == MENU_ACC_RUMBLE ? SALSA64_PIF_ACCESSORY_RUMBLE_PAK
+								   : configured_accessory == MENU_ACC_TRANSFER ? SALSA64_PIF_ACCESSORY_TRANSFER_PAK
+								   : SALSA64_PIF_ACCESSORY_CONTROLLER_PAK;
+		/* Load every Controller Pak up front so pause-menu swaps work in-place. */
 		mempakfile_open(&mempak_file, &mempak, &n64.bus, rom, SAVES_DIR,
-				gc.accessory == MENU_ACC_NONE || selftest_on || gfxtest_on || audiotest_on ? 0u : 0xFu,
-				salsa64_log);
+				(selftest_on || gfxtest_on || audiotest_on) ? 0u : 0xFu, salsa64_log);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++) {
+			transferpakfile_open(&transferpak_files[i], &n64.bus.pif, i, source, salsa64_log);
+			salsa64_transferpak_reset(&n64.bus.pif.transferpak_state[i]);
+			n64.bus.pif.accessory[i] = (uint8_t)accessory;
+			n64.bus.pif.rumble[i] = 0;
+		}
+		if (accessory == SALSA64_PIF_ACCESSORY_RUMBLE_PAK)
+			salsa64_log("accesorio: Rumble Pak emulado en los cuatro controles");
+		else if (accessory == SALSA64_PIF_ACCESSORY_TRANSFER_PAK)
+			salsa64_log("accesorio: Transfer Pak emulado en los cuatro controles");
+		rumble_publish();
 	}
 
 	rec.opts = SALSA64_REC_OPT_PIN;  /* +7 % en nemu64-test (docs/perf-log.md) */
@@ -5272,7 +5620,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (sysThreadCreate(&emu_tid, emu_thread, NULL, EMU_PRIO, EMU_STACK, THREAD_JOINABLE,
 			    (char *)"salsa64_emu") != 0) {
 		salsa64_log("%s: FALLO al crear el hilo de emulación", res_tag);
-		snprintf(err, err_size, "No se pudo crear el hilo de emulación");
+		snprintf(err, err_size, "%s", tr("No se pudo crear el hilo de emulación"));
 		emu_done = 1;
 		game_close();
 		rdp_scale_set(menu_scale_limit(video_cfg.scale, video_cfg.resolution), "vuelve la global");
@@ -5318,6 +5666,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		beat.pres_at = "guardado";
 		savefile_write_staged(&save_file, now);
 		mempakfile_write_staged(&mempak_file, now);
+		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
+			transferpakfile_write_staged(&transferpak_files[i], now);
 		profile_write_step(now);
 		/* Con el sistema encima (su menú, un aviso), el sistema dibuja lo
 		 * suyo en cada flip de la aplicación: el último cuadro se sigue
@@ -5461,6 +5811,11 @@ static struct {
 	uint32_t step, idle;
 	int games, failures;
 } mn;
+
+static int menu_accessory_default(void)
+{
+	return mn.settings.accessory;
+}
 
 /* ROMs de prueba abiertas desde el menú: se verifican como las embebidas. */
 static void test_flags_from_name(const char *name)
@@ -5700,7 +6055,7 @@ static void download_begin(int what)
 	bool started = dl_start(what, list, n);
 	free(list);
 	if (!started) {
-		menu_set_status(&menu, "No se pudo bajar el índice: %s", "hilo");
+		menu_set_status(&menu, "No se pudo bajar el índice: %s", tr("hilo"));
 		return;
 	}
 	dl_shown = true;
@@ -5760,7 +6115,7 @@ static void menu_show(const char *shot)
 
 static void settings_read(struct menu_settings *s)
 {
-	char text[512];
+	char text[1024];
 	menu_settings_default(s);
 	FILE *f = fopen(MENU_CFG_PATH, "r");
 	if (!f)
@@ -5772,7 +6127,7 @@ static void settings_read(struct menu_settings *s)
 
 static bool settings_write(const struct menu_settings *s)
 {
-	char text[512];
+	char text[1024];
 	int n = menu_settings_format(s, text, sizeof text);
 	FILE *f = fopen(MENU_CFG_PATH, "w");
 	bool ok = f && fwrite(text, 1, (size_t)n, f) == (size_t)n;
@@ -5781,10 +6136,27 @@ static bool settings_write(const struct menu_settings *s)
 	return ok;
 }
 
+/* Idioma de la consola (para «Automático»): se lee una vez y se anota en el log. */
+static void language_apply(void)
+{
+	s32 sys = -1;
+	if (sysUtilGetSystemParamInt(SYSUTIL_SYSTEMPARAM_ID_LANG, &sys) != 0)
+		sys = -1;
+	i18n_set_system(sys);
+	font_init_once();
+	i18n_set(mn.settings.lang);
+	font_select(i18n_lang());
+	i18n_set(mn.settings.lang);  /* sin la fuente del sistema, el japonés, el coreano y el chino dan inglés */
+	int want = i18n_from_system_cjk(sys);  /* el de la consola, con fuente o sin ella */
+	salsa64_log("idioma: la consola dice %d (%s), ajuste «%s», en uso «%s»%s", sys, i18n_system_code(sys),
+		    i18n_code(mn.settings.lang), i18n_code(i18n_lang()),
+		    !i18n_cjk() && (i18n_is_cjk(want) || i18n_is_cjk(mn.settings.lang)) ? " (sin fuente CJK: inglés)" : "");
+}
+
 static void menu_settings_load(void)
 {
 	settings_read(&mn.settings);
-	i18n_set(mn.settings.lang);
+	language_apply();
 }
 
 static void menu_settings_save(void)
@@ -5881,6 +6253,7 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	opened_crc1 = e->crc1;
 	opened_crc2 = e->crc2;
 	salsa64_log("menú: abro %s (\"%s\")", path, title);
+	font_stats_log("al abrir el juego");
 	heap_report("al abrir");
 	menu.loading = title;
 	menu_show(NULL);
@@ -5999,7 +6372,7 @@ static bool direct_launch(void)
 	if (direct_rom[0] != '/')
 		why = "la ruta debe ser absoluta";
 	else if (!romlist_has_rom_ext(direct_rom))
-		why = "extensión no admitida (.z64, .n64, .v64)";
+		why = "extensión no admitida (.z64, .n64, .v64, .zip)";
 	else if (!(one = romlist_create()))
 		why = "sin memoria";
 	else if (!romlist_add_file(one, direct_rom, 0, mn.save_cfg, mn.save_cfg_len) || !one->count)
@@ -6149,7 +6522,7 @@ static int menu_loop(void)
 					menu.sel = at, menu.pos = (float)at;
 			}
 			if (cfg) {
-				i18n_set(mn.settings.lang);
+				language_apply();
 				menu_settings_save();
 			}
 		}
@@ -6428,6 +6801,18 @@ int main(int argc, char **argv)
 	const rsxkit_screen *sc = rsxkit_screen_info();
 	salsa64_log("RSX listo: %ux%u, tele %s%s", sc->width, sc->height, sc->aspect > 1.5f ? "16:9" : "4:3",
 		    vc ? " (video.cfg: 1080)" : "");
+	if (file_exists(SALSA64_DATA_DIR "/filtros-autoprueba")) {
+		bool ok = salsa64_filters_selftest();
+		salsa64_log("RESULTADO filtros: %s", ok ? "OK" : "FALLO");
+		rsxkit_fb_destroy(pres.fb);
+		rsxkit_shutdown();
+		salsa64_log_shutdown();
+		return ok ? 0 : 1;
+	}
+	bool filters_opt = !file_exists(SALSA64_DATA_DIR "/filtros-sin-optimizar") &&
+			   !file_exists(SALSA64_DATA_DIR "/filtros-opt-fallo");
+	salsa64_filters_optimize(filters_opt);
+	salsa64_log("filtros: caché de salida %s", filters_opt ? "activa" : "apagada");
 	rdp_scale_req = menu_scale_limit(video_cfg.scale, video_cfg.resolution);
 	if ((rc = salsa64_rdp_init((uint32_t)rdp_scale_req)) != RSXKIT_OK) {
 		salsa64_log("RESULTADO frontend: FALLO al preparar el RDP (%d)", rc);
@@ -6537,6 +6922,11 @@ int main(int argc, char **argv)
 		u64 rv;
 		beat.quit = 1;
 		sysThreadJoin(watch_tid, &rv);
+	}
+	font_stats_log("al salir");
+	if (font_state == 1) {
+		rsxkit_ui_font(NULL);
+		rsxkit_sysfont_close();  /* libfont, su memoria y los tres módulos */
 	}
 	salsa64_log("salida normal%s", app_quit ? " («Salir del juego» del sistema)" : "");
 	salsa64_ps3_fastmem_stop();

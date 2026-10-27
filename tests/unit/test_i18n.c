@@ -2,7 +2,9 @@
 /*
  * Pruebas de los idiomas (src/frontend/i18n.c): la tabla va ordenada, cada
  * traducción tiene los mismos % que el original, solo usa caracteres que la
- * fuente del menú sabe dibujar y cabe donde cabía el español.
+ * fuente del menú sabe dibujar (la 8x13; en japonés, coreano y chino, además,
+ * los de esas escrituras, que dibuja la fuente del sistema) y cabe donde cabía
+ * el español (contando dos celdas por carácter ancho del CJK).
  */
 #include <stdio.h>
 #include <string.h>
@@ -66,10 +68,29 @@ static void same_formats(void)
 	}
 }
 
+/* Caracteres anchos (CJK): la fuente del sistema les da más o menos el doble
+ * que a una letra latina; se cuentan como dos celdas de la 8x13. */
+static int wide(uint32_t cp)
+{
+	return (cp >= 0x1100 && cp <= 0x115F) || (cp >= 0x2E80 && cp <= 0x303E) || (cp >= 0x3041 && cp <= 0x33FF) ||
+	       (cp >= 0x3400 && cp <= 0x4DBF) || (cp >= 0x4E00 && cp <= 0x9FFF) || (cp >= 0xA960 && cp <= 0xA97F) ||
+	       (cp >= 0xAC00 && cp <= 0xD7A3) || (cp >= 0xF900 && cp <= 0xFAFF) || (cp >= 0xFE30 && cp <= 0xFE4F) ||
+	       (cp >= 0xFF00 && cp <= 0xFF60) || (cp >= 0xFFE0 && cp <= 0xFFE6);
+}
+
+static uint32_t wcells(const char *s)
+{
+	uint32_t n = 0;
+	while (s && *s)
+		n += wide(rsxkit_utf8_next(&s)) ? 2 : 1;
+	return n;
+}
+
 static void glyphs(void)
 {
-	/* Los íconos de filas que el menú dibuja con la fuente. */
-	const char *icons = "~□▶─A↓■▲●#?◀►";
+	/* Los íconos de filas que el menú dibuja con la fuente y las letras propias
+	 * del polaco, el turco y el ruso. */
+	const char *icons = "~□▶─A↓■▲●#?◀►ĄąĆćĘęŁłŃńŚśŹźŻżĞğİıŞşÇçÖöÜüАЯабяёЁ";
 	for (const char *p = icons; *p;) {
 		uint32_t cp = rsxkit_utf8_next(&p);
 		if (!rsxkit_font_has(cp)) {
@@ -82,6 +103,8 @@ static void glyphs(void)
 			const char *t = l ? i18n_text(i, l) : i18n_key(i);
 			for (const char *p = t; *p;) {
 				uint32_t cp = rsxkit_utf8_next(&p);
+				if (i18n_is_cjk(l) && wide(cp))
+					continue;  /* lo dibuja la fuente del sistema */
 				if (cp >= 0x20 && !rsxkit_font_has(cp)) {
 					printf("   «%s» idioma %d: sin glifo U+%04X\n", t, l, cp);
 					CHECK(0);
@@ -98,7 +121,7 @@ static void widths(void)
 	for (size_t i = 0; i < i18n_count(); i++) {
 		uint32_t es = rsxkit_text_cells(i18n_key(i));
 		for (int l = 1; l <= MENU_LANGS_TR; l++) {
-			uint32_t n = rsxkit_text_cells(i18n_text(i, l));
+			uint32_t n = wcells(i18n_text(i, l));
 			uint32_t limit = es <= 31 ? 34 : es <= 66 ? 66 : es + 8;
 			if (n > limit) {
 				printf("   «%s» idioma %d: %u celdas (límite %u)\n", i18n_key(i), l, n, limit);
@@ -114,25 +137,35 @@ static void labels(void)
 	static const char *const keys[] = { "Archivo", "Ubicación", "Código", "Tamaño", "Región", "Guardado" };
 	for (unsigned k = 0; k < sizeof keys / sizeof keys[0]; k++) {
 		i18n_set(0);
+		i18n_set_cjk(1);
 		for (int l = 1; l <= MENU_LANGS_TR; l++) {
 			i18n_set(l);
-			uint32_t n = rsxkit_text_cells(tr(keys[k]));
+			uint32_t n = wcells(tr(keys[k]));
 			if (n > 9) {
 				printf("   rótulo «%s» idioma %d: %u celdas\n", tr(keys[k]), l, n);
 				CHECK(0);
 			}
 		}
 	}
+	i18n_set_cjk(0);
 	i18n_set(0);
 }
 
 static void lookup(void)
 {
+	static const char *const accessory_keys[] = {
+		"Accesorio inicial de los cuatro", "controles de N64.", "Controller Pak guarda datos.",
+		"Rumble Pak activa la vibración.", "Transfer Pak carga .gb/.gbc y usa .sav.",
+		"Controller Pak, Rumble Pak, Transfer Pak o ninguno", "Volver al menú",
+		"×  Cambiar      ↑↓  Elegir      ○  Volver",
+	};
 	i18n_set(0);
 	CHECK(!strcmp(tr("Volver"), "Volver"));
 	i18n_set(1);
 	CHECK(!strcmp(tr("Volver"), "Back"));
 	CHECK(!strcmp(tr("Sí"), "Yes"));
+	for (unsigned i = 0; i < sizeof accessory_keys / sizeof accessory_keys[0]; i++)
+		CHECK(strcmp(tr(accessory_keys[i]), accessory_keys[i]) != 0);
 	i18n_set(2);
 	CHECK(!strcmp(tr("Volver"), "Retour"));
 	i18n_set(3);
@@ -141,18 +174,152 @@ static void lookup(void)
 	CHECK(!strcmp(tr("Volver"), "Indietro"));
 	i18n_set(5);
 	CHECK(!strcmp(tr("Volver"), "Voltar"));
+	i18n_set(6);
+	CHECK(!strcmp(tr("Volver"), "Terug"));
+	i18n_set(7);
+	CHECK(!strcmp(tr("Volver"), "Tillbaka"));
+	i18n_set(8);
+	CHECK(!strcmp(tr("Volver"), "Tilbage"));
+	i18n_set(9);
+	CHECK(!strcmp(tr("Volver"), "Tilbake"));
+	i18n_set(10);
+	CHECK(!strcmp(tr("Volver"), "Takaisin"));
+	i18n_set(11);
+	CHECK(!strcmp(tr("Volver"), "Wróć"));
+	i18n_set(12);
+	CHECK(!strcmp(tr("Volver"), "Geri"));
+	i18n_set(13);
+	CHECK(!strcmp(tr("Volver"), "Назад"));
+	/* Japonés, coreano y chino: solo con la fuente del sistema; sin ella,
+	 * inglés. */
+	i18n_set(I18N_JA);
+	CHECK_EQ(i18n_lang(), 1);
+	CHECK(!strcmp(tr("Volver"), "Back"));
+	i18n_set_cjk(1);
+	i18n_set(I18N_JA);
+	CHECK(!strcmp(tr("Volver"), "戻る"));
+	CHECK(!strcmp(tr("Sí"), "はい"));
+	i18n_set(I18N_KO);
+	CHECK(!strcmp(tr("Volver"), "돌아가기"));
+	i18n_set(I18N_ZH_HANT);
+	CHECK(!strcmp(tr("Volver"), "返回"));
+	i18n_set(I18N_ZH_HANS);
+	CHECK_EQ(i18n_lang(), I18N_ZH_HANS);
+	CHECK(!strcmp(tr("Volver"), "返回"));
+	CHECK(!strcmp(i18n_code(I18N_ZH_HANT), "zh-hant"));
+	i18n_set_cjk(0);
+	CHECK_EQ(i18n_resolve(I18N_KO), 1);
 	/* Lo que no está sale igual (títulos de juegos, rutas...). */
 	CHECK(!strcmp(tr("GoldenEye 007"), "GoldenEye 007"));
 	CHECK(tr("Rareza") != NULL);
-	i18n_set(9);  /* fuera de rango: español */
+	i18n_set(40);  /* fuera de rango: español */
 	CHECK_EQ(i18n_lang(), 0);
 	CHECK(!strcmp(tr("Volver"), "Volver"));
 	CHECK(tr(NULL) == NULL);
 	i18n_set(0);
 }
 
+/* Los nombres de los accesorios no se traducen en ningún idioma. */
+static void untranslated_names(void)
+{
+	static const char *const keep[] = { "Controller Pak", "Rumble Pak", "Transfer Pak" };
+	for (unsigned k = 0; k < sizeof keep / sizeof keep[0]; k++)
+		for (size_t i = 0; i < i18n_count(); i++)
+			if (!strcmp(i18n_key(i), keep[k]))
+				for (int l = 1; l <= MENU_LANGS_TR; l++)
+					CHECK(!strcmp(i18n_text(i, l), keep[k]));
+	/* Y en toda la tabla, el nombre propio aparece tal cual si aparece. */
+	for (size_t i = 0; i < i18n_count(); i++)
+		for (unsigned k = 0; k < sizeof keep / sizeof keep[0]; k++)
+			if (strstr(i18n_key(i), keep[k]))
+				for (int l = 1; l <= MENU_LANGS_TR; l++)
+					if (!strstr(i18n_text(i, l), keep[k])) {
+						printf("   «%s» idioma %d perdió «%s»\n", i18n_key(i), l, keep[k]);
+						CHECK(0);
+					}
+}
+
+/* «Automático»: el idioma de la consola, y el mapeo de los 20 que tiene la PS3. */
+static void automatic(void)
+{
+	/* SYSUTIL_LANG_*: 0 ja, 1 en-US, 2 fr, 3 es, 4 de, 5 it, 6 nl, 7 pt-PT, 8 ru, 9 ko, 10 zh-T, 11 zh-S,
+	 * 12 fi, 13 sv, 14 da, 15 no, 16 pl, 17 pt-BR, 18 en-GB, 19 tr. */
+	static const int want[20] = { 1, 1, 2, 0, 3, 4, 6, 5, 13, 1, 1, 1, 10, 7, 8, 9, 11, 5, 1, 12 };
+	for (int sys = 0; sys < 20; sys++) {
+		if (i18n_from_system(sys) != want[sys]) {
+			printf("   idioma de la consola %d: %d (esperado %d)\n", sys, i18n_from_system(sys), want[sys]);
+			CHECK(0);
+		}
+	}
+	CHECK_EQ(i18n_from_system(-1), 1);
+	CHECK_EQ(i18n_from_system(99), 1);
+	/* Para el log: el idioma de la consola tal cual (0 es japonés) y el que
+	 * tocaría con fuente CJK. */
+	CHECK(!strcmp(i18n_system_code(0), "ja"));
+	CHECK(!strcmp(i18n_system_code(11), "zh-hans"));
+	CHECK(!strcmp(i18n_system_code(-1), "?"));
+	CHECK_EQ(i18n_from_system_cjk(0), I18N_JA);
+	CHECK_EQ(i18n_from_system(0), 1);
+	/* Con la fuente del sistema, los cuatro que faltaban. */
+	static const int want_cjk[20] = { I18N_JA, 1, 2, 0, 3, 4, 6, 5, 13, I18N_KO, I18N_ZH_HANT, I18N_ZH_HANS,
+					  10, 7, 8, 9, 11, 5, 1, 12 };
+	i18n_set_cjk(1);
+	for (int sys = 0; sys < 20; sys++)
+		CHECK_EQ(i18n_from_system(sys), want_cjk[sys]);
+	i18n_set_system(0);
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), I18N_JA);
+	CHECK(!strcmp(tr("Volver"), "戻る"));
+	i18n_set_cjk(0);
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 1);
+
+	/* Sin saber el de la consola (host, pruebas): español. */
+	i18n_set_system(-1);
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 0);
+	CHECK(!strcmp(tr("Volver"), "Volver"));
+	CHECK_EQ(i18n_resolve(I18N_AUTO), 0);
+
+	/* Con el de la consola. */
+	i18n_set_system(13);  /* sueco */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 7);
+	CHECK(!strcmp(tr("Volver"), "Tillbaka"));
+	i18n_set_system(8);  /* ruso */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 13);
+	CHECK(!strcmp(tr("Volver"), "Назад"));
+	i18n_set_system(16);  /* polaco */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 11);
+	i18n_set_system(19);  /* turco */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 12);
+	i18n_set_system(9);  /* coreano: inglés */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 1);
+	CHECK(!strcmp(tr("Volver"), "Back"));
+	i18n_set_system(17);  /* portugués de Brasil: la columna del portugués */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 5);
+
+	/* Una elección explícita no depende de la consola. */
+	i18n_set(MENU_LANGS_TR > 1 ? 2 : 0);
+	CHECK_EQ(i18n_lang(), 2);
+	CHECK_EQ(i18n_resolve(3), 3);
+	CHECK(!strcmp(i18n_code(I18N_AUTO), "auto"));
+	CHECK(!strcmp(i18n_code(10), "fi"));
+	CHECK(!strcmp(i18n_code(13), "ru"));
+
+	i18n_set_system(-1);
+	i18n_set(0);
+}
+
 void t_suite_i18n(void)
 {
+	RUN(untranslated_names);
+	RUN(automatic);
 	RUN(sorted);
 	RUN(same_formats);
 	RUN(glyphs);

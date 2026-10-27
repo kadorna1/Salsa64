@@ -98,8 +98,16 @@ enum menu_filter {
 	MENU_FILTERS,
 };
 
-/* Idioma del menú (menu.cfg, «idioma = es|en|fr|de|it|pt»), ver i18n.h. */
-enum menu_lang { MENU_LANG_ES, MENU_LANG_EN, MENU_LANG_FR, MENU_LANG_DE, MENU_LANG_IT, MENU_LANG_PT, MENU_LANGS };
+/* Idioma del menú (menu.cfg, «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru|ja|ko|
+ * zh-hant|zh-hans»), ver i18n.h. Los dieciocho primeros coinciden con los de la
+ * tabla; AUTO usa el idioma de la consola. El japonés, el coreano y el chino
+ * solo se ofrecen con la fuente del sistema (i18n_cjk). */
+enum menu_lang {
+	MENU_LANG_ES, MENU_LANG_EN, MENU_LANG_FR, MENU_LANG_DE, MENU_LANG_IT, MENU_LANG_PT,
+	MENU_LANG_NL, MENU_LANG_SV, MENU_LANG_DA, MENU_LANG_NO, MENU_LANG_FI,
+	MENU_LANG_PL, MENU_LANG_TR, MENU_LANG_RU, MENU_LANG_JA, MENU_LANG_KO, MENU_LANG_ZH_HANT,
+	MENU_LANG_ZH_HANS, MENU_LANG_AUTO, MENU_LANGS
+};
 enum menu_rom_order { MENU_ROM_ORDER_TITLE, MENU_ROM_ORDER_FILENAME };
 
 /* Densidad de los puntos del CRT de máscara de sombra: la del filtro
@@ -112,10 +120,10 @@ enum menu_density { MENU_DENSITY_NORMAL, MENU_DENSITY_FINE, MENU_DENSITIES };
  * vértices entre un cuadro y el siguiente (salsa64_rdp_interp). */
 enum menu_interp { MENU_INTERP_OFF, MENU_INTERP_GEOMETRY, MENU_INTERPS };
 
-/* Accesorio enchufado a los controles (juegos/<ROM>.cfg, «accesorio =
- * controller-pak|ninguno»; mempak.h). Sin opción global: por omisión, un
- * Controller Pak en cada control. */
-enum menu_accessory { MENU_ACC_PAK, MENU_ACC_NONE, MENU_ACCS };
+/* Accesorio enchufado a los controles (menu.cfg y juegos/<ROM>.cfg,
+ * «accesorio = controller-pak|rumble-pak|transfer-pak|ninguno»). -1 en ajustes de juego
+ * significa heredar la opción global. */
+enum menu_accessory { MENU_ACC_PAK, MENU_ACC_NONE, MENU_ACC_RUMBLE, MENU_ACC_TRANSFER, MENU_ACCS };
 
 /* Ajustes de un solo juego (juegos/<ROM>.cfg): -1 es «lo global». */
 struct menu_game {
@@ -127,7 +135,7 @@ struct menu_game {
 	int density;   /* -1 o enum menu_density (solo con la máscara) */
 	int interp;    /* -1 o enum menu_interp */
 	struct salsa64_padmap controls; /* asignaciones propias; INHERIT usa el global */
-	int accessory; /* enum menu_accessory (nunca -1: sin valor global) */
+	int accessory; /* -1 o enum menu_accessory: -1 hereda de Opciones */
 };
 /* MENU_GAME_DENSITY solo es una fila si el filtro que vale es la máscara. */
 enum { MENU_GAME_ASPECT, MENU_GAME_FILTER, MENU_GAME_DENSITY, MENU_GAME_OVERSCAN, MENU_GAME_SCALE, MENU_GAME_INTERP, MENU_GAME_CONTROLS,
@@ -159,11 +167,12 @@ struct menu_settings {
 	int lang;       /* enum menu_lang */
 	int interp;     /* enum menu_interp («interpolacion = no|geometria») */
 	int rom_order;  /* enum menu_rom_order («orden = titulo|archivo») */
+	int accessory;  /* enum menu_accessory; accesorio inicial para todos los controles */
 };
 
 enum { MENU_PAGE_GAMES, MENU_PAGE_OPTIONS, MENU_PAGE_CHEATS, MENU_PAGE_GAME, MENU_PAGE_CONTROLS };
 enum { MENU_OPT_WAVES, MENU_OPT_OVERSCAN, MENU_OPT_ASPECT, MENU_OPT_FILTER, MENU_OPT_DENSITY, MENU_OPT_RESOLUTION,
-       MENU_OPT_SCALE, MENU_OPT_APPLY, MENU_OPT_INTERP, MENU_OPT_FPS, MENU_OPT_CONFIRM, MENU_OPT_LANG,
+       MENU_OPT_SCALE, MENU_OPT_APPLY, MENU_OPT_INTERP, MENU_OPT_FPS, MENU_OPT_CONFIRM, MENU_OPT_ACCESSORY, MENU_OPT_LANG,
        MENU_OPT_ROM_ORDER, MENU_OPT_DL_COVERS, MENU_OPT_DL_CHEATS, MENU_OPT_REFRESH, MENU_OPT_CONTROLS, MENU_OPT_BACK, MENU_OPTS };
 #define MENU_CONTROL_STICK 14
 #define MENU_CONTROL_RESET 15

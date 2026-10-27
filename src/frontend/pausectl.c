@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include <rsxkit/text.h>
+#include <rsxkit/ui.h>
 
 #include "padmap.h"
 
@@ -25,6 +26,7 @@ void pausectl_init(struct pausectl *p, bool confirm)
 	p->toggle = -1;
 	p->menu_do = -1;
 	p->image_do = -1;
+	p->accessory_do = -1;
 }
 
 void pausectl_system_menu(struct pausectl *p, bool open)
@@ -48,7 +50,7 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 
 	p->intercepted = intercepted;
 	if (!in_game)
-		p->dialog = p->panel = p->menu = p->image = false;
+		p->dialog = p->panel = p->menu = p->image = p->accessory = false;
 	for (unsigned i = 0; i < PAUSECTL_PORTS; i++) {
 		uint32_t b = sys ? 0 : raw[i];
 		p->swallow[i] &= b;  /* lo soltado vuelve a contar */
@@ -65,9 +67,27 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 		now[i] = b;
 	}
 
-	bool was = p->dialog, was_panel = p->panel, was_menu = p->menu, was_image = p->image, denied_now = false;
+	bool was = p->dialog, was_panel = p->panel, was_menu = p->menu, was_image = p->image;
+	bool was_accessory = p->accessory, denied_now = false;
 	if (!sys && in_game) {
-		if (p->image) {
+		if (p->accessory) {
+			uint32_t up = BIT(SALSA64_DS3_UP), down = BIT(SALSA64_DS3_DOWN);
+			bool left = rise & BIT(SALSA64_DS3_LEFT), right = rise & BIT(SALSA64_DS3_RIGHT);
+			if ((rise & BIT(SALSA64_DS3_START)) || combo) {
+				p->accessory = false; /* START/atajo cierra todo */
+			} else if ((rise & BIT(SALSA64_DS3_CIRCLE)) ||
+				   (p->accessory_sel == AM_BACK && (rise & BIT(SALSA64_DS3_CROSS)))) {
+				p->accessory = false;
+				p->menu = true;
+			} else if (rise & (up | down)) {
+				int step = (rise & up) ? AM_ROWS - 1 : 1;
+				p->accessory_sel = (p->accessory_sel + step) % AM_ROWS;
+			} else if (p->accessory_sel < AM_BACK &&
+				   (left || right || (rise & BIT(SALSA64_DS3_CROSS)))) {
+				p->accessory_do = p->accessory_sel;
+				p->accessory_arg = left ? -1 : 1;
+			}
+		} else if (p->image) {
 			uint32_t up = BIT(SALSA64_DS3_UP), down = BIT(SALSA64_DS3_DOWN);
 			bool left = rise & BIT(SALSA64_DS3_LEFT), right = rise & BIT(SALSA64_DS3_RIGHT);
 			if ((rise & BIT(SALSA64_DS3_START)) || combo) {
@@ -161,6 +181,12 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 					p->image = true;
 					p->image_sel = IM_FILTER;
 					break;
+				case PM_ACCESSORY:
+					p->menu = false;
+					p->accessory = true;
+					p->accessory_sel = AM_PORT1;
+					p->accessory_do = -1;
+					break;
 				case PM_FPS:
 					p->menu_do = PM_FPS;
 					break;
@@ -202,26 +228,27 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 			}
 		}
 	}
-	if (p->dialog != was || p->panel != was_panel || p->menu != was_menu || p->image != was_image || denied_now ||
-	    act != PAUSECTL_NONE)
+	if (p->dialog != was || p->panel != was_panel || p->menu != was_menu || p->image != was_image ||
+	    p->accessory != was_accessory || denied_now || act != PAUSECTL_NONE)
 		for (unsigned i = 0; i < PAUSECTL_PORTS; i++)
 			p->swallow[i] |= now[i];
 	for (unsigned i = 0; i < PAUSECTL_PORTS; i++)
-		game[i] = sys || p->dialog || p->panel || p->menu || p->image ? 0 : now[i] & ~p->swallow[i];
+		game[i] = sys || p->dialog || p->panel || p->menu || p->image || p->accessory ? 0 : now[i] & ~p->swallow[i];
 	return act;
 }
 
 uint32_t pausectl_reasons(const struct pausectl *p)
 {
 	return (pausectl_overlay(p) || p->intercepted ? PAUSECTL_SYSTEM : 0) | (p->dialog ? PAUSECTL_CONFIRM : 0) |
-	       (p->panel ? PAUSECTL_PANEL : 0) | (p->menu || p->image ? PAUSECTL_MENU : 0);
+	       (p->panel ? PAUSECTL_PANEL : 0) | (p->menu || p->image || p->accessory ? PAUSECTL_MENU : 0);
 }
 
 void pausectl_game_end(struct pausectl *p)
 {
-	p->dialog = p->panel = p->menu = p->image = false;
+	p->dialog = p->panel = p->menu = p->image = p->accessory = false;
 	p->menu_do = -1;
 	p->image_do = -1;
+	p->accessory_do = -1;
 	p->panel_avail = false;
 	p->panel_rows = 0;
 	p->panel_sel = 0;
@@ -237,22 +264,13 @@ unsigned pausectl_panel_top(int sel, unsigned rows)
 	return (unsigned)(top < 0 ? 0 : top > max ? max : top);
 }
 
-/* Caracteres de un texto UTF-8. */
-static unsigned cells(const char *s)
-{
-	unsigned n = 0;
-	for (; *s; s++)
-		n += ((unsigned char)*s & 0xC0) != 0x80;
-	return n;
-}
-
 void pausectl_layout(const char *question, const char *answers, float lw, float lh, struct pausectl_box *b)
 {
 	const float pad = 28.0f, gap = 22.0f;
 	b->qscale = 2.5f;
 	b->ascale = 2.0f;
-	float qw = cells(question) * RSXKIT_FONT_W * b->qscale, qh = RSXKIT_FONT_H * b->qscale;
-	float aw = cells(answers) * RSXKIT_FONT_W * b->ascale, ah = RSXKIT_FONT_H * b->ascale;
+	float qw = rsxkit_ui_text_width(question, b->qscale), qh = RSXKIT_FONT_H * b->qscale;
+	float aw = rsxkit_ui_text_width(answers, b->ascale), ah = RSXKIT_FONT_H * b->ascale;
 	float inner = qw > aw ? qw : aw;
 	b->w = inner + 2 * pad;
 	b->h = qh + gap + ah + 2 * pad;

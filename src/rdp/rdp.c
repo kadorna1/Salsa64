@@ -331,6 +331,7 @@ static struct {
 	bool copy_color_to_rdram;    /* espejo automático del framebuffer principal */
 	bool aa_edges;               /* salsa64_rdp_aa_edges */
 	bool target_alpha;           /* salsa64_rdp_target_alpha */
+	bool texture_wait;           /* serialización diagnóstica de escrituras de textura */
 	uint8_t *rdram;              /* la RDRAM emulada (NULL: sin copias ni cebado) */
 	uint32_t rdram_size;
 	void (*wake)(void);          /* despierta al hilo de presentación */
@@ -382,6 +383,7 @@ static struct {
 	uint32_t rb_prev[RB_HISTORY][RB_PER_TASK], rb_prev_rep[RB_HISTORY][RB_PER_TASK];
 	/* Si las copias de las capas big8 se esperan (por juego: Yoshi's Story). */
 	bool big8_wait;
+	bool zclear_target;          /* el borrado pertenece a la próxima color image */
 	uint32_t rb_prev_n[RB_HISTORY];
 	uint32_t rb_prev_i;
 	/* Traza detallada (color images, ranuras y copias de cada tarea) de las
@@ -872,6 +874,34 @@ static void acquire(void *ctx, struct gfx_job *job)
 			uint64_t dt = sysGetSystemTime() - t0;
 			rdp.stats.us_set_wait += dt;
 			s->set_wait_us = (uint32_t)(dt > 0xFFFFFFFFu ? 0xFFFFFFFFu : dt);
+		}
+	}
+	/* Diagnóstico fuerte: antes de que la HLE escriba caché o arena, todas
+	 * las tareas anteriores deben haber sido traducidas y terminadas por el
+	 * RSX. Solo se leen etiquetas ya publicadas; este hilo no toca el FIFO. */
+	if (rdp.texture_wait && n) {
+		uint64_t t0 = 0;
+		struct set *prev = &rdp.sets[(n - 1) % SETS];
+		for (;;) {
+			bool translated = (int32_t)(rdp.translated - n) >= 0;
+			lwsync();
+			uint32_t ft = prev->fence_task;
+			lwsync();
+			if (translated && ft == n && rsxkit_fence_done(prev->fence))
+				break;
+			if (!t0) {
+				t0 = sysGetSystemTime();
+				rdp.stats.tex_waits++;
+				rdp.set_waiting = n;
+				lwsync();
+				if (rdp.wake)
+					rdp.wake();
+			}
+			sysUsleep(50);
+		}
+		if (t0) {
+			rdp.set_waiting = 0;
+			rdp.stats.us_tex_wait += sysGetSystemTime() - t0;
 		}
 	}
 	/* Tareas que el RSX ya terminó: la de cada juego cuya barrera pasó (las
@@ -1873,6 +1903,15 @@ static struct depth *get_depth(uint32_t addr, int slot)
 			free_d = d;
 	}
 	struct depth *d = same ? same : free_d ? free_d : &rdp.depths[addr & 1];
+	/* Al crecer la profundidad, conserva el borrado que pidió el destino
+	 * grande antes de su primer dibujo. LEGO Racers crea primero la de
+	 * 32 x 32 y acto seguido la agranda para 320 x 240. */
+	uint32_t pending = rdp.zclear_target && same ? same->clear_pending : 0;
+	float pending_rect[ZCLEAR_PENDING][4], pending_value[ZCLEAR_PENDING];
+	if (pending) {
+		memcpy(pending_rect, same->clear_rect, pending * sizeof pending_rect[0]);
+		memcpy(pending_value, same->clear_value, pending * sizeof pending_value[0]);
+	}
 	if (same) {
 		w = same->w > w ? same->w : w;
 		h = same->h > h ? same->h : h;
@@ -1895,7 +1934,11 @@ static struct depth *get_depth(uint32_t addr, int slot)
 	d->addr = addr;
 	d->w = w;
 	d->h = h;
-	d->clear_pending = 0;
+	d->clear_pending = pending;
+	if (pending) {
+		memcpy(d->clear_rect, pending_rect, pending * sizeof d->clear_rect[0]);
+		memcpy(d->clear_value, pending_value, pending * sizeof d->clear_value[0]);
+	}
 	d->rd_sum = d->rd_changed = d->rd_changes = d->rd_checked = 0;
 	d->fed_task = d->auto_task = d->fed_src = 0;
 	d->up_sum = 0;
@@ -2069,7 +2112,7 @@ static void zauto(struct depth *d)
  * vez de ir con una zeta más chica que el color. */
 static bool bind(int slot, struct depth *d)
 {
-	if (slot == rdp.bound_t && d == rdp.bound_d)
+	if (slot == rdp.bound_t && d == rdp.bound_d && !(d && d->clear_pending))
 		return true;
 	const struct rdp_target *t = &rdp.tg.t[slot];
 	int rc = rsxkit_bind(rdp.surf[slot], d ? d->d : NULL, (float)t->lw, (float)t->lh);
@@ -2134,7 +2177,7 @@ static void zclear(const struct gfx_zclear *z)
 		if (!b[0] && !b[1] && b[2] >= (z->h.c & 0xFFFF) && b[3] >= 200)
 			rdp.zc_full[k] = rdp.tg.task;
 	}
-	if (d && d == rdp.bound_d) {
+	if (d && d == rdp.bound_d && !rdp.zclear_target) {
 		rsxkit_clear(RSXKIT_CLEAR_DEPTH, 0, value, rect);
 		return;
 	}
@@ -2473,6 +2516,16 @@ static bool rdp_reads_image(const struct set *s, const struct gfx_result *res, u
 void salsa64_rdp_set_big8_wait(bool wait)
 {
 	rdp.big8_wait = wait;
+}
+
+void salsa64_rdp_zclear_target(bool on)
+{
+	rdp.zclear_target = on;
+}
+
+void salsa64_rdp_set_texture_wait(bool wait)
+{
+	rdp.texture_wait = wait;
 }
 
 /* ¿Hay otra color image en la misma dirección, con otro ancho y de un

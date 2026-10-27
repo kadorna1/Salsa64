@@ -47,6 +47,7 @@
 #include "crt_cable_spe_lin_fpo.h"
 #include "spu_crt_bin.h"
 #include "crt_debug_fpo.h"
+#include "crt_copy_fpo.h"
 #include "crt_glow_fpo.h"
 #include "crt_lineal_fpo.h"
 #include "crt_mask_dots_fpo.h"
@@ -107,7 +108,7 @@ static const char *const seg_trin[SEGS] = { "reducir", "lineal y resplandor", NU
 enum {
 	P_LINEAR, P_GLOW, P_TILE_A, P_TILE_B, P_TILE_C, P_DOTS, P_MASK_FINAL,
 	P_SIGNAL_E, P_SIGNAL_O, P_DECODE9, P_DECODE27, P_LINES_A4, P_LINES_B4, P_LINES_A8, P_LINES_B8, P_TUBE_FINAL,
-	P_TRIN_A, P_TRIN_B, P_SPE_LIN, P_DEBUG, PROGRAMS
+	P_TRIN_A, P_TRIN_B, P_SPE_LIN, P_DEBUG, P_COPY, PROGRAMS
 };
 
 static const u8 *const program_fpo[PROGRAMS] = {
@@ -131,11 +132,20 @@ static const u8 *const program_fpo[PROGRAMS] = {
 	[P_TRIN_B] = crt_trinitron_lines_b_fpo,
 	[P_SPE_LIN] = crt_cable_spe_lin_fpo,
 	[P_DEBUG] = crt_debug_fpo,
+	[P_COPY] = crt_copy_fpo,
 };
 
 /* S_SPE_*: en la memoria principal (spe.mem), con `filtros-spe`. */
 enum { S_SRC, S_LIN, S_GLOW, S_TILE_A, S_TILE_B, S_TILE_C, S_DOTS, S_SIG_E, S_SIG_O, S_DEC_E, S_DEC_O, S_LINES_A,
        S_LINES_B, S_SPE_IN, S_SPE_E, S_SPE_O, SURFACES };
+
+static bool optimize = true;
+static bool final_valid;
+static rsxkit_texture final_texture;
+static uint64_t final_ticket;
+static bool cache_source;
+/* En la autoprueba se exige que la ruta nueva se haya usado realmente. */
+static uint32_t final_copies;
 
 static struct {
 	/* Algo falló (sin memoria, una pasada que el RSX no aceptó): sin filtro
@@ -169,7 +179,7 @@ static struct {
 	} slot[SLOTS];
 	uint32_t frame;
 	uint64_t ns[SEGS], ns_reused, ns_spe_wait, ns_spe_trip;
-	uint32_t measured, measured_reused, measured_spe, drawn, reused;
+	uint32_t measured, measured_reused, measured_spe, drawn, reused, copied;
 	bool spe_frame;         /* este cuadro va con el SPE (spe_kick) */
 	int last_filter;
 	bool check;             /* falta la comprobación de este filtro */
@@ -182,9 +192,18 @@ static struct {
 		bool valid;
 		uint32_t gen, offset, factor;
 		uint8_t location;
+		rsxkit_texture tex;
 		rsxkit_rect region;
 	} last;
 } fl = { .filter = -1, .last_filter = -1 };
+
+void salsa64_filters_optimize(bool on)
+{
+	if (optimize != on)
+		fl.filter = -1;
+	optimize = on;
+	final_valid = false;
+}
 
 static bool spe_prepare(int f);
 static void spe_release(void);
@@ -202,6 +221,7 @@ static void set4(int p, const char *name, float x, float y, float z, float w)
 
 static void free_surfaces(void)
 {
+	final_valid = false;
 	for (int i = 0; i < SURFACES; i++) {
 		rsxkit_surface_destroy(fl.surf[i]);
 		fl.surf[i] = NULL;
@@ -680,11 +700,40 @@ static void final_pass(rsxkit_surface *out)
 	}
 	if (out) {
 		p.out = out;
-	} else {
+	}
+	if (!out) {
 		p.rect.x = (int32_t)fl.rect[0];
 		p.rect.y = (int32_t)fl.rect[1];
 	}
 	run(&p);
+}
+
+/* La pasada final escribe directamente en el búfer que se presenta.
+ * Al repetir, el otro búfer todavía conserva la salida: se lee antes de
+ * que vuelva a ser destino. Cada copia pasa a ser la nueva referencia.
+ * Una UI superpuesta invalida el préstamo; entonces se rehace la final. */
+static void present_final(bool reuse)
+{
+	bool cached = optimize && cache_source && reuse && final_valid &&
+	              rsxkit_screen_texture_valid(final_ticket);
+	if (cached) {
+		rsxkit_post_pass p;
+		pass_init(&p, P_COPY, -1, fl.rect[2], fl.rect[3]);
+		p.rect.x = (int32_t)fl.rect[0];
+		p.rect.y = (int32_t)fl.rect[1];
+		p.origin[0] = (float)fl.rect[0];
+		p.origin[1] = (float)fl.rect[1];
+		p.in[0] = rsxkit_post_texture_input(&final_texture, RSXKIT_FILTER_NEAREST, RSXKIT_POST_CLAMP);
+		p.inputs = 1;
+		run(&p);
+		final_copies++;
+		fl.copied++;
+	} else {
+		final_pass(NULL);
+	}
+	final_valid = optimize && cache_source && !fl.failed;
+	if (final_valid)
+		final_ticket = rsxkit_screen_texture(&final_texture);
 }
 
 static void draw_mask(int slot)
@@ -702,7 +751,7 @@ static void draw_mask(int slot)
 	run(&p);
 	stamp(slot, SEG_TABLES + 1);
 	stamp(slot, SEG_LINES + 1);
-	final_pass(NULL);
+	present_final(false);
 }
 
 /* Las dos pasadas de líneas del tubo (A: amplitud y k rojo; B: k verde y
@@ -747,7 +796,7 @@ static void draw_cable(int slot)
 	else
 		tube_lines(P_LINES_A4, P_LINES_B4, S_DEC_E, -1);
 	stamp(slot, SEG_LINES + 1);
-	final_pass(NULL);
+	present_final(false);
 }
 
 static void draw_trinitron(int slot)
@@ -755,7 +804,7 @@ static void draw_trinitron(int slot)
 	stamp(slot, SEG_TABLES + 1);
 	tube_lines(P_TRIN_A, P_TRIN_B, S_LIN, -1);
 	stamp(slot, SEG_LINES + 1);
-	final_pass(NULL);
+	present_final(false);
 }
 
 /* Diagnóstico (salsa64_filters_debug): la tabla `s` en la esquina de la
@@ -1309,6 +1358,9 @@ static bool same_image(const struct salsa64_filter_src *src)
 {
 	return fl.last.valid && src->has_gen && fl.last.gen == src->gen && fl.last.offset == src->tex.offset &&
 	       fl.last.location == src->tex.location && fl.last.factor == src->factor &&
+	       fl.last.tex.pitch == src->tex.pitch && fl.last.tex.width == src->tex.width &&
+	       fl.last.tex.height == src->tex.height && fl.last.tex.format == src->tex.format &&
+	       fl.last.tex.remap == src->tex.remap &&
 	       !memcmp(&fl.last.region, &src->region, sizeof src->region);
 }
 
@@ -1317,6 +1369,7 @@ bool salsa64_filters_draw(int f, const struct salsa64_filter_src *src, rsxkit_re
 	uint32_t sw, sh;
 	if (!wanted(f, src, &sw, &sh))
 		return false;
+	cache_source = src->has_gen && !src->screen_busy;
 	if (fl.failed) {
 		if (fail_same(f, src, sw, sh))
 			return false;
@@ -1335,7 +1388,7 @@ bool salsa64_filters_draw(int f, const struct salsa64_filter_src *src, rsxkit_re
 		fl.last_filter = f;
 		memset(fl.ns, 0, sizeof fl.ns);
 		fl.ns_reused = fl.ns_spe_wait = fl.ns_spe_trip = 0;
-		fl.measured = fl.measured_reused = fl.measured_spe = fl.drawn = fl.reused = 0;
+		fl.measured = fl.measured_reused = fl.measured_spe = fl.drawn = fl.reused = fl.copied = 0;
 	}
 	/* Una ranura de marcas libre (con más de SLOTS cuadros en vuelo, la
 	 * más vieja se pierde para la medición). */
@@ -1345,7 +1398,7 @@ bool salsa64_filters_draw(int f, const struct salsa64_filter_src *src, rsxkit_re
 
 	stamp(slot, 0);
 	if (reuse) {
-		final_pass(NULL);
+		present_final(true);
 		stamp(slot, SEGS);
 		fl.reused++;
 	} else {
@@ -1385,6 +1438,7 @@ bool salsa64_filters_draw(int f, const struct salsa64_filter_src *src, rsxkit_re
 		fl.last.location = src->tex.location;
 		fl.last.factor = src->factor;
 		fl.last.region = src->region;
+		fl.last.tex = src->tex;
 	}
 	if (debug_surface >= 0 && fl.surf[debug_surface])
 		copy_surface(debug_surface, debug_scale, NULL);
@@ -1453,14 +1507,164 @@ bool salsa64_filters_report(char *buf, size_t size)
 		uint32_t m = fl.measured + fl.measured_reused;
 		double avg = m ? (total * fl.measured + fin * fl.measured_reused) / m : 0.0;
 		snprintf(buf + n, size - (size_t)n,
-			 "\nfiltro, %u con la imagen repetida, solo la pasada final: %.2f ms (%u medidos); promedio %.2f ms por cuadro",
-			 fl.reused, fin, fl.measured_reused, avg);
+			 "\nfiltro, %u con la imagen repetida, %u copias y %u finales: %.2f ms (%u medidos); promedio %.2f ms por cuadro",
+			 fl.reused, fl.copied, fl.reused - fl.copied, fin, fl.measured_reused, avg);
 	}
 	memset(fl.ns, 0, sizeof fl.ns);
 	fl.ns_reused = fl.ns_spe_wait = fl.ns_spe_trip = 0;
 	fl.measured = fl.measured_reused = fl.measured_spe = 0;
-	fl.drawn = fl.reused = 0;
+	fl.drawn = fl.reused = fl.copied = 0;
 	spe.wait_ticks = spe.work_ticks = 0;
 	spe.frames = 0;
 	return true;
+}
+
+/* Patrones deterministas sin material de juegos. Incluyen extremos, todos
+ * los niveles de 8 bits, bordes de un texel y ruido de semilla fija. */
+static void test_pattern(uint32_t *pixels, uint32_t w, uint32_t h, unsigned pattern)
+{
+	uint32_t random = 0x13579BDFu;
+	for (uint32_t y = 0; y < h; y++)
+		for (uint32_t x = 0; x < w; x++) {
+			uint32_t rgb;
+			random ^= random << 13;
+			random ^= random >> 17;
+			random ^= random << 5;
+			switch (pattern) {
+			case 0: rgb = x < w / 2 ? 0 : 0xFFFFFF; break;
+			case 1: rgb = ((x & 255) << 16) | ((y & 255) << 8) | ((x + y) & 255); break;
+			case 2: rgb = (x ^ y) & 1 ? 0xFF00FF : 0x00FF00; break;
+			default: rgb = random & 0xFFFFFF; break;
+			}
+			pixels[y * w + x] = rgb << 8 | 255; /* RGBA8888 */
+		}
+}
+
+/* Copia/contrasta la pantalla real, incluidas las bandas. X no es un
+ * canal definido de X8R8G8B8; se comparan todos los bits de R, G y B. */
+static bool test_screen(uint32_t *reference, bool save, uint32_t *bad, uint32_t *maximum, uint32_t channels[3], bool *nonzero)
+{
+	const rsxkit_screen *sc = rsxkit_screen_info();
+	uint32_t pitch;
+	const volatile uint32_t *screen = rsxkit_back_buffer(&pitch);
+	if (!screen || rsxkit_lost())
+		return false;
+	*bad = *maximum = 0;
+	memset(channels, 0, 3 * sizeof *channels);
+	*nonzero = false;
+	for (uint32_t y = 0; y < sc->height; y++)
+		for (uint32_t x = 0; x < sc->width; x++) {
+			uint32_t value = screen[y * (pitch / 4) + x] & 0xFFFFFF;
+			uint32_t *ref = &reference[y * sc->width + x];
+			*nonzero |= value != 0;
+			if (save) {
+				*ref = value;
+				continue;
+			}
+			if (value == *ref)
+				continue;
+			if (!*bad)
+				salsa64_log("filtros autoprueba: primera diferencia (%u,%u), viejo=%06x nuevo=%06x", x, y, *ref, value);
+			(*bad)++;
+			for (int c = 0; c < 24; c += 8) {
+				int d = (int)((value >> c) & 255) - (int)((*ref >> c) & 255);
+				uint32_t magnitude = (uint32_t)(d < 0 ? -d : d);
+				if (magnitude > channels[2 - c / 8])
+					channels[2 - c / 8] = magnitude;
+				if (magnitude > *maximum)
+					*maximum = magnitude;
+			}
+		}
+	return true;
+}
+
+bool salsa64_filters_selftest(void)
+{
+	const rsxkit_screen *sc = rsxkit_screen_info();
+	/* Cambian tamaño y factor entre casos; la segunda entrada a 3× es la
+	 * geometría de la medición de referencia (320×237). */
+	static const uint32_t sizes[4][3] = { {320, 240, 1}, {320, 237, 3}, {440, 222, 1}, {320, 237, 3} };
+	uint32_t *pixels = memalign(128, 960u * 720u * 4u);
+	uint32_t *reference = malloc(sc->width * sc->height * 4u);
+	rsxkit_fb *fb = rsxkit_fb_create(960, 720);
+	bool ok = pixels && reference && fb;
+	unsigned cases = 0;
+	uint32_t gen = 0;
+	salsa64_log("filtros autoprueba: %ux%u; seis CRT, cuatro patrones, vieja/nueva/repetida; tolerancia 1", sc->width, sc->height);
+	/* La referencia aquí es otro dibujo del RSX, no la aproximación PPE. */
+	for (int f = 1; f < SALSA64_CRTS; f++)
+		fl.checked[f] = true;
+	for (int f = 1; ok && f < SALSA64_CRTS; f++) {
+		for (unsigned pattern = 0; ok && pattern < 4; pattern++) {
+			uint32_t sw = sizes[pattern][0], sh = sizes[pattern][1], factor = sizes[pattern][2];
+			uint32_t w = sw * factor, h = sh * factor;
+			test_pattern(pixels, w, h, pattern);
+			struct salsa64_filter_src src = { .region = {0, 0, w, h}, .factor = factor,
+				.aspect = 4.0f / 3.0f, .has_gen = true, .gen = ++gen };
+			if (rsxkit_fb_upload(fb, pixels, w, h, w * 4, RSXKIT_RGBA8888) != RSXKIT_OK ||
+			    !rsxkit_fb_texture(fb, &src.tex)) {
+				ok = false;
+				break;
+			}
+			for (unsigned mode = 0; ok && mode < 8; mode++) {
+				/* Vieja, nueva completa, nueva repetida, nueva sin gen:
+				 * sin gen no reutiliza tablas; después generación nueva,
+				 * dos cadenas de copia y un búfer ensuciado entre ellas. */
+				if (mode < 2)
+					salsa64_filters_optimize(mode != 0);
+				src.has_gen = mode != 3;
+				if (mode == 4)
+					src.gen = ++gen;
+				/* Calentar sin comparar ni medir, para la compilación de
+				 * programas que RPCS3 hace de manera asíncrona. */
+				if (mode < 2) {
+					rsxkit_frame_begin(0);
+					ok = salsa64_filters_draw(f, &src, NULL);
+					rsxkit_finish();
+					rsxkit_frame_end();
+					fl.last.valid = false;
+				}
+				if (!ok)
+					break;
+				rsxkit_frame_begin(0);
+				uint32_t copies = final_copies;
+				rsxkit_stamp(60);
+				ok = salsa64_filters_draw(f, &src, NULL);
+				rsxkit_stamp(61);
+				rsxkit_finish();
+				uint64_t start = rsxkit_stamp_ns(60), end = rsxkit_stamp_ns(61);
+				uint32_t bad = 0, maximum = 0, channels[3] = {0};
+				bool nonzero = false;
+				ok = ok && test_screen(reference, mode == 0, &bad, &maximum, channels, &nonzero);
+				ok = ok && nonzero && maximum <= 1 &&
+				     ((mode == 2 || mode == 5 || mode == 7) ? final_copies == copies + 1 : final_copies == copies);
+				salsa64_log("filtros autoprueba: %s patron=%u %ux%u factor=%u ruta=%u pixeles=%u diferencias=%u max=%u RGB=%u/%u/%u copias=%u RSX=%.3f ms reloj=%s %s",
+					salsa64_crt_key(f), pattern, sw, sh, factor, mode, sc->width * sc->height,
+					bad, maximum, channels[0], channels[1], channels[2], final_copies - copies, end > start ? (end - start) * 1e-6 : 0.0,
+					end > start ? "valido" : "invalido", ok ? "OK" : "FALLO");
+				/* Simula una UI posterior: invalida y ensucia el búfer
+				 * prestado. El siguiente repetido debe rehacer la final. */
+				if (mode == 5)
+					rsxkit_frame_begin(0x123456);
+				rsxkit_frame_end();
+				if (ok)
+					cases++;
+			}
+		}
+	}
+	salsa64_filters_release();
+	rsxkit_fb_destroy(fb);
+	free(reference);
+	free(pixels);
+	if (!ok) {
+		/* Rechazo persistente: otra apertura tampoco usa esta variante. */
+		FILE *reject = fopen(SALSA64_DATA_DIR "/filtros-opt-fallo", "w");
+		if (reject) {
+			fputs("Autoprueba fallida: conservar la ruta original.\n", reject);
+			fclose(reject);
+		}
+		salsa64_filters_optimize(false);
+	}
+	salsa64_log("filtros autoprueba: %u/192 casos; %s", cases, ok ? "tolerancia <=1 OK" : "variante descartada");
+	return ok;
 }

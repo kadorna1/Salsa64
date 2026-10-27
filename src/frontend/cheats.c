@@ -12,6 +12,7 @@
 #include <string.h>
 #include <strings.h>
 
+#include "i18n.h"
 #include "core/bus.h"
 #include "core/endian.h"
 
@@ -181,7 +182,7 @@ void cheats_parse(struct cheat_set *cs, const char *text, size_t len)
 		if (!seen[k] || !tmp[k].count)
 			continue;
 		if (!tmp[k].desc[0])
-			snprintf(tmp[k].desc, sizeof tmp[k].desc, "Truco %u", k + 1);
+			snprintf(tmp[k].desc, sizeof tmp[k].desc, tr("Truco %u"), k + 1);
 		cs->c[cs->n++] = tmp[k];
 	}
 }

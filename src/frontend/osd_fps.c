@@ -5,6 +5,8 @@
  */
 #include "osd.h"
 
+#include "i18n.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -45,7 +47,7 @@ void osd_fps_sample(struct osd_fps *f, uint64_t now_us, uint32_t fields, uint64_
 	f->presented0 = presented;
 }
 
-/* Con coma decimal, como el resto de los textos. */
+/* Coma decimal (todos los idiomas menos el inglés). */
 static void comma(char *s)
 {
 	for (; *s; s++)
@@ -56,10 +58,11 @@ static void comma(char *s)
 void osd_fps_text(const struct osd_fps *f, char *buf, unsigned size)
 {
 	if (!f->valid) {
-		snprintf(buf, size, "VI … · juego … · pantalla …");
+		snprintf(buf, size, "%s", tr("VI … · juego … · pantalla …"));
 		return;
 	}
-	snprintf(buf, size, "VI %.1f (%.0f %%) · juego %.0f · pantalla %.0f", f->vi_rate, f->speed * 100.0,
+	snprintf(buf, size, tr("VI %.1f (%.0f %%) · juego %.0f · pantalla %.0f"), f->vi_rate, f->speed * 100.0,
 		 f->game_rate, f->screen_rate);
-	comma(buf);
+	if (i18n_lang() != 1)  /* coma decimal salvo en inglés */
+		comma(buf);
 }

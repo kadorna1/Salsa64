@@ -84,6 +84,14 @@ struct osd_pause_menu {
 };
 void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh);
 
+/* Página «Accesorios» del menú de pausa: muestra la selección independiente
+ * de cada uno de los cuatro controles emulados. */
+struct osd_accessory_menu {
+	int sel;
+	const char *value[4];
+};
+void osd_accessory_menu_draw(const struct osd_accessory_menu *m, float lw, float lh);
+
 /* Página «Imagen» del menú de pausa (pausectl.h, IM_*): un cuadro abajo a la
  * izquierda, sin oscurecer la pantalla, para ver el cambio en el juego. Los
  * textos van en español y se traducen aquí. */
