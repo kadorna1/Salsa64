@@ -18,7 +18,8 @@ maps naturally onto an SPE.
 
 Work in progress, but already playable on a real PS3:
 
-- **Playable on real hardware (v0.2.6):** Zelda: Ocarina of Time and
+- **Playable on real hardware (v0.2.13 is the latest release; the list
+  below was verified up to v0.2.6, see the changelog for later fixes):** Zelda: Ocarina of Time and
   Majora's Mask, Super Mario 64, Mario Kart 64, Donkey Kong 64, Paper Mario,
   Mario Party and Super Smash Bros. (also Smash Remix) at full speed; Perfect
   Dark, GoldenEye 007, Conker, Star Fox 64, Banjo-Kazooie, Banjo-Tooie,
@@ -45,8 +46,11 @@ Work in progress, but already playable on a real PS3:
 - **Filters:** five CRT filters made for this project (shadow mask, a small
   Trinitron TV over RGB, S-Video or composite, and a big Trinitron), still
   experimental; on a real PS3 all five fit in the frame time at 1080p.
-- **Not yet:** large SRAM saves (768 Kbit, 1 Mbit) and Controller/Rumble/
-  Transfer Pak.
+- **Accessories:** Controller Pak, Rumble Pak (DualShock 3 vibration) and an
+  experimental Transfer Pak (Game Boy cartridge sidecar), chosen globally,
+  per game or per controller.
+- **Not yet:** large SRAM saves (768 Kbit, 1 Mbit; recognized but not
+  emulated) and ROMs larger than 64 MB.
 
 Performance numbers are logged in [docs/perf-log.md](docs/perf-log.md). Only
 measurements on a real PS3 count; RPCS3 is used for functional tests.
@@ -84,8 +88,11 @@ Full guide (in Spanish): [docs/uso-ps3.md](docs/uso-ps3.md).
   `/dev_hdd0/salsa64/covers` shows next to the game info.
 - Options also set the aspect (4:3 or 16:9), the image filter (smooth,
   sharp, scanlines, or one of the five experimental CRT filters) and the menu
-  language (Spanish, English, French, German,
-  Italian, Portuguese).
+  language: 18 languages (Spanish, English, French, German, Italian,
+  Portuguese, Dutch, Swedish, Danish, Norwegian, Finnish, Polish, Turkish,
+  Russian, Japanese, Korean, Traditional and Simplified Chinese) or
+  "Automatic", which follows the console. Menus use the PS3 system font; the
+  Asian languages need it to load.
 - The **PS button** pauses emulation and sound while the system menu is open;
   the game resumes where it was when the menu closes.
 - Saves go to `/dev_hdd0/salsa64/saves`, one file per game.
@@ -164,7 +171,7 @@ Salsa64 is an AI-assisted project. The emulator itself is tested on real PS3 har
 
 - **VIDEOGAMES SCZ** contributed the pause menu, cheats, box art, the 16:9
   aspect option, the simple image filters (Smooth, Sharp, Scanlines),
-  per-game settings, the six menu languages and the experimental downloader.
+  per-game settings, the first six menu languages and the experimental downloader.
 
 ## License
 
