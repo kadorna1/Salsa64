@@ -1798,7 +1798,27 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" :
 			 profile_refresh ? "CopyColorFromRDRAM forzado" :
 			 alias ? "cebada (otro ancho)" : "viva");
-		if (stale) {
+		if (stale && rdp.copy_color_from_rdram && rdp.fbfx >= 1) {
+			/* A stale target is still a valid RSX backing for this profile.
+			 * Full priming from RDRAM destroys RSX-only pixels (the log showed
+			 * exactly this path for the two alternating 320-wide framebuffers).
+			 * Refresh only CPU-changed spans, and retain the rest of the surface. */
+			uint32_t regions = prime_profile_cpu_spans(i, true);
+			if (regions) {
+				rdp.surf_dirty[i] = true;
+				if (rdp.scratch_slot == i) {
+					rdp.scratch_slot = -1;
+					memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+				}
+				LOGN(40, "gfx: CopyColorFromRDRAM refreshed stale target %06x/%u with %u CPU spans (task %u; no full prime)",
+				     rdp.tg.t[i].addr, rdp.tg.t[i].width, regions, rdp.tg.task);
+			}
+			if (!profile_cpu_rows_changed(i))
+				rdp_targets_rdram_uploaded(&rdp.tg, i);
+			rdp.profile_prime_task[i] = rdp.tg.task;
+			rdp.alias_full[i] = false;
+			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
+		} else if (stale) {
 			prime(i, true);
 			if (rdp.copy_color_from_rdram)
 				rdp.profile_prime_task[i] = rdp.tg.task;
@@ -2218,31 +2238,47 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		return false;
 	uint32_t x0 = 0, y0 = 0;
 	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
-	/* CopyColorFromRDRAM must run before deciding whether to sample a live
-	 * target from the RSX or decode it from RDRAM. rdp_targets_texture()
-	 * deliberately returns RDRAM for CPU-owned targets, so find the target
-	 * first and reconcile it before its source classification and statistics. */
-	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram && profile_cpu_rows_changed(slot)) {
-		uint32_t regions = prime_profile_cpu_spans(slot, true);
-		if (regions) {
-			rdp.profile_prime_task[slot] = rdp.tg.task;
-			rdp.surf_dirty[slot] = true;
-			/* A SELF texture may already have a cached copy of this surface. */
-			if (rdp.scratch_slot == slot) {
-				rdp.scratch_slot = -1;
-				memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+	/* CopyColorFromRDRAM must reconcile CPU-written bytes before source
+	 * selection. Unlike the generic texture policy, this game's RDRAM does
+	 * not contain the RSX-only parts of its framebuffer: treating a surface as
+	 * "stale" or "CPU-owned" after reconciliation silently drops those parts.
+	 * Keep RDRAM as the fallback only while changed spans still fail to upload. */
+	bool profile_surface_synced = false;
+	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram) {
+		if (profile_cpu_rows_changed(slot)) {
+			uint32_t regions = prime_profile_cpu_spans(slot, true);
+			if (regions) {
+				rdp.profile_prime_task[slot] = rdp.tg.task;
+				rdp.surf_dirty[slot] = true;
+				/* A SELF texture may already have a cached copy of this surface. */
+				if (rdp.scratch_slot == slot) {
+					rdp.scratch_slot = -1;
+					memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+				}
+				LOGN(40, "gfx: CopyColorFromRDRAM uploaded %u CPU spans to %06x/%u before texture sampling (task %u)",
+				     regions, rdp.tg.t[slot].addr, rdp.tg.t[slot].width, rdp.tg.task);
 			}
-			LOGN(40, "gfx: CopyColorFromRDRAM uploaded %u CPU spans to %06x/%u before texture sampling (task %u)",
-			     regions, rdp.tg.t[slot].addr, rdp.tg.t[slot].width, rdp.tg.task);
 		}
-		/* Never sample a surface when some CPU-modified spans failed to upload;
-		 * leave the RDRAM texture fallback authoritative in that case. */
+		/* If any changed span could not be uploaded, the RAM decoder remains
+		 * authoritative. Otherwise release CPU ownership even when this lookup
+		 * had no new spans to copy (the generic policy otherwise sticks to RAM). */
 		if (profile_cpu_rows_changed(slot)) {
 			rdp.tg.tex_rdram++;
+			LOGN(20, "gfx: CopyColorFromRDRAM keeps RDRAM fallback for %06x/%u: CPU spans remain unsynced",
+			     rdp.tg.t[slot].addr, rdp.tg.t[slot].width);
 			return false;
 		}
+		rdp_targets_rdram_uploaded(&rdp.tg, slot);
+		profile_surface_synced = true;
 	}
-	enum rdp_texsrc src = rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
+	enum rdp_texsrc src = profile_surface_synced
+		? rdp_targets_texture_synced(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0)
+		: rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
+	if (profile_surface_synced) {
+		LOGN(20, "gfx: CopyColorFromRDRAM uses reconciled %s target %06x/%u (age %u tasks)",
+		     src == RDP_TEXSRC_SELF ? "SELF" : "RSX", rdp.tg.t[slot].addr, rdp.tg.t[slot].width,
+		     rdp.tg.task - rdp.tg.t[slot].last_task);
+	}
 	if ((src != RDP_TEXSRC_RSX && src != RDP_TEXSRC_SELF) || slot < 0 || !rdp.surf[slot])
 		return false;
 	const struct rdp_target *tg = &rdp.tg.t[slot];
