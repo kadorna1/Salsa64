@@ -23,10 +23,10 @@ BASE_REF="refs/remotes/origin/$BASE_BRANCH"
 CHANGELOG_REF="$BASE_REF:CHANGELOG.md"
 
 BASE_VERSION="$(git show "$CHANGELOG_REF" |
-	awk 'match($0, /^## \\[[0-9]+\\.[0-9]+\\.[0-9]+\\]/) {
+	awk 'match($0, /^## \[[0-9]+\.[0-9]+\.[0-9]+\]/) {
 		v = $0
-		sub(/^## \\[/, "", v)
-		sub(/\\].*/, "", v)
+		sub(/^## \[/, "", v)
+		sub(/\].*/, "", v)
 		print v
 		exit
 	}')"
@@ -66,7 +66,7 @@ while true; do
 	COUNT_PAGE="$(jq --arg branch "$BRANCH_NAME" --argjson milestone "$MILESTONE_EPOCH" '
 		[.workflow_runs[]
 		 | select(.head_branch == $branch)
-		 | select(((.created_at | sub("\\\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $milestone))]
+		 | select(((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $milestone))]
 		| length
 	' <<<"$DATA")"
 	BUILD_COUNT=$((BUILD_COUNT + COUNT_PAGE))
@@ -75,14 +75,14 @@ while true; do
 		any(.workflow_runs[];
 			((.id | tostring) == $id)
 			and (.head_branch == $branch)
-			and ((.created_at | sub("\\\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $milestone))
+			and ((.created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $milestone))
 	' <<<"$DATA")" == "true" ]]; then
 		CURRENT_RUN_COUNTED=1
 	fi
 
 	# Runs are returned newest first. Once the oldest run in a page predates
 	# the milestone, older pages cannot contribute to this branch's suffix.
-	OLDEST_EPOCH="$(jq '[.workflow_runs[].created_at | sub("\\\\.[0-9]+Z$"; "Z") | fromdateiso8601] | min' <<<"$DATA")"
+	OLDEST_EPOCH="$(jq '[.workflow_runs[].created_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601] | min' <<<"$DATA")"
 	if (( OLDEST_EPOCH < MILESTONE_EPOCH || PAGE_SIZE < 100 )); then
 		break
 	fi
@@ -109,4 +109,4 @@ done
 
 VERSION="v${BASE_VERSION}${SUFFIX}"
 echo "Version milestone: $BASE_VERSION; branch builds since milestone: $BUILD_COUNT; label: $VERSION" >&2
-printf '%s\\n' "$VERSION"
+printf '%s\n' "$VERSION"
