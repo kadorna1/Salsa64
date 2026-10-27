@@ -96,5 +96,6 @@ jobs:
           if-no-files-found: warn
           path: |
             build/salsa64/salsa64.pkg
+            build/logs/docker-image.log
             build/logs/dr-mario-host-tests.log
             build/logs/dr-mario-ps3-package.log
