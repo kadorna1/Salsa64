@@ -31,7 +31,8 @@ hacen el trabajo vectorial (RSP, audio, posprocesado) y el RSX dibuja.
 
 - Precisión de ciclo perfecta. Prioridad: jugable y estable; la precisión se
   mejora después.
-- Soporte de 64DD, Transfer Pak u otros periféricos raros.
+- Soporte de 64DD u otros periféricos raros (el Transfer Pak existe desde la
+  v0.2.13 como función experimental).
 - Juego en línea o netplay.
 
 ## Reglas legales
