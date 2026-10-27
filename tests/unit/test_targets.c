@@ -380,6 +380,36 @@ static void targets_texture_policy(void)
 	CHECK(rdp_targets_readback(&s, fb, true, true));
 }
 
+/* Dr. Mario 64: once CPU-written spans have been synchronized to the
+ * RSX, a stale or formerly CPU-owned framebuffer must remain a live texture.
+ * The generic policy intentionally falls back to RDRAM; the profile policy
+ * must preserve the RSX-only parts of the same surface. */
+static void targets_texture_synced_surface(void)
+{
+	const uint32_t FB = 0x3da800;
+	bool fresh;
+	rdp_targets_init(&s);
+	s.task = 1;
+	int fb = rdp_targets_get(&s, FB, 320, SIZ_16b, 0, &fresh);
+	CHECK(fresh);
+	rdp_targets_drawn(&s, fb);
+	CHECK(rdp_targets_readback(&s, fb, true, true));
+	CHECK(s.t[fb].cpu_owned);
+	for (int k = 0; k < RDP_TARGETS_FRESH + 2; k++)
+		rdp_targets_task(&s);
+	int slot;
+	uint32_t x0, y0;
+	CHECK_EQ(rdp_targets_texture(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RSX);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, &slot, &x0, &y0), RDP_TEXSRC_SELF);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(s.tex_rdram, 1);
+	CHECK_EQ(s.tex_rsx, 1);
+	CHECK_EQ(s.tex_self, 1);
+}
+
 /* La misma memoria con otro tamaño de texel. Majora's Mask: la pausa usa
  * 784600/320 como cobertura de 8 bits; cientos de tareas después, las
  * campanadas del fin del día copian el cuadro ahí en 16 bits y lo leen
@@ -1229,6 +1259,7 @@ void t_suite_targets(void)
 	RUN(targets_locate);
 	RUN(targets_decode_rgba16);
 	RUN(targets_texture_policy);
+	RUN(targets_texture_synced_surface);
 	RUN(targets_readback_wanted);
 	RUN(targets_same_memory_other_size);
 	RUN(targets_repeated_copy_stays_rsx);
