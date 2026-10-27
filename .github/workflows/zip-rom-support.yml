@@ -62,18 +62,50 @@ jobs:
       - name: Pull existing PS3 toolchain image
         run: docker pull "$SALSA64_IMAGE"
 
-      - name: Verify PS3 zlib portlib
+      - name: Download pinned zlib source
         shell: bash
         run: |
           set -euo pipefail
-          tools/build.sh --sh 'test -f "$PS3DEV/portlibs/ppu/include/zlib.h" && test -f "$PS3DEV/portlibs/ppu/lib/libz.a"'
+          mkdir -p build/third_party
+          curl --fail --location --silent --show-error \
+            https://zlib.net/fossils/zlib-1.3.2.tar.gz \
+            -o /tmp/zlib-1.3.2.tar.gz
+          echo "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16  /tmp/zlib-1.3.2.tar.gz" \
+            | sha256sum --check
+          tar -xzf /tmp/zlib-1.3.2.tar.gz -C build/third_party
+
+      - name: Build zlib for the PS3 PPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/build.sh --sh '
+            set -eu
+            cd /src/build/third_party/zlib-1.3.2
+            CC=ppu-gcc AR=ppu-ar RANLIB=ppu-ranlib \
+              CFLAGS="-O2 -mcpu=cell -mno-relative-jumptables" \
+              ./configure --static --prefix=/src/build/ps3-portlibs
+            make -j2
+            make install
+          '
+
+      - name: Verify PPU zlib headers and archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s build/ps3-portlibs/include/zlib.h
+          test -s build/ps3-portlibs/lib/libz.a
+          tools/build.sh --sh '
+            set -eu
+            test -s /src/build/ps3-portlibs/include/zlib.h
+            test -s /src/build/ps3-portlibs/lib/libz.a
+          '
 
       - name: Build PS3 PKG
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/logs
-          tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/ziprom-ps3-package.log
+          tools/build.sh -C src/frontend pkg ZLIB_PREFIX=/src/build/ps3-portlibs 2>&1 | tee build/logs/ziprom-ps3-package.log
           test -s build/salsa64/salsa64.pkg
 
       - name: Upload package and diagnostics
