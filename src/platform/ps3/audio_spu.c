@@ -16,6 +16,7 @@ static void spu_start(void *ctx, const struct salsa64_task *task, enum salsa64_a
 {
 	struct salsa64_audio_spu *s = ctx;
 	salsa64_audio_job(&s->job, s->bus, task, abi);
+	s->job.flags |= s->job_flags;
 	s->seq = spukit_post(s->worker, AUD_JOB_TASK, &s->job, sizeof s->job);
 	s->pending = true;
 }

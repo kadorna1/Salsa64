@@ -3932,6 +3932,7 @@ int main(int argc, char **argv)
 		}
 	}
 	salsa64_audio_sync_init(&aud_sync, &aud_state, &n64.bus);
+	aud_sync.job_flags = salsa64_host_env_on("SALSA64_AUDIO_RANGES_OLD") ? AUD_JOB_RANGES_OLD : 0;
 	salsa64_rsp_set_audio(&n64.bus, &aud_sync.backend);
 	salsa64_ai_set_sink(&n64.bus, audio_push, NULL);
 	if (jcheck.on && lle_mode == SALSA64_LLE_OFF)
@@ -4057,6 +4058,7 @@ int main(int argc, char **argv)
 			salsa64_gfx_sync_init(&ref_gfx_sync, &ref_gfx_state, &ref.bus, &ref_sink);
 			salsa64_rsp_set_gfx(&ref.bus, &ref_gfx_sync.backend);
 			salsa64_audio_sync_init(&ref_aud_sync, &ref_aud_state, &ref.bus);
+			ref_aud_sync.job_flags = aud_sync.job_flags;
 			salsa64_rsp_set_audio(&ref.bus, &ref_aud_sync.backend);
 			struct salsa64_boot_info ref_info;
 			if (!salsa64_boot_hle(&ref, tv, &ref_info)) {

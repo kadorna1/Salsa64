@@ -18,6 +18,7 @@ struct salsa64_audio_spu {
 	spukit_worker *worker;
 	const struct salsa64_bus *bus;
 	struct aud_job job;
+	uint32_t job_flags;
 	uint32_t seq;
 	bool pending;
 	/* Estadísticas desde el arranque. */

@@ -718,6 +718,7 @@ se crean por FTP.
 | `capturas` | Basta con que exista | Guarda capturas de pantalla (`screen-N.ppm`) cada pocos segundos; frena la imagen un instante en cada una |
 | `lle` | Vacío o `all` | Prueba el RSP de bajo nivel (experimental, lento). Vacío: solo microcódigo sin HLE; `all`: todo |
 | `gfx_ppe` | Basta con que exista | Corre la HLE gráfica en el PPE en lugar del SPE (para comparar tiempos) |
+| `audio-rangos-viejos` | Basta con que exista | Diagnóstico: al llenarse los diez rangos escritos por una tarea de audio, agranda siempre el último como antes; sin el archivo une los dos separados por el hueco menor para no invalidar código intacto |
 | `sin-recompilador` | Basta con que exista | Apaga el recompilador dinámico: todo corre en el intérprete (más lento). No hace falta con CFW: si el recompilador no puede usar su memoria en la consola, Salsa64 pasa solo al intérprete y lo dice en el log (docs/jit-cfw.md) |
 | `jit-prueba.txt` | Lo escribe Salsa64 | Marca de la prueba del recompilador al arrancar; solo queda si una prueba cerró la aplicación, y entonces esa versión usa el intérprete. Borrarlo para que vuelva a probar |
 | `colgar-rsx` | `etiqueta N`, `rsx N` o `fifo N` | Prueba del seguro del RSX: cuelga a propósito al presentar el campo N (una barrera que nunca llega; el RSX girando; el RSX girando y el búfer de comandos lleno). Salsa64 debe dejar el diagnóstico a los 2 s y salir solo a los 12 s (docs/hilos-ppe.md). Borrarlo después |

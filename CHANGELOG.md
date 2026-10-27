@@ -19,6 +19,12 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in MB. Not yet tested on a real PS3: a cache miss waits for the hard disk, so
   short hitches are possible when a game streams new data.
 
+### Fixed
+- Audio HLE no longer reports one multi-megabyte write span when its fixed
+  range list fills, avoiding needless code invalidation and recompilation in
+  games with scattered audio buffers such as B3313. `audio-rangos-viejos`
+  restores the previous range summary for comparison.
+
 ## [0.2.13] — 2026-10-26
 
 ### Added

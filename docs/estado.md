@@ -1,5 +1,15 @@
 # Estado
 
+## 2026-10-27 — B3313: rangos de escritura del audio
+- El paginado no limita la escena: tras cargar hay 0–3 fallos/5 s (0–65 ms de disco).
+- La tabla de diez rangos del audio se llenaba y el último crecía hasta 6,4 MB; cada tarea invalidaba código intacto.
+- En qemu, la misma partida pasó de 207928 compilaciones/202275 repetidas a 5652/2; SM64 quedó en 2483/0 en ambos modos.
+- La compilación repetida de B3313 cayó de 5462,2 a 0,057 ms en 16,72 s de consola; ciclos, tareas y comandos no cambiaron.
+- Al llenarse la tabla ahora se une el par separado por el hueco menor; `audio-rangos-viejos` restaura el resumen anterior.
+- Una caché JIT mayor no ayuda: hubo cero vaciados; el solape del hilo gráfico y los SPE no hicieron esperar al PPE.
+- `test-host`: 719 pruebas y 1303044 comprobaciones sin fallos.
+- Lockstep desde estados de B3313 y SM64: 50 campos cada uno, sin diferencias.
+
 ## 2026-10-26 — #13, ROMs de más de 64 MB por fragmentos
 - `src/core/rompg.c` (adaptado de SalsaDS): caché LRU de páginas de 256 KB sobre el archivo; PI DMA, lecturas de palabra del CPU, búsqueda del recompilador y arranque HLE pasan por `salsa64_bus_rom_read` / `rompg_rd32`. Intercambio de bytes de v64/n64 página a página.
 - Frontend: ROM > 64 MB (hasta 252 MB) o archivo `rom-paginada` → cabecera de 4 KB en memoria y caché de 32 MB en páginas del sistema (`rom-cache` ajusta los MB); línea «rom:» cada 5 s en el log.

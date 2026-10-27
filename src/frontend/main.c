@@ -5319,7 +5319,10 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_log("HLE gráfica en %s", gfx_on_spu ? "el SPE" : "el PPE");
 	n64.bus.rsp.clock_us = clock_us;
 	/* audio_out: inicio (HLE en el SPE 1, sumidero del AI, puerto de audio). */
-	audio_out_init(&n64);
+	bool audio_old_ranges = file_exists(SALSA64_DATA_DIR "/audio-rangos-viejos");
+	salsa64_log("audio: resumen de escrituras %s (audio-rangos-viejos)",
+		    audio_old_ranges ? "anterior" : "por hueco menor");
+	audio_out_init(&n64, audio_old_ranges);
 	/* Tarea JPEG (fondos prerrenderizados de Zelda OoT) en otro SPE, salvo
 	 * que se pida el PPE o que el SPE no dé lo mismo que el PPE. */
 	jpeg_on_spu = 0;
