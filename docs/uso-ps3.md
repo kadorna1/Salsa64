@@ -57,8 +57,10 @@ Reglas de la búsqueda:
   Se aceptan los tres órdenes de bytes (z64, v64, n64). Un archivo `rom-paginada`
   en la carpeta de datos fuerza el modo por fragmentos también para ROMs
   pequeñas (para comparar), y `rom-cache` con una cifra fija los MB de la caché
-  (1 a 128; por omisión 32). Un fallo de caché espera al disco duro: con ROMs
-  grandes puede haber tirones cortos cuando el juego carga datos nuevos.
+  (1 a 128; por omisión 32). Un hilo lector trae las páginas del disco
+  en segundo plano y pide por adelantado las siguientes a cada fallo; solo se
+  espera cuando el dato aún no viene en camino. Un archivo `rom-lectura-sincrona`
+  vuelve a la lectura que bloquea al hilo de emulación.
 - **Opciones → Orden de la lista** elige el título de la cabecera o el nombre
   del archivo (`orden = titulo|archivo` en `menu.cfg`). Si la fuente no puede
   mostrar algún carácter del título de la cabecera, se usa el nombre del

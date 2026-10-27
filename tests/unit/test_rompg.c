@@ -10,6 +10,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "core/boot.h"
 #include "core/endian.h"
@@ -29,11 +30,22 @@ static int fake_fmt;      /* orden de bytes del «archivo» */
 static uint32_t fake_size;
 static uint64_t fake_reads;
 static uint64_t fake_bytes;
+static unsigned fake_delay_us;    /* retardo por lectura: un disco lento */
+static unsigned fake_shift;       /* para contar lecturas por página */
+static int fake_fail_page = -1;   /* página cuya lectura falla */
+static uint8_t page_reads[1024];  /* cuántas veces se leyó cada página */
+static unsigned use_async;        /* open_big arranca el hilo lector con esta profundidad (0 = síncrono) */
 
 /* El «archivo»: el byte i del archivo es el byte (i ^ x) de la ROM z64 en el orden de la consola. */
 static int fake_rd(void *user, uint64_t off, uint8_t *dst, size_t len)
 {
 	(void)user;
+	if (fake_delay_us)
+		usleep(fake_delay_us);
+	if (fake_shift && (off >> fake_shift) < sizeof page_reads)
+		__atomic_fetch_add(&page_reads[off >> fake_shift], 1, __ATOMIC_RELAXED);
+	if (fake_fail_page >= 0 && fake_shift && (off >> fake_shift) == (uint64_t)fake_fail_page)
+		return -1;
 	if (off >= fake_size)
 		return 0;
 	if (len > fake_size - off)
@@ -60,10 +72,14 @@ static bool open_big(int fmt, uint32_t size, unsigned shift, size_t cache_bytes)
 	fake_fmt = fmt;
 	fake_size = size;
 	fake_reads = fake_bytes = 0;
+	fake_shift = shift;
+	memset(page_reads, 0, sizeof page_reads);
 	free(cache);
 	cache = malloc(cache_bytes);
 	if (!cache || salsa64_rompg_open(&pg, fake_rd, NULL, size, (enum salsa64_rom_format)fmt, shift, cache,
 					 cache_bytes) != 0)
+		return false;
+	if (use_async && salsa64_rompg_async_start(&pg, use_async) != 0)
 		return false;
 	salsa64_rompg_read(&pg, 0, head, HEAD);   /* la cabecera residente, ya en orden z64 */
 	salsa64_bus_set_rom_paged(&t_n64.bus, head, HEAD, size, &pg);
@@ -72,6 +88,8 @@ static bool open_big(int fmt, uint32_t size, unsigned shift, size_t cache_bytes)
 
 static void close_big(void)
 {
+	fake_delay_us = 0;
+	fake_fail_page = -1;
 	salsa64_bus_set_rom(&t_n64.bus, NULL, 0);
 	salsa64_rompg_close(&pg);
 	free(cache);
@@ -206,7 +224,8 @@ static void eviction_stress(void)
 	uint64_t reads = fake_reads;
 	for (unsigned i = 0; i < 100; i++)
 		salsa64_bus_read32(&t_n64.bus, SALSA64_CART_ROM_ADDR + 0x100000 + (i & 7) * 4);
-	CHECK(fake_reads <= reads + 2);   /* a lo más la página y su lectura por adelantado */
+	if (!use_async)   // con el lector aún pueden terminar lecturas pendientes del tramo anterior
+		CHECK(fake_reads <= reads + 2);   /* a lo más la página y su lectura por adelantado */
 	close_big();
 }
 
@@ -298,6 +317,128 @@ static void open_rejects(void)
 	CHECK(salsa64_rompg_open(&g, fake_rd, NULL, 1u << 20, SALSA64_ROM_Z64, 8, mem, sizeof mem) != 0);  /* página < 4 KB */
 }
 
+/* ---- Lectura en segundo plano ---- */
+
+/* Mismas lecturas, DMA y expulsión que arriba, con el hilo lector (la caché diminuta de eviction_stress solo deja una
+ * página por adelantado: el límite de nslots/4). */
+static void async_same_content(void)
+{
+	use_async = 8;
+	cpu_reads_far();
+	pi_dma_far();
+	eviction_stress();
+	use_async = 0;
+}
+
+/* Acceso secuencial con un disco lento: cada página se lee del archivo una sola vez, solo la primera es un fallo frío y
+ * el resto llega por adelantado (lista o en camino); quien la pide antes de tiempo espera a esa lectura, no a otra. */
+static void async_sequential_once(void)
+{
+	const uint32_t size = 4u << 20;   /* 64 páginas de 64 KB, caché de 32 */
+	uint8_t buf[100];
+
+	use_async = 8;
+	CHECK(open_big(SALSA64_ROM_Z64, size, 16, 2u << 20));
+	CHECK_EQ(pg.nslots, 32);
+	CHECK_EQ(pg.depth, 8);
+	fake_delay_us = 400;
+	pg.miss = pg.ra = pg.pf_hit = pg.wait_n = 0;
+	unsigned bad = 0;
+	for (uint32_t p = 1; p < 64; p++) {   /* la 0 quedó leída con la cabecera */
+		salsa64_bus_rom_read(&t_n64.bus, (p << 16) + 0x30, buf, sizeof buf);
+		for (uint32_t k = 0; k < sizeof buf; k++)
+			bad += buf[k] != z64_byte((p << 16) + 0x30 + k);
+	}
+	CHECK_EQ(bad, 0);
+	CHECK_EQ(pg.errs, 0);
+	CHECK(pg.miss <= 1);   /* la 1 pudo ya venir con la cabecera */
+	CHECK(pg.pf_hit + pg.wait_n + pg.miss == 63);
+	CHECK(pg.wait_n > 0);  /* el lector es más lento que quien consume */
+	close_big();
+	unsigned twice = 0;
+	for (unsigned p = 0; p < 64; p++)
+		twice += page_reads[p] > 1;
+	CHECK_EQ(twice, 0);
+	use_async = 0;
+}
+
+/* Un DMA de varias páginas pide por delante, y repetirlo con los datos ya en la caché no toca el disco. */
+static void async_big_dma_prefetch(void)
+{
+	const uint32_t size = 6u << 20;
+	static uint8_t dst[1u << 20];
+
+	use_async = 6;
+	CHECK(open_big(SALSA64_ROM_Z64, size, 16, 3u << 20));
+	fake_delay_us = 200;
+	salsa64_bus_rom_read(&t_n64.bus, 2u << 20, dst, sizeof dst);
+	unsigned bad = 0;
+	for (uint32_t k = 0; k < sizeof dst; k += 7)
+		bad += dst[k] != z64_byte((2u << 20) + k);
+	CHECK_EQ(bad, 0);
+	CHECK(pg.ra >= 6);
+	uint64_t miss = pg.miss, ra = pg.ra;
+	salsa64_bus_rom_read(&t_n64.bus, 2u << 20, dst, sizeof dst);
+	CHECK(pg.miss == miss && pg.ra == ra);
+	close_big();
+	use_async = 0;
+}
+
+/* Caché de 4 páginas con accesos al azar y un disco lento: el lector escribe mientras el hilo de emulación elige
+ * víctimas; ninguna página se ve a medias ni se expulsa una que se está leyendo. */
+static void async_evict_slow(void)
+{
+	const uint32_t size = 2u << 20;
+	uint32_t seed = 4242;
+
+	for (unsigned dly = 0; dly < 2; dly++) {
+		use_async = 3;
+		CHECK(open_big(dly ? SALSA64_ROM_N64 : SALSA64_ROM_Z64, size, 12, 4u << 12));
+		fake_delay_us = dly ? 40 : 0;
+		unsigned bad = 0;
+		for (unsigned i = 0; i < 4000; i++) {
+			uint32_t off = (lcg(&seed) % (size - 4)) & ~3u;
+			bad += salsa64_bus_read32(&t_n64.bus, SALSA64_CART_ROM_ADDR + off) != expect32(off, size);
+			if ((i & 63) == 0) {
+				uint8_t buf[0x5000];
+				uint32_t len = 1 + lcg(&seed) % sizeof buf;
+				if (off + len > size)
+					len = size - off;
+				salsa64_bus_rom_read(&t_n64.bus, off, buf, len);
+				for (uint32_t k = 0; k < len; k++)
+					bad += buf[k] != z64_byte(off + k);
+			}
+		}
+		CHECK_EQ(bad, 0);
+		CHECK_EQ(pg.errs, 0);
+		close_big();
+	}
+	use_async = 0;
+}
+
+/* Cerrar con lecturas todavía en la cola no cuelga ni pierde memoria, y un error de lectura no cuelga a quien espera. */
+static void async_close_and_errors(void)
+{
+	static uint8_t dst[64];
+
+	use_async = 8;
+	CHECK(open_big(SALSA64_ROM_Z64, 4u << 20, 16, 2u << 20));
+	fake_delay_us = 3000;
+	salsa64_bus_rom_read(&t_n64.bus, 20u << 16, dst, sizeof dst);   /* fría + 8 por delante, y se cierra ya */
+	close_big();
+
+	CHECK(open_big(SALSA64_ROM_Z64, 4u << 20, 16, 2u << 20));
+	fake_fail_page = 5;
+	salsa64_bus_rom_read(&t_n64.bus, 5u << 16, dst, sizeof dst);
+	unsigned zero = 0;
+	for (unsigned k = 0; k < sizeof dst; k++)
+		zero += dst[k] == 0;
+	CHECK_EQ(zero, sizeof dst);
+	CHECK(pg.errs == 1);
+	close_big();
+	use_async = 0;
+}
+
 void t_suite_rompg(void)
 {
 	t_run("rompg: lecturas del CPU en zonas lejanas y bordes", cpu_reads_far);
@@ -305,4 +446,9 @@ void t_suite_rompg(void)
 	t_run("rompg: expulsión con una caché diminuta", eviction_stress);
 	t_run("rompg: arranque entero y por fragmentos", boot_whole_vs_paged);
 	t_run("rompg: rechaza aperturas imposibles", open_rejects);
+	t_run("rompg asíncrono: mismo contenido que el síncrono", async_same_content);
+	t_run("rompg asíncrono: secuencial lee cada página una vez", async_sequential_once);
+	t_run("rompg asíncrono: DMA grande pide por delante", async_big_dma_prefetch);
+	t_run("rompg asíncrono: expulsión con lector lento", async_evict_slow);
+	t_run("rompg asíncrono: cierre con cola y error de lectura", async_close_and_errors);
 }
