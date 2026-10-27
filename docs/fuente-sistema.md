@@ -6,8 +6,11 @@ ejecución; la 8x13 de rsxkit queda de respaldo. Código: `lib/rsxkit/src/sysfon
 (la fuente), `lib/rsxkit/src/ui_geom.c` (caché de glifos y texto proporcional) y
 `src/frontend/main.c` (`font_init_once`, `font_select`).
 
-**Estado:** compila y pasa las pruebas del host; **falta probarlo en la PS3
-real.** RPCS3 implementa libfont a medias (con stb_truetype, varias funciones
+**Estado:** compila y pasa las pruebas del host. Primera prueba en la PS3
+real (2026-10-26, XMB en japonés): todo abrió sin error hasta el dibujo de la
+«H», que no dejó tinta en la superficie (paso 13), y quedó la 8x13. Desde
+entonces la calibración prueba tres modos (abajo) y el log anota cada paso con
+su código; **falta la segunda prueba.** RPCS3 implementa libfont a medias (con stb_truetype, varias funciones
 vacías y la `y` de la pluma tomada como tope del renglón): no sirve para
 concluir nada, ni siquiera si trae las fuentes de `dev_flash`.
 
@@ -44,7 +47,7 @@ Secuencia que usa rsxkit:
    `fontGetHorizontalLayout` (renglón y línea base, solo para el log).
 7. Por glifo: `fontGetFontIdCode` (¿lo tiene?) y
    `fontRenderCharGlyphImage(&font, cp, &surface, x, y, &metrics, &trans)`
-   sobre una superficie de 64 × 64 de 1 byte por píxel
+   sobre una superficie de 96 × 96 de 1 byte por píxel
    (`fontRenderSurfaceInit(.., pixelSizeByte = 1, ..)` y
    `fontRenderSurfaceSetScissor`). Cobertura de 8 bits; el avance sale en
    `metrics.horizontal.advance` (píxeles).
@@ -80,6 +83,15 @@ la 8x13. Salsa64 usa la normal; la negrita queda en la API
   el puntero de función de 64 bits la PRX salta a cualquier lado.
 - **`fontSetScalePixel` está mal declarada** en `font.h` («fontontSetScalePixel»);
   el símbolo exportado es `fontSetScalePixel`: rsxkit lo declara él mismo.
+- **¿Dónde deja libfont la imagen?** En la PS3 real, `fontRenderCharGlyphImage`
+  devolvió 0 y la superficie quedó vacía. La calibración prueba, en orden:
+  (1) la imagen escrita en la superficie; (2) copiarla desde
+  `fontImageTransInfo` (`image`, `imageWidth/Height/WidthByte` y `surface`,
+  el lugar de destino dentro de nuestra superficie; si cae fuera, con las
+  métricas); (3) `fontGenerateCharGlyph` + `fontGlyphRenderImage` (+ copia) y
+  `fontDeleteGlyph`. Usa el primero que deje tinta («modo» en el log) y
+  anota para cada uno el código, las métricas, la tinta y lo que trae
+  `fontImageTransInfo`.
 - **¿La `y` de la pluma es la línea base o el tope del renglón?** No se
   supone: al abrir se dibuja la «H» y su última fila con tinta da la línea
   base en la superficie; vale para todos los glifos. El log lo dice («H» en
@@ -126,11 +138,25 @@ la 8x13. Salsa64 usa la normal; la negrita queda en la API
 
 ## Qué mirar en la PS3
 
-1. Que el log diga «fuente: la del sistema» y la «H» caiga en unas 4 filas
-   (si la `y` es la línea base: filas ~8–23) o ~24 más abajo (si es el tope).
+1. Las líneas «fuente: apertura: …» (una por juego de fuentes intentado, con
+   el código de cada llamada) y «fuente: la del sistema (… modo N …)». La «H»
+   debería caer en las filas ~28–43 si la `y` es la línea base, o ~24 más
+   abajo si es el tope. Pasos de la apertura: 1–3 `sysModuleLoad` de FONT,
+   FREETYPE y FONTFT; 4 caché; 5 `fontInit`; 6 FreeType; 7 renderizador; 8
+   `fontOpenFontset`; 9 escala; 10 `fontBindRenderer`; 11 escala del render;
+   12 el dibujo de la «H» da error; 13 no deja tinta con ningún modo.
 2. Que el texto quede centrado en su renglón como antes (si sale corrido
    arriba o abajo, ajustar `RSXKIT_SYSFONT_BASELINE`).
 3. Cirílico, polaco y turco con la fuente del sistema o con la 8x13 (cuántos
    «con la 8x13» en el log).
 4. Que los «diferidos» del log sean 0 o casi en uso normal, y la memoria de
    libfont (máximo) para `docs/memory-budget.md`.
+
+## Idioma de la consola en el log
+
+`SYSUTIL_LANG` 0 es japonés (0 ja, 1 en-US, 2 fr, 3 es, 4 de, 5 it, 6 nl,
+7 pt-PT, 8 ru, 9 ko, 10 zh-hant, 11 zh-hans, 12 fi, 13 sv, 14 da, 15 no, 16 pl,
+17 pt-BR, 18 en-GB, 19 tr). El mapeo ya era ese, pero el log mostraba el código
+del idioma en uso («0 (en)»); ahora muestra el de la consola y, si un CJK cae
+en inglés por falta de fuente, lo dice: «la consola dice 0 (ja), ajuste
+«auto», en uso «en» (sin fuente CJK: inglés)».

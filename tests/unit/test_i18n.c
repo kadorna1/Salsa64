@@ -253,6 +253,13 @@ static void automatic(void)
 	}
 	CHECK_EQ(i18n_from_system(-1), 1);
 	CHECK_EQ(i18n_from_system(99), 1);
+	/* Para el log: el idioma de la consola tal cual (0 es japonés) y el que
+	 * tocaría con fuente CJK. */
+	CHECK(!strcmp(i18n_system_code(0), "ja"));
+	CHECK(!strcmp(i18n_system_code(11), "zh-hans"));
+	CHECK(!strcmp(i18n_system_code(-1), "?"));
+	CHECK_EQ(i18n_from_system_cjk(0), I18N_JA);
+	CHECK_EQ(i18n_from_system(0), 1);
 	/* Con la fuente del sistema, los cuatro que faltaban. */
 	static const int want_cjk[20] = { I18N_JA, 1, 2, 0, 3, 4, 6, 5, 13, I18N_KO, I18N_ZH_HANT, I18N_ZH_HANS,
 					  10, 7, 8, 9, 11, 5, 1, 12 };

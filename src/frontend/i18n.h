@@ -42,6 +42,8 @@ int i18n_lang(void);  /* el idioma en uso, nunca I18N_AUTO */
  * 8 ruso, 9 coreano, 10-11 chino, 12 finés, 13 sueco, 14 danés, 15 noruego,
  * 16 polaco, 17 portugués de Brasil, 18 inglés británico, 19 turco). */
 int i18n_from_system(int sys_lang);      /* al idioma de la tabla; lo que no hay (o sin fuente CJK), inglés */
+int i18n_from_system_cjk(int sys_lang);  /* igual, como si hubiera fuente CJK (para el log) */
+const char *i18n_system_code(int sys_lang); /* el idioma de la consola: «ja», «en-US»… («?» si no se sabe) */
 void i18n_set_system(int sys_lang);      /* -1: no se sabe (host): «Automático» = español */
 int i18n_system(void);
 int i18n_resolve(int lang);              /* I18N_AUTO -> idioma de la consola; CJK sin fuente -> inglés */

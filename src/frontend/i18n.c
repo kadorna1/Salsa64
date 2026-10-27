@@ -74,6 +74,22 @@ int i18n_from_system(int sys)
 	}
 }
 
+int i18n_from_system_cjk(int sys)
+{
+	int saved = cjk_ok;
+	cjk_ok = 1;
+	int l = i18n_from_system(sys);
+	cjk_ok = saved;
+	return l;
+}
+
+const char *i18n_system_code(int sys)
+{
+	static const char *const names[20] = { "ja", "en-US", "fr", "es", "de", "it", "nl", "pt-PT", "ru", "ko",
+					       "zh-hant", "zh-hans", "fi", "sv", "da", "no", "pl", "pt-BR", "en-GB", "tr" };
+	return sys >= 0 && sys < 20 ? names[sys] : "?";
+}
+
 void i18n_set_system(int sys)
 {
 	sys_lang = sys;
