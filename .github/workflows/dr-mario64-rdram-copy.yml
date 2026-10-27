@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/dr-mario-ps3-package.log
+          bash tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/dr-mario-ps3-package.log
           test -s build/salsa64/salsa64.pkg
 
       - name: Upload package and diagnostics
