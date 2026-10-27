@@ -14,6 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   packages: write
 
@@ -31,13 +32,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Stamp this test build as v2.12b without creating a release/tag in GitHub.
-      - name: Apply temporary build version tag
+      - name: Derive incremental version from the main milestone
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          git tag -f v2.12c "$GITHUB_SHA"
-          echo "Building $(git describe --tags --always --dirty) from $GITHUB_SHA"
+          VERSION="$(bash tools/ci-version.sh)"
+          echo "SALSA64_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building $VERSION from $GITHUB_SHA"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -46,9 +49,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The Dockerfile on main already builds pinned static PPU zlib. Reuse
-      # the image keyed to that exact Dockerfile; only build/publish it once
-      # if the matching image is not available in GHCR.
+      # The Dockerfile on main builds pinned static PPU zlib. Reuse the image
+      # keyed to that exact Dockerfile; only build/publish it if missing.
       - name: Reuse or build current PS3 toolchain image
         shell: bash
         run: |
