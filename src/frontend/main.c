@@ -37,7 +37,7 @@
  * existe y si no gfxtest. START + SELECT sale al XMB.
  *
  * Sin embedded, el menú (menu.c, romlist.c), con una disposición inspirada
- * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64
+ * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64 y los .zip compatibles
  * de SALSA64_DATA_DIR y de /dev_usbNNN/salsa64 en una columna, con carpetas
  * primero y navegación por subcarpetas; las ROMs se ordenan por título o
 	* nombre de archivo (menu.cfg). Admite 4096 filas totales por carpeta
@@ -199,6 +199,7 @@
 #include "replay.h"
 #include "cuelgue.h"
 #include "romlist.h"
+#include "ziprom.h"
 #include "savefile.h"
 #include "scale_auto.h"
 #include "mempakfile.h"
@@ -1488,6 +1489,33 @@ static void heap_report(const char *when)
  * no se pudo o no mide entre 0x1000 bytes y ROM_MAX (o cap). */
 static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint32_t *size)
 {
+	/* ZIP: se inspecciona la entrada elegida antes de reservar memoria, para que
+	 * el archivo no necesite un segundo búfer grande. La extracción completa
+	 * verifica el flujo Deflate, el tamaño descomprimido y el CRC-32 antes de
+	 * que el juego vea nada. */
+	if (salsa64_ziprom_is_path(path)) {
+		uint8_t header[SALSA64_ROM_HEADER_SIZE];
+		uint32_t rom_len = 0, actual_len = 0;
+		uint32_t limit = buf ? cap : ROM_MAX;
+		if (salsa64_ziprom_read_header(path, header, &rom_len, NULL, 0) != 0 ||
+		    rom_len < 0x1000u || rom_len > limit || rom_len > SALSA64_ZIPROM_MAX_SIZE)
+			return NULL;
+		uint8_t *dst = buf ? buf : rom_alloc(rom_len);
+		if (!dst)
+			return NULL;
+		/* Ajusta el límite del extractor a la memoria realmente reservada.
+		 * El archivo se abre dos veces (vista previa y extracción), así que
+		 * debe seguir siendo seguro aunque cambie entre las dos lecturas. */
+		uint32_t dst_cap = buf ? cap : rom_len;
+		if (salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
+			if (!buf)
+				rom_free(dst);
+			return NULL;
+		}
+		*size = actual_len;
+		return dst;
+	}
+
 	FILE *f = fopen(path, "rb");
 	if (!f)
 		return NULL;
@@ -6347,7 +6375,7 @@ static bool direct_launch(void)
 	if (direct_rom[0] != '/')
 		why = "la ruta debe ser absoluta";
 	else if (!romlist_has_rom_ext(direct_rom))
-		why = "extensión no admitida (.z64, .n64, .v64)";
+		why = "extensión no admitida (.z64, .n64, .v64, .zip)";
 	else if (!(one = romlist_create()))
 		why = "sin memoria";
 	else if (!romlist_add_file(one, direct_rom, 0, mn.save_cfg, mn.save_cfg_len) || !one->count)

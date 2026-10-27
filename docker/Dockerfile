@@ -82,6 +82,20 @@ RUN curl -fsSL "https://github.com/ps3dev/PSL1GHT/archive/${PSL1GHT_REF}.tar.gz"
  && cd "/build/PSL1GHT-${PSL1GHT_REF}" \
  && make install-ctrl && make -j"$(nproc)" && make install
 
+# zlib is needed by the frontend for ZIP-compressed ROMs. Build a static PPU
+# library, not the host zlib development package installed above.
+RUN curl --fail --location --silent --show-error \
+      https://zlib.net/fossils/zlib-1.3.2.tar.gz -o /tmp/zlib-1.3.2.tar.gz \
+ && echo "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16  /tmp/zlib-1.3.2.tar.gz" | sha256sum --check \
+ && tar -xzf /tmp/zlib-1.3.2.tar.gz -C /build \
+ && cd /build/zlib-1.3.2 \
+ && CC=ppu-gcc AR=ppu-ar RANLIB=ppu-ranlib \
+      CFLAGS="-O2 -mcpu=cell -mno-relative-jumptables" \
+      ./configure --static --prefix="${PS3DEV}/portlibs/ppu" \
+ && make -j"$(nproc)" \
+ && make install \
+ && rm -rf /build/zlib-1.3.2 /tmp/zlib-1.3.2.tar.gz
+
 # ---------------------------------------------------------------------------
 # Imagen final.
 # ---------------------------------------------------------------------------
@@ -99,11 +113,12 @@ ENV PSL1GHT=${PS3DEV}
 ENV PATH=${PATH}:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin
 ENV DEBIAN_FRONTEND=noninteractive
 
-# build-essential: pruebas unitarias del host. qemu-user-static: cgcomp x86_64.
+# build-essential y zlib1g-dev: pruebas unitarias del host (test_ziprom enlaza -lz).
+# qemu-user-static: cgcomp x86_64.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       build-essential ca-certificates curl git libelf1 libgmp10 libssl3 make \
-      python3 qemu-user-static xxd zlib1g \
+      python3 qemu-user-static xxd zlib1g zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=toolchain ${PS3DEV} ${PS3DEV}

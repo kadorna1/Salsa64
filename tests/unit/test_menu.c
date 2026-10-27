@@ -17,6 +17,8 @@
 #include "frontend/cover.h"
 #include "test.h"
 
+void t_ziprom_suite(void);
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -139,9 +141,11 @@ static void menu_rom_extensions(void)
 	CHECK(romlist_has_rom_ext("oot.z64"));
 	CHECK(romlist_has_rom_ext("SM64.V64"));
 	CHECK(romlist_has_rom_ext("a.N64"));
+	CHECK(romlist_has_rom_ext("oot.zip"));
+	CHECK(romlist_has_rom_ext("SM64.ZIP"));
 	CHECK(!romlist_has_rom_ext(".z64"));
 	CHECK(!romlist_has_rom_ext("oot.z64.txt"));
-	CHECK(!romlist_has_rom_ext("oot.zip"));
+	CHECK(!romlist_has_rom_ext("oot.zip.bak"));
 	CHECK(!romlist_has_rom_ext("oot.x64"));
 	CHECK(!romlist_has_rom_ext("z64"));
 }
@@ -2500,6 +2504,7 @@ void t_suite_menu(void)
 	RUN(version_texts);
 	RUN(menu_version_place);
 	RUN(menu_preview);
+	t_ziprom_suite();
 	romlist_free(nav_list);
 	romlist_free(frame_list);
 }
