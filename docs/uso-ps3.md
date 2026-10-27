@@ -204,11 +204,16 @@ Opciones:
 - **Confirmar al salir**: con «Sí» (por omisión), «Salir» del menú de pausa
   pregunta antes de cerrar el juego (abajo, en «Salir del juego»); con «No»,
   sale directo. Se guarda en `menu.cfg` (`confirmar = si|no`).
-- **Idioma**: español (por omisión), English, Français, Deutsch, Italiano o
-  Português. Traduce el menú, los paneles, los avisos del juego, el menú de
+- **Idioma**: «Automático» (por omisión en instalaciones nuevas, sigue el
+  idioma del sistema de la consola), español, English, Français, Deutsch,
+  Italiano, Português, Nederlands, Svenska, Dansk, Norsk, Suomi, Polski,
+  Türkçe, Русский, 日本語, 한국어, 繁體中文 o 简体中文 (los asiáticos solo si la
+  fuente del sistema carga; si no, vuelven a English). Traduce el menú, los paneles, los avisos del juego, el menú de
   pausa y la lista de trucos (los títulos de los juegos y las rutas quedan
-  como están). Se guarda en `menu.cfg` (`idioma = es|en|fr|de|it|pt`). La
-  fuente tiene ASCII y Latin-1: no hay japonés, ruso ni chino.
+  como están). Se guarda en `menu.cfg` (`idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru|ja|ko|zh-hant|zh-hans`).
+  La fuente del sistema de la consola (ver `docs/fuente-sistema.md`) dibuja
+  todo el texto; la 8x13 integrada queda de respaldo (solo ASCII, Latin-1 y
+  parte del cirílico).
 - **Descargar carátulas** / **Descargar trucos**: experimental y oculto por
   omisión (abajo, «Descargas»).
 
@@ -704,7 +709,7 @@ se crean por FTP.
 
 | Archivo | Formato | Qué hace |
 |---|---|---|
-| `menu.cfg` | Líneas `fondo = si\|no`, `fps = si\|no`, `confirmar = si\|no`, `aspecto = 4:3\|16:9`, `filtro = suave\|nitido\|lineas\|lineas+\|crt-mascara\|crt-rgb\|crt-svideo\|crt-compuesto` , `densidad = normal\|fina`, `idioma = es\|en\|fr\|de\|it\|pt` e `interpolacion = no\|geometria` | Fondo animado del menú, contador de velocidad en el juego, si «Salir» del menú de pausa pregunta antes (sí sin la línea), aspecto, filtro, idioma e interpolación. Lo escriben el menú (Opciones) y SELECT + △ |
+| `menu.cfg` | Líneas `fondo = si\|no`, `fps = si\|no`, `confirmar = si\|no`, `aspecto = 4:3\|16:9`, `filtro = suave\|nitido\|lineas\|lineas+\|crt-mascara\|crt-rgb\|crt-svideo\|crt-compuesto` , `densidad = normal\|fina`, `idioma = auto\|es\|en\|fr\|de\|it\|pt\|nl\|sv\|da\|no\|fi\|pl\|tr\|ru\|ja\|ko\|zh-hant\|zh-hans` e `interpolacion = no\|geometria` | Fondo animado del menú, contador de velocidad en el juego, si «Salir» del menú de pausa pregunta antes (sí sin la línea), aspecto, filtro, idioma e interpolación. Lo escriben el menú (Opciones) y SELECT + △ |
 | `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `escala-estable` = `1` a `5` o `ninguna`; `accesorio` = `global`, `controller-pak`, `rumble-pak`, `transfer-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM), «Imagen» del menú de pausa y la escala automática cuando aprende un límite estable |
 | `ra.cfg` | `usuario`, `token`, `servidor`, `certificados = laxo` | RetroAchievements (sección «RetroAchievements» y `docs/retroachievements.md`). Lo escribe el menú al iniciar sesión: guarda el token, nunca la contraseña. Se activa con `retroachievements = si` y `hardcore = si` en `menu.cfg` (Opciones) |
 | `descargas.cfg` | `activar = si` y direcciones | Enciende las descargas experimentales (sección «Descargas») |

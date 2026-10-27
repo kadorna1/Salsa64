@@ -4,6 +4,10 @@ Plan del 2026-10-13. Objetivo: jugar de 2 a 4 personas en la misma PS3, un
 DualShock 3 por jugador, como en la N64. El juego en red sigue fuera de los
 objetivos (docs/proyecto.md).
 
+> Nota (v0.2.13): el Controller Pak, el Rumble Pak y un Transfer Pak
+> experimental ya están implementados (ver `docs/uso-ps3.md`, «Accesorios»,
+> y `docs/transferpak.md`); este plan conserva el orden en que se pensaron.
+
 ## Lo que ya hay
 
 - `update_pads` (src/frontend/main.c) lee los 4 puertos de `ioPadGetInfo`.
@@ -64,7 +68,8 @@ Los logs muestran la conexión por puerto.
   `/dev_hdd0/salsa64/saves` (por ejemplo `<juego>-pak1.mpk`). Lo usan los
   fantasmas de Mario Kart y varios juegos de deportes. Formato compatible con
   los `.mpk` de otros emuladores para poder traer partidas.
-- Transfer Pak: fuera de los objetivos.
+- Transfer Pak: fuera de los objetivos del plan original (hoy hay uno
+  experimental, `docs/transferpak.md`).
 
 ## Fase 6: rendimiento con pantalla dividida
 
