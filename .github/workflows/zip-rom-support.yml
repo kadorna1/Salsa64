@@ -16,6 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   packages: read
 
@@ -32,6 +33,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Derive version from the main milestone and successful revisions
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$(bash tools/ci-version.sh)"
+          echo "SALSA64_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building $VERSION from $GITHUB_SHA"
 
       - name: Install host zlib headers
         run: |
