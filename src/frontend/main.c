@@ -37,7 +37,7 @@
  * existe y si no gfxtest. START + SELECT sale al XMB.
  *
  * Sin embedded, el menú (menu.c, romlist.c), con una disposición inspirada
- * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64
+ * en el XMB y dibujado entero por el RSX (rsxkit/ui.h): los .z64/.v64/.n64 y archivos .zip compatibles
  * de SALSA64_DATA_DIR y de /dev_usbNNN/salsa64 en una columna, con carpetas
  * primero y navegación por subcarpetas; las ROMs se ordenan por título o
 	* nombre de archivo (menu.cfg). Admite 4096 filas totales por carpeta
