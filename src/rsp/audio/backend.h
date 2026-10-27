@@ -34,6 +34,7 @@ struct salsa64_audio_sync {
 	const struct salsa64_bus *bus;
 	struct aud_job job;
 	struct aud_result res;
+	uint32_t job_flags;
 	bool pending;
 	struct salsa64_audio_stats stats;
 };

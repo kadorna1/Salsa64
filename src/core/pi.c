@@ -40,7 +40,7 @@ static void pi_dma_to_rdram(struct salsa64_bus *bus, uint32_t len)
 		if (c >= SALSA64_CART_ROM_ADDR && off < bus->rom_size) {
 			if (chunk > bus->rom_size - off)
 				chunk = bus->rom_size - off;
-			memcpy(bus->rdram + d, bus->rom + off, chunk);
+			salsa64_bus_rom_read(bus, off, bus->rdram + d, chunk);
 		} else {
 			uint32_t gap = chunk;
 			if (c < SALSA64_CART_ROM_ADDR && SALSA64_CART_ROM_ADDR - c < gap)

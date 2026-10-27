@@ -49,7 +49,16 @@ Reglas de la búsqueda:
   carpeta de ROMs (o de una subcarpeta) esos nombres sí se muestran. No se
   ocultan las demás carpetas vacías: saber si una carpeta tiene ROMs
   obligaría a leer cada una al releer la lista.
-- La ROM más grande que se puede abrir es de 64 MB.
+- Una ROM de hasta 64 MB se lee entera a memoria al abrirla. Las de más de 64 MB
+  (hacks y homebrew, hasta los 252 MB que direcciona el cartucho) se abren **por
+  fragmentos**: se quedan en el disco y el emulador lee páginas de 256 KB bajo
+  demanda a una caché de 32 MB. El log lo dice («por fragmentos») y cada 5 s
+  cuenta lecturas, fallos de caché y milisegundos de lectura (línea «rom:»).
+  Se aceptan los tres órdenes de bytes (z64, v64, n64). Un archivo `rom-paginada`
+  en la carpeta de datos fuerza el modo por fragmentos también para ROMs
+  pequeñas (para comparar), y `rom-cache` con una cifra fija los MB de la caché
+  (1 a 128; por omisión 32). Un fallo de caché espera al disco duro: con ROMs
+  grandes puede haber tirones cortos cuando el juego carga datos nuevos.
 - **Opciones → Orden de la lista** elige el título de la cabecera o el nombre
   del archivo (`orden = titulo|archivo` en `menu.cfg`). Si la fuente no puede
   mostrar algún carácter del título de la cabecera, se usa el nombre del
@@ -730,6 +739,7 @@ se crean por FTP.
 | `capturas` | Basta con que exista | Guarda capturas de pantalla (`screen-N.ppm`) cada pocos segundos; frena la imagen un instante en cada una |
 | `lle` | Vacío o `all` | Prueba el RSP de bajo nivel (experimental, lento). Vacío: solo microcódigo sin HLE; `all`: todo |
 | `gfx_ppe` | Basta con que exista | Corre la HLE gráfica en el PPE en lugar del SPE (para comparar tiempos) |
+| `audio-rangos-viejos` | Basta con que exista | Diagnóstico: al llenarse los diez rangos escritos por una tarea de audio, agranda siempre el último como antes; sin el archivo une los dos separados por el hueco menor para no invalidar código intacto |
 | `sin-recompilador` | Basta con que exista | Apaga el recompilador dinámico: todo corre en el intérprete (más lento). No hace falta con CFW: si el recompilador no puede usar su memoria en la consola, Salsa64 pasa solo al intérprete y lo dice en el log (docs/jit-cfw.md) |
 | `jit-prueba.txt` | Lo escribe Salsa64 | Marca de la prueba del recompilador al arrancar; solo queda si una prueba cerró la aplicación, y entonces esa versión usa el intérprete. Borrarlo para que vuelva a probar |
 | `colgar-rsx` | `etiqueta N`, `rsx N` o `fifo N` | Prueba del seguro del RSX: cuelga a propósito al presentar el campo N (una barrera que nunca llega; el RSX girando; el RSX girando y el búfer de comandos lleno). Salsa64 debe dejar el diagnóstico a los 2 s y salir solo a los 12 s (docs/hilos-ppe.md). Borrarlo después |

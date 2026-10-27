@@ -40,6 +40,7 @@ static void sync_start(void *ctx, const struct salsa64_task *task, enum salsa64_
 {
 	struct salsa64_audio_sync *s = ctx;
 	salsa64_audio_job(&s->job, s->bus, task, abi);
+	s->job.flags |= s->job_flags;
 	aud_run(s->state, &s->job, &s->res);
 	s->pending = true;
 }

@@ -16,6 +16,24 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   Network requests run on their own thread over the PS3 HTTPS stack. See
   `docs/retroachievements.md`. Texts are machine-translated in all 18 languages.
 - **ZIP ROM loading:** the browser detects `.zip` archives, reads the embedded N64 header for the game list, and extracts the first supported `.z64`/`.v64`/`.n64` member using zlib. Deflate and stored entries are supported; full extraction checks the uncompressed size and CRC-32 before launch.
+- **ROMs of more than 64 MB** (hacks and homebrew; up to the 252 MB the cartridge
+  bus can address, issue #13): ROMs bigger than 64 MB are no longer rejected.
+  They stay on the disk and the emulator reads 256 KB pages on demand into a
+  32 MB LRU cache (PI DMA, CPU reads of the cartridge domain, the HLE boot and
+  the recompiler's instruction fetch all go through it). ROMs of 64 MB or less
+  still load entirely into memory, as before. z64, v64 and n64 byte orders are
+  all accepted. The log reports the mode, the page and cache sizes and, every
+  5 s, cache misses and disk read times. A `rom-paginada` file in the data
+  folder forces the paged mode for any ROM, and `rom-cache` sets the cache size
+  in MB. Tested on a real PS3 with B3313 (96 MB) at full speed; a cache miss
+  still waits for the hard disk, so short hitches are possible when a game
+  streams new data.
+
+### Fixed
+- Audio HLE no longer reports one multi-megabyte write span when its fixed
+  range list fills, avoiding needless code invalidation and recompilation in
+  games with scattered audio buffers such as B3313. `audio-rangos-viejos`
+  restores the previous range summary for comparison.
 
 ## [0.2.13] — 2026-10-26
 

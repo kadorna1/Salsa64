@@ -49,7 +49,7 @@ Work in progress, but already playable on a real PS3:
   experimental Transfer Pak (a Game Boy backup next to the ROM), chosen globally,
   per game or per controller.
 - **Not yet:** large SRAM saves (768 Kbit, 1 Mbit; recognized but not
-  emulated) and ROMs larger than 64 MB.
+  emulated).
 
 Performance numbers are logged in [docs/perf-log.md](docs/perf-log.md). Only
 measurements on a real PS3 count; RPCS3 is used for functional tests.
@@ -62,8 +62,8 @@ Full guide (in Spanish): [docs/uso-ps3.md](docs/uso-ps3.md).
    ([direct link](https://github.com/ricowp81/Salsa64/releases/latest/download/salsa64.pkg),
    always the newest version) and install it with the XMB Package Manager
    (HEN or CFW). It shows up as "Salsa64" under Games.
-2. Copy your own ROM dumps (`.z64`, `.v64` or `.n64`, any byte order, up to
-   64 MB) or standard `.zip` archives containing one of those formats to
+2. Copy your own ROM dumps (`.z64`, `.v64` or `.n64`, any byte order; ROMs
+   over 64 MB, such as hacks, are read from the disk in pages) or standard `.zip` archives containing one of those formats to
    `/dev_hdd0/salsa64` (for example over webMAN MOD's FTP) or to a `salsa64`
    folder at the root of a FAT32 USB stick.
 3. Start Salsa64 and pick a game from the menu.

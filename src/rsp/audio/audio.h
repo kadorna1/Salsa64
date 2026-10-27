@@ -30,6 +30,10 @@
 #define AUD_JOB_STATE_LOAD 5
 #define AUD_STATE_BYTES 12032u
 
+/* Conserva la aproximacion anterior cuando no caben todos los rangos
+ * escritos en aud_result: agrandar siempre el ultimo. */
+#define AUD_JOB_RANGES_OLD 0x00000001u
+
 struct aud_state_job {
 	uint64_t ea;
 };
@@ -47,7 +51,7 @@ struct aud_job {
 };
 
 /* Partes de la RDRAM que escribió la tarea (para el recompilador). Si son
- * más, las últimas se juntan en un solo tramo que las cubre. El resultado
+ * más, se juntan los dos tramos separados por el hueco menor. El resultado
  * debe caber en el de spukit (112 bytes): solo las herramientas del host
  * (--lle-check-audio) compilan con más. */
 #ifndef AUD_MAX_RANGES

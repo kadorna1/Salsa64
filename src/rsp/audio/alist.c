@@ -63,16 +63,28 @@ static void sample_mix(uint8_t *dst, int16_t src, int16_t gain)
 
 /* ---- RDRAM ------------------------------------------------------------------ */
 
-static void note_range(struct aud_result *r, uint32_t addr, uint32_t len)
+static uint32_t range_gap(uint32_t a, uint32_t ae, uint32_t b, uint32_t be)
 {
+	return ae < b ? b - ae : be < a ? a - be : 0;
+}
+
+static void range_join(struct aud_result *r, uint32_t i, uint32_t addr, uint32_t end)
+{
+	uint32_t a = r->range_addr[i], e = a + r->range_len[i];
+	a = addr < a ? addr : a;
+	e = end > e ? end : e;
+	r->range_addr[i] = a;
+	r->range_len[i] = e - a;
+}
+
+static void note_range(struct aud_state *st, uint32_t addr, uint32_t len)
+{
+	struct aud_result *r = st->res;
 	uint32_t end = addr + len;
 	for (uint32_t i = 0; i < r->nranges; i++) {
 		uint32_t a = r->range_addr[i], e = a + r->range_len[i];
 		if (addr <= e && end >= a) {  /* se toca o se pisa: juntar */
-			a = addr < a ? addr : a;
-			e = end > e ? end : e;
-			r->range_addr[i] = a;
-			r->range_len[i] = e - a;
+			range_join(r, i, addr, end);
 			return;
 		}
 	}
@@ -81,12 +93,40 @@ static void note_range(struct aud_result *r, uint32_t addr, uint32_t len)
 		r->range_len[r->nranges++] = len;
 		return;
 	}
-	/* Sin lugar: el último tramo crece hasta cubrir este. */
-	uint32_t i = AUD_MAX_RANGES - 1, a = r->range_addr[i], e = a + r->range_len[i];
-	a = addr < a ? addr : a;
-	e = end > e ? end : e;
-	r->range_addr[i] = a;
-	r->range_len[i] = e - a;
+	/* Retorno para comparar en la consola. */
+	if (st->job->flags & AUD_JOB_RANGES_OLD) {
+		range_join(r, AUD_MAX_RANGES - 1, addr, end);
+		return;
+	}
+	/* Sin lugar: juntar el par que agrega menos espacio no escrito. El
+	 * tramo nuevo participa como el indice AUD_MAX_RANGES. */
+	uint32_t bi = 0, bj = AUD_MAX_RANGES, bg = UINT32_MAX;
+	for (uint32_t i = 0; i < AUD_MAX_RANGES; i++) {
+		uint32_t a = r->range_addr[i], e = a + r->range_len[i];
+		uint32_t g = range_gap(a, e, addr, end);
+		if (g < bg) {
+			bi = i;
+			bj = AUD_MAX_RANGES;
+			bg = g;
+		}
+		for (uint32_t j = i + 1; j < AUD_MAX_RANGES; j++) {
+			uint32_t b = r->range_addr[j], be = b + r->range_len[j];
+			g = range_gap(a, e, b, be);
+			if (g < bg) {
+				bi = i;
+				bj = j;
+				bg = g;
+			}
+		}
+	}
+	if (bj == AUD_MAX_RANGES) {
+		range_join(r, bi, addr, end);
+		return;
+	}
+	uint32_t b = r->range_addr[bj], be = b + r->range_len[bj];
+	range_join(r, bi, b, be);
+	r->range_addr[bj] = addr;
+	r->range_len[bj] = len;
 }
 
 bool aud_load(struct aud_state *st, void *dst, uint32_t addr, uint32_t size)
@@ -108,7 +148,7 @@ bool aud_store(struct aud_state *st, uint32_t addr, const void *src, uint32_t si
 		st->res->errors++;
 		return false;
 	}
-	note_range(st->res, addr, size);
+	note_range(st, addr, size);
 	return true;
 }
 

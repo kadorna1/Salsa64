@@ -51,6 +51,7 @@ static void cmd(uint32_t w1, uint32_t w2)
 }
 
 static uint32_t uc_data, uc_size;  /* ucode_data y su tamaño del trabajo (0: sin segmento de datos) */
+static uint32_t job_flags;
 
 static void run_abi(enum salsa64_abi abi)
 {
@@ -58,6 +59,7 @@ static void run_abi(enum salsa64_abi abi)
 	memset(&job, 0, sizeof job);
 	job.ucode_data = uc_data;
 	job.ucode_data_size = uc_size;
+	job.flags = job_flags;
 	job.rdram_ea = (uint64_t)(uintptr_t)t_n64.bus.rdram;
 	job.rdram_size = t_n64.bus.rdram_size;
 	job.abi = abi;
@@ -71,6 +73,7 @@ static void fresh(void)
 {
 	aud_init(&st);
 	nlist = 0;
+	job_flags = 0;
 }
 
 /* ---- Codificación de nead (Zelda OoT) -------------------------------------- */
@@ -438,7 +441,26 @@ static void ranges_merge_when_full(void)
 		n_savebuff(0x100, DST + 0x100 * i, 8);
 	run_abi(SALSA64_ABI_NEAD_OOT);
 	CHECK_EQ(res.nranges, AUD_MAX_RANGES);
-	CHECK_EQ(res.range_addr[0], DST);
+	uint32_t covered = 0;
+	for (uint32_t k = 0; k < AUD_MAX_RANGES + 2; k++) {
+		uint32_t addr = DST + 0x100 * k;
+		bool hit = false;
+		for (uint32_t i = 0; i < res.nranges; i++)
+			hit |= res.range_addr[i] <= addr && res.range_addr[i] + res.range_len[i] >= addr + 8;
+		covered += hit;
+	}
+	CHECK_EQ(covered, AUD_MAX_RANGES + 2);
+	uint32_t span = 0;
+	for (uint32_t i = 0; i < res.nranges; i++)
+		span += res.range_len[i];
+	CHECK(span < 0x400);
+
+	/* El interruptor conserva exactamente la aproximacion anterior. */
+	fresh();
+	job_flags = AUD_JOB_RANGES_OLD;
+	for (uint32_t i = 0; i < AUD_MAX_RANGES + 2; i++)
+		n_savebuff(0x100, DST + 0x100 * i, 8);
+	run_abi(SALSA64_ABI_NEAD_OOT);
 	uint32_t last = AUD_MAX_RANGES - 1;
 	CHECK_EQ(res.range_addr[last], DST + 0x100 * last);
 	CHECK_EQ(res.range_addr[last] + res.range_len[last], DST + 0x100 * (AUD_MAX_RANGES + 1) + 8);

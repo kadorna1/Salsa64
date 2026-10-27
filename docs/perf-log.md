@@ -1,5 +1,13 @@
 # Registro de rendimiento
 
+## 2026-10-27 — B3313, escena pesada y retraducción falsa
+| Medida | B3313 | SM64 comparable |
+|---|---:|---:|
+| qemu, 16,72/5,01 s N64: MIPS; espera | 9,2 → 34,6; 79,6 % | 20,3 → 22,6; 89,1 % |
+| bloques compilados / repetidos / invalidados | 207928 / 202275 / 207603 → 5652 / 2 / 2227 | 2483 / 0 / 0, igual |
+| compilación total / repetida en qemu | 5660,7 / 5462,2 ms → 233,1 / 0,057 ms | 99,0 / 0 ms → 102,6 / 0 ms |
+En la PS3 anterior, el campo pesado era 25,2 ms: el 15,1 % de qemu pone un techo orientativo de 3,8 ms/campo a la retraducción; no es tiempo medido en PS3. HLE gráfica y audio son asíncronas (≈1,6 y 1,5 ms/campo; cero esperas), hilo 1 ≈2,0 ms y CRT 10,3 ms/cuadro con RSX al 24 %: no se suman al tiempo del PPE. Caché mayor: techo nulo (cero vaciados); contención causal medida antes, ≈0,13 ms por ms de hilo 1, da ≈0,3 ms. El nuevo resumen por hueco menor elimina la invalidación de 6,4 MB; el modo anterior la reproduce. Mismo trabajo emulado y lockstep sin diferencias; falta el A/B en PS3 real.
+
 ## 2026-10-25 — Cruis'n Exotica, perfil orientativo del host
 
 En una carrera reproducida en el host, 1375 tareas durante 2800 campos

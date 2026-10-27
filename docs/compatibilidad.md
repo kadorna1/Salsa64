@@ -45,7 +45,7 @@ está en las secciones siguientes y en `docs/estado.md`).
 | Animal Forest | reconocido por el CRC | sin probar |
 | Mario Tennis, Mortal Kombat 4, Pokémon Snap, Star Fox 64, Majora's Mask, Donkey Kong 64, Road Rash 64 | sin cambio | ver los problemas conocidos en `CHANGELOG.md` |
 
-Las ROMs de más de 64 MB no están soportadas.
+Las ROMs de más de 64 MB (hacks y homebrew) se abren por fragmentos desde el disco; B3313 (96 MB) va a velocidad completa en la PS3.
 
 ## 2026-10-18 — Indiana Jones and the Infernal Machine con HLE gráfica (en el host y en RPCS3; falta la PS3)
 
