@@ -45,8 +45,7 @@ Work in progress, but already playable on a real PS3:
 - **Filters:** five CRT filters made for this project (shadow mask, a small
   Trinitron TV over RGB, S-Video or composite, and a big Trinitron), still
   experimental; on a real PS3 all five fit in the frame time at 1080p.
-- **Not yet:** large SRAM saves (768 Kbit, 1 Mbit) and Controller/Rumble/
-  Transfer Pak.
+- **Not yet:** large SRAM saves (768 Kbit, 1 Mbit)
 
 Performance numbers are logged in [docs/perf-log.md](docs/perf-log.md). Only
 measurements on a real PS3 count; RPCS3 is used for functional tests.
