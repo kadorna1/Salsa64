@@ -82,6 +82,20 @@ RUN curl -fsSL "https://github.com/ps3dev/PSL1GHT/archive/${PSL1GHT_REF}.tar.gz"
  && cd "/build/PSL1GHT-${PSL1GHT_REF}" \
  && make install-ctrl && make -j"$(nproc)" && make install
 
+# zlib is needed by the frontend for ZIP-compressed ROMs. Build a static PPU
+# library, not the host zlib development package installed above.
+RUN curl --fail --location --silent --show-error \
+      https://zlib.net/fossils/zlib-1.3.2.tar.gz -o /tmp/zlib-1.3.2.tar.gz \
+ && echo "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16  /tmp/zlib-1.3.2.tar.gz" | sha256sum --check \
+ && tar -xzf /tmp/zlib-1.3.2.tar.gz -C /build \
+ && cd /build/zlib-1.3.2 \
+ && CC=ppu-gcc AR=ppu-ar RANLIB=ppu-ranlib \
+      CFLAGS="-O2 -mcpu=cell -mno-relative-jumptables" \
+      ./configure --static --prefix="${PS3DEV}/portlibs/ppu" \
+ && make -j"$(nproc)" \
+ && make install \
+ && rm -rf /build/zlib-1.3.2 /tmp/zlib-1.3.2.tar.gz
+
 # ---------------------------------------------------------------------------
 # Imagen final.
 # ---------------------------------------------------------------------------
