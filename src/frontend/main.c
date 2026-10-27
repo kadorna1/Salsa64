@@ -1487,7 +1487,11 @@ static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint
 		uint8_t *dst = buf ? buf : rom_alloc(rom_len);
 		if (!dst)
 			return NULL;
-		if (salsa64_ziprom_extract(path, dst, limit, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
+		/* Match the extractor's bound to the memory actually allocated.
+		 * The archive is opened twice (header peek, then extraction), so
+		 * it must remain safe even if the file changes between those reads. */
+		uint32_t dst_cap = buf ? cap : rom_len;
+		if (salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
 			if (!buf)
 				rom_free(dst);
 			return NULL;
