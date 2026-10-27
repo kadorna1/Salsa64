@@ -16,7 +16,7 @@ PROGRAM := salsa64-perfil
 TITLE   := Salsa64 perfil
 APPID   := SLSA00120
 endif
-SRCS    := main.c audio_out.c audio_sync.c menu.c osd.c osd_fps.c pacer.c padmap.c pausectl.c scale_auto.c replay.c romlist.c savefile.c mempakfile.c transferpakfile.c \
+SRCS    := main.c audio_out.c audio_sync.c menu.c osd.c osd_fps.c pacer.c padmap.c pausectl.c scale_auto.c replay.c romlist.c ziprom.c savefile.c mempakfile.c transferpakfile.c \
            cheats.c cuelgue.c cover.c download.c dlutil.c i18n.c namematch.c screenshot.c selftest.c selftest_audio.c selftest_gfx.c states.c cajanegra.c \
            version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c
 # Filtros de la presentación (filters/): fragment programs en Cg compilados
@@ -88,10 +88,10 @@ gfx2_STACK_ARGS := --edge gfx_dl_f3dex2:cbfd_command $(GFX_STACK_LIBC)
 gfx3_STACK_ARGS := --edge gfx_dl_f3d:f5_command $(GFX_STACK_LIBC)
 gfx4_STACK_ARGS := $(GFX_STACK_LIBC)
 gfx5_STACK_ARGS := --ignore gfx_dl_f3d --edge gfx_dl_f3dex2:acclaim_command $(GFX_STACK_LIBC)
-CFLAGS  := -ffp-contract=off -fno-math-errno
-LIBS    := -lrsx -lgcm_sys -laudio -lio -lfontFT -lfont -lsysutil -lhttp -lhttputil -lssl -lnetctl -lnet -lsysmodule -lrt -llv2 -lm
+CFLAGS  := -I$(PS3DEV)/portlibs/ppu/include -ffp-contract=off -fno-math-errno
+LIBS    := -lrsx -lgcm_sys -laudio -lio -lfontFT -lfont -lsysutil -lhttp -lhttputil -lssl -lnetctl -lnet -lsysmodule -lrt -llv2 -lm -lz
 # Caché del recompilador al final del segmento de texto (docs/rec-ppe.md).
-LDFLAGS := -T $(abspath $(R))/mk/rec-cache.ld -T lv2.ld
+LDFLAGS := -L$(PS3DEV)/portlibs/ppu/lib -T $(abspath $(R))/mk/rec-cache.ld -T lv2.ld
 
 include $(R)/mk/ps3.mk
 
