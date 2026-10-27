@@ -130,7 +130,8 @@ RSX, `d-*` la diferencia × 8). A 1920 × 1080 (2026-10-27):
 | 123,4 | 45,3 dB, 0,20/255 | 47,7 dB, 0,13/255 |
 | 600 | 42,4 dB, 0,26/255 | 44,9 dB, 0,17/255 |
 
-97–98 % de los valores a 1/255 o menos. Lo que queda está en las líneas
+A 1280 × 720: 43,7 / 46,1, 41,1 / 43,5, 43,0 / 45,4 y 40,0 / 42,5 dB. En
+los dos casos, 97–98 % de los valores a 1/255 o menos. Lo que queda está en las líneas
 brillantes de la ola: el original las muestrea con 4 rayos por píxel, cada
 uno con su jitter (ruido), y aquí es la medida exacta de la cáscara en un
 rayo; y la t de parada viene de 1/8 de la resolución (a 1/4 subiría a
