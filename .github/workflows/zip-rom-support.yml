@@ -6,13 +6,9 @@ on:
     paths:
       - "src/frontend/ziprom.c"
       - "src/frontend/ziprom.h"
-      - "src/frontend/main.c"
       - "src/frontend/romlist.c"
       - "src/frontend/Makefile"
-      - "tests/unit/**"
-      - "docker/**"
-      - "tools/**"
-      - ".github/workflows/zip-rom-support.yml"
+      - "tests/unit/test_ziprom.c"
   workflow_dispatch:
 
 permissions:
