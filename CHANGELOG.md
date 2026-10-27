@@ -6,6 +6,16 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+### Added
+- **RetroAchievements** (off by default): achievements for N64 games through the
+  official rcheevos library (v12.5.0, MIT, vendored in `third_party/rcheevos`).
+  Options > RetroAchievements, account sign-in with the system keyboard (only the
+  token is stored, in `ra.cfg`; never the password), "RA: N achievements (X
+  earned)" when a game opens, a notice when one unlocks, an achievements list in
+  the pause menu, and an optional Hardcore mode (no save states, no cheats).
+  Network requests run on their own thread over the PS3 HTTPS stack. See
+  `docs/retroachievements.md`. Texts are machine-translated in all 18 languages.
+
 ## [0.2.13] — 2026-10-26
 
 ### Added

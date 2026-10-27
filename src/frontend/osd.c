@@ -13,6 +13,7 @@
 #include "cheats.h"
 #include "i18n.h"
 #include "pausectl.h"
+#include "ra.h"
 
 static struct {
 	char text[96];
@@ -146,9 +147,60 @@ void osd_cheats_draw(const struct cheat_set *cs, int sel, float lw, float lh)
 	rsxkit_ui_end();
 }
 
+void osd_achievements_draw(int sel, float lw, float lh)
+{
+	const float sc = 1.5f, row_h = 46.0f, pad = 24.0f;
+	unsigned rows = ra_list_count(), vis = rows < 8 ? rows : 8;
+	unsigned top = rows <= vis ? 0 : (unsigned)(sel - (int)vis / 2 < 0 ? 0 : sel - (int)vis / 2);
+	if (rows > vis && top > rows - vis)
+		top = rows - vis;
+	float w = lw * 0.82f > 1040.0f ? 1040.0f : lw * 0.82f;
+	float title_h = 56.0f, foot_h = 52.0f;
+	float h = title_h + vis * row_h + foot_h + 2 * pad;
+	float x = (lw - w) / 2, y = (lh - h) / 2;
+	float maxw = w - 2 * pad - 130.0f;
+	char line[160];
+
+	rsxkit_ui_begin(lw, lh);
+	rsxkit_ui_rect(0.0f, 0.0f, lw, lh, 0x00000090);
+	rsxkit_ui_rect(x - 2.0f, y - 2.0f, w + 4.0f, h + 4.0f, 0xFFFFFF60);
+	rsxkit_ui_rect(x, y, w, h, 0x141414F4);
+	snprintf(line, sizeof line, tr("Logros  (%u de %u)"), ra_list_unlocked(), rows);
+	rsxkit_ui_text(x + pad, y + pad, line, 2.0f, 0xFFFFFFFF, 0);
+	if (ra_game_title()[0]) {
+		float tw_ = rsxkit_ui_text_fit_width(ra_game_title(), 1.25f, w / 2.2f);
+		rsxkit_ui_text_fit(x + w - pad - tw_, y + pad + 6.0f, ra_game_title(), 1.25f, 0x8C96A4FF, w / 2.2f);
+	}
+	for (unsigned i = 0; i < vis; i++) {
+		unsigned k = top + i;
+		const struct ra_item *it = ra_list_get(k);
+		if (!it)
+			break;
+		float ry = y + pad + title_h + i * row_h;
+		bool cur = (int)k == sel;
+		if (cur)
+			rsxkit_ui_rect(x + 8.0f, ry - 4.0f, w - 16.0f, row_h - 2.0f, 0x3A5A9AE0);
+		rsxkit_ui_text(x + pad, ry, it->unlocked ? "[x]" : "[ ]", sc, it->unlocked ? 0x9CFFA0FF : 0xB0B0B0FF, 0);
+		float tx = x + pad + tw("[x] ", sc);
+		rsxkit_ui_text_fit(tx, ry - 2.0f, it->title, sc, cur ? 0xFFFFFFFF : 0xD8D8D8FF, maxw);
+		rsxkit_ui_text_fit(tx, ry + 16.0f, it->desc, 1.1f, 0x9AA4B2FF, maxw);
+		snprintf(line, sizeof line, "%u", it->points);
+		rsxkit_ui_text(x + w - pad - tw(line, sc) - 18.0f, ry, line, sc, 0xE8C860FF, 0);
+	}
+	if (rows > vis) {
+		float th = vis * row_h, bh = th * vis / rows < 20.0f ? 20.0f : th * vis / rows;
+		float by = y + pad + title_h + (th - bh) * top / (rows - vis);
+		rsxkit_ui_rect(x + w - 14.0f, y + pad + title_h, 4.0f, th, 0xFFFFFF20);
+		rsxkit_ui_rect(x + w - 14.0f, by, 4.0f, bh, 0xFFFFFFA0);
+	}
+	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("↑↓  Elegir     ○  Volver     START  Continuar"), 1.5f,
+		       0xC8C8C8FF, 0);
+	rsxkit_ui_end();
+}
+
 void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 {
-	const float sc = 2.0f, row_h = 46.0f, pad = 26.0f, w = lw * 0.5f < 560.0f ? 560.0f : lw * 0.5f;
+	const float sc = 2.0f, row_h = 43.0f, pad = 26.0f, w = lw * 0.5f < 560.0f ? 560.0f : lw * 0.5f;
 	float h = 60.0f + PM_ROWS * row_h + 50.0f + 2 * pad;
 	float x = (lw - w) / 2, y = (lh - h) / 2;
 	char line[96], val[112];
@@ -193,6 +245,12 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 			dim = !m->cheats_total;
 			if (m->cheats_total)
 				snprintf(val, sizeof val, "%u / %u", m->cheats_on, m->cheats_total);
+			break;
+		case PM_ACHIEVEMENTS:
+			label = tr("Logros");
+			dim = !m->ach_total;
+			if (m->ach_total)
+				snprintf(val, sizeof val, "%u / %u", m->ach_unlocked, m->ach_total);
 			break;
 		case PM_FPS:
 			label = tr("Mostrar FPS");

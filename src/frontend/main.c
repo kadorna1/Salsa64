@@ -192,6 +192,7 @@
 #include "platform/ps3/log.h"
 #include "platform/ps3/rec_cache.h"
 #include "platform/ps3/thread_cleanup.h"
+#include "ra.h"
 #include "frontend/filters/filters.h"
 #include "rdp/rdp.h"
 #include "rsp/gfx/hle.h"
@@ -491,6 +492,8 @@ static void sysutil_cb(u64 status, u64 param, void *user)
 		salsa64_log("sistema: deja de dibujar encima");
 		break;
 	default:
+		if (ra_sysutil_event(status, param))
+			break;  /* el teclado del sistema (usuario y contraseña de RetroAchievements) */
 		salsa64_log("sistema: evento 0x%llx (parámetro 0x%llx)", (unsigned long long)status,
 			    (unsigned long long)param);
 		break;
@@ -1057,6 +1060,10 @@ static void state_command(int what)
 	uint64_t now = sysGetSystemTime();
 	if (state_req || state_parked)
 		return;  /* ya hay una en curso, o emulación todavía sale de la anterior */
+	if (ra_hardcore_active()) {
+		osd_notice(now, "RA Hardcore: sin estados");
+		return;
+	}
 	if (lle_mode != SALSA64_LLE_OFF) {
 		osd_notice(now, "Estados no disponibles con lle");
 		return;
@@ -1092,8 +1099,12 @@ static int menu_accessory_default(void);
 static void pause_menu_events(void)
 {
 	static bool was_open;
-	if (pause_ctl.menu && !was_open)
+	if (pause_ctl.menu && !was_open) {
 		pm_slot_have = states_slot_exists(&n64.bus, state_slot);
+		ra_list_refresh();  /* los logros que se ven en la pausa */
+		pause_ctl.ach_rows = ra_list_count();
+		pause_ctl.ach_avail = pause_ctl.ach_rows > 0;
+	}
 	was_open = pause_ctl.menu;
 	int d = pause_ctl.menu_do;
 	if (d < 0)
@@ -1117,7 +1128,10 @@ static void pause_menu_events(void)
 		fps_setting_save(fps.on);
 		break;
 	case PM_CHEATS:
-		osd_notice(now, "No hay trucos para este juego");
+		osd_notice(now, ra_hardcore_active() ? "RA Hardcore: sin trucos" : "No hay trucos para este juego");
+		break;
+	case PM_ACHIEVEMENTS:
+		osd_notice(now, ra_enabled() ? "Sin logros para este juego" : "RetroAchievements está apagado (Opciones)");
 		break;
 	}
 }
@@ -1290,8 +1304,9 @@ static int update_pads(uint32_t *buttons)
 		stick[i] = info.status[i] ? stick_dirs(stick[i], last[i].lx - 128, last[i].ly - 128) : 0;
 		pad_stick_dirs |= stick[i];
 	}
-	pause_ctl.panel_avail = game_cheats.n > 0;
-	pause_ctl.panel_rows = game_cheats.n;
+	bool no_cheats = ra_hardcore_active();  /* Hardcore: los trucos no valen */
+	pause_ctl.panel_avail = game_cheats.n > 0 && !no_cheats;
+	pause_ctl.panel_rows = no_cheats ? 0 : game_cheats.n;
 	enum pausectl_action act = pausectl_pads(&pause_ctl, raw, intercepted, combos_on != 0, game);
 	cheat_panel_events();
 	pause_menu_events();
@@ -2239,7 +2254,9 @@ static void emu_thread(void *arg)
 		ovl_note(tb1 - tb0, ovl, busy_at(&h1.load_clock, tb1) - l0,
 			 (n64.cpu.cycles - c0) - (n64.cpu.idle_cycles - i0), gfx_spu.sleep_us + jpeg_spu.sleep_us - s0,
 			 h1.load && h1.load_phase == ph0 ? (int)ph0 : -1);
-		cheats_apply(&game_cheats, &n64.bus);  /* los activos del juego (vacío si no hay) */
+		if (!ra_hardcore_active())
+			cheats_apply(&game_cheats, &n64.bus);  /* los activos del juego (vacío si no hay) */
+		ra_frame();  /* RetroAchievements: una vez por campo emulado (no hace nada sin juego con logros) */
 		if (use_rec) {
 			inval_check();
 			if (rec.diag && n64.bus.vi.fields % 300 == 0)
@@ -2746,8 +2763,10 @@ static void present_overlay(uint64_t now)
 	}
 	osd_draw(&fps, now, ui_lw, ui_lh);
 	if (pause_ctl.menu) {
+		bool hc = ra_hardcore_active();
 		struct osd_pause_menu pm = { pause_ctl.menu_sel, state_slot, pm_slot_have, fps.on, in_menu,
-					     game_cheats.n, cheats_active(&game_cheats), version_text };
+					     hc ? 0 : game_cheats.n, cheats_active(&game_cheats), version_text,
+					     ra_list_count(), ra_list_unlocked() };
 		osd_pause_menu_draw(&pm, ui_lw, ui_lh);
 	} else if (pause_ctl.accessory) {
 		struct osd_accessory_menu am;
@@ -2773,6 +2792,8 @@ static void present_overlay(uint64_t now)
 		osd_confirm_draw(pause_ctl.dialog_for == PAUSECTL_RESET ? "¿Seguro? Reiniciar (botón Reset)" :
 				 pause_ctl.dialog_for == PAUSECTL_RESTART ? "¿Seguro? Reiniciar desde cero" :
 				 in_menu ? "¿Volver al menú?" : "¿Salir al XMB?", "×: Sí     ○: No", ui_lw, ui_lh);
+	else if (pause_ctl.panel && pause_ctl.panel_kind)
+		osd_achievements_draw(pause_ctl.panel_sel, ui_lw, ui_lh);
 	else if (pause_ctl.panel)
 		osd_cheats_draw(&game_cheats, pause_ctl.panel_sel, ui_lw, ui_lh);
 }
@@ -4890,6 +4911,7 @@ static void mem_close_report(const struct mem_close_in *in)
 
 static void game_close(void)
 {
+	ra_game_close();  /* espera la huella de la ROM, que se lee de su búfer */
 	struct mem_close_in mem_in = { cajanegra_reserved(), (uint32_t)salsa64_rdp_interp_bytes() };
 	/* Never leave a motor latched across game changes or a return to the menu. */
 	memset(n64.bus.pif.rumble, 0, sizeof n64.bus.pif.rumble);
@@ -5387,6 +5409,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		    scale_policy.current, scale_policy.maximum, scale_auto_ceiling(&scale_policy));
 	rdp_scale_set(scale_wanted(), scale_capped() ? "al abrir el juego, tope de 3× con un CRT" : "al abrir el juego");
 	load_cheats(source);
+	ra_game_open(rom, rom_size, rdram, SALSA64_RDRAM_MAX);  /* RetroAchievements, si está activado y hay sesión */
 	if (selftest_on)
 		selftest_start();
 	if (gfxtest_on)
@@ -5618,6 +5641,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
 			transferpakfile_write_staged(&transferpak_files[i], now);
 		profile_write_step(now);
+		ra_pump(pause_req != 0);
+		for (char note[160]; ra_poll_notice(note, sizeof note);)
+			osd_notice(now, "%s", note);
 		/* Con el sistema encima (su menú, un aviso), el sistema dibuja lo
 		 * suyo en cada flip de la aplicación: el último cuadro se sigue
 		 * presentando, pero solo si el flip anterior ya salió, para no
@@ -6362,6 +6388,7 @@ static int menu_loop(void)
 	}
 	menu_layout();
 	menu_settings_load();
+	ra_apply(mn.settings.ra, mn.settings.ra_hardcore);
 	load_overscan();
 	mn.settings.overscan = overscan_preset();
 	{
@@ -6439,7 +6466,16 @@ static int menu_loop(void)
 			/* Primero deja que el menú aparezca entero (para la captura). */
 			buttons = frames < 50 ? 0 : menu_autopilot(&menu, target, mn.step++);
 		}
+		ra_pump(false);
+		menu.ra_user = ra_user();
+		menu.ra_busy = ra_logging_in();
+		for (char note[160]; ra_poll_notice(note, sizeof note);)
+			menu_set_status(&menu, "%s", note);
 		enum menu_action a = menu_input(&menu, buttons, sysGetSystemTime());
+		if (a == MENU_RA_LOGIN)
+			ra_login_begin();
+		if (a == MENU_RA_LOGOUT)
+			ra_logout();
 		if (a == MENU_REFRESH) {
 			char selected[ROMLIST_PATH_MAX] = "";
 			int selected_rom = menu_selected(&menu);
@@ -6463,6 +6499,7 @@ static int menu_loop(void)
 			 * lista y se perdía al abrir el juego). */
 			bool cfg = menu_settings_cfg_differs(&menu.set, &mn.settings);
 			mn.settings = menu.set;
+			ra_apply(mn.settings.ra, mn.settings.ra_hardcore);
 			if (reorder) {
 				romlist_sort(roms, mn.settings.rom_order == MENU_ROM_ORDER_FILENAME ? ROMLIST_ORDER_FILENAME
 										 : ROMLIST_ORDER_TITLE);
@@ -6723,6 +6760,7 @@ int main(int argc, char **argv)
 	if (!version_build(salsa64_title, salsa64_appid, build_text, sizeof build_text))
 		build_text[0] = '\0';
 	pres.autotest = salsa64_autotest();
+	ra_init();  /* RetroAchievements: ra.cfg y el cliente; no toca la red hasta que haya sesión o juego */
 	/* La caché del recompilador se prueba en otro hilo mientras arranca el
 	 * menú (rec_cache.h); run_game espera el resultado. */
 	if (salsa64_ps3_rec_wanted())
@@ -6862,6 +6900,7 @@ int main(int argc, char **argv)
 		status = menu_loop();
 	}
 
+	ra_shutdown();
 	/* Después de soltar la HLE (game_close): su fin llama a front_done → wake(). */
 	sysSemDestroy(wake_sem);
 	salsa64_rdp_shutdown();

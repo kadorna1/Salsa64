@@ -333,6 +333,17 @@ carátula o sin `.cht` busca en el índice con el mismo criterio de nombres
 parecidos), el pie muestra «Descargando… N de M» y ○ cancela. Sin red, dice
 «No hay red».
 
+## RetroAchievements
+
+Logros de [retroachievements.org](https://retroachievements.org) en los juegos
+de N64 (apagado por omisión). **Opciones > RetroAchievements: Sí**, luego
+**Cuenta de RetroAchievements** (×): el teclado del sistema pide usuario y
+contraseña; solo se guarda el token (`ra.cfg`). Al abrir un juego sale «RA: N
+logros (X conseguidos)», al desbloquear uno su título, y en la pausa (START +
+SELECT) la fila **Logros** lista los del juego. El modo **Hardcore** (Opciones,
+vale al abrir el siguiente juego) quita los estados y los trucos mientras haya
+logros. Detalles, red y límites en `docs/retroachievements.md`.
+
 ## Controles en el juego
 
 Los DualShock 3 de los puertos 1 a 4 son los controles 1 a 4 de la N64.
@@ -695,6 +706,7 @@ se crean por FTP.
 |---|---|---|
 | `menu.cfg` | Líneas `fondo = si\|no`, `fps = si\|no`, `confirmar = si\|no`, `aspecto = 4:3\|16:9`, `filtro = suave\|nitido\|lineas\|lineas+\|crt-mascara\|crt-rgb\|crt-svideo\|crt-compuesto` , `densidad = normal\|fina`, `idioma = es\|en\|fr\|de\|it\|pt` e `interpolacion = no\|geometria` | Fondo animado del menú, contador de velocidad en el juego, si «Salir» del menú de pausa pregunta antes (sí sin la línea), aspecto, filtro, idioma e interpolación. Lo escriben el menú (Opciones) y SELECT + △ |
 | `juegos/<ROM>.cfg` | `aspecto`, `filtro`, `recorte`, `escala`, `densidad`, `interpolacion` = valor o `global`; `escala-estable` = `1` a `5` o `ninguna`; `accesorio` = `global`, `controller-pak`, `rumble-pak`, `transfer-pak` o `ninguno` | Ajustes de un juego (sección «Ajustes por juego»). Lo escriben el menú (SELECT sobre una ROM), «Imagen» del menú de pausa y la escala automática cuando aprende un límite estable |
+| `ra.cfg` | `usuario`, `token`, `servidor`, `certificados = laxo` | RetroAchievements (sección «RetroAchievements» y `docs/retroachievements.md`). Lo escribe el menú al iniciar sesión: guarda el token, nunca la contraseña. Se activa con `retroachievements = si` y `hardcore = si` en `menu.cfg` (Opciones) |
 | `descargas.cfg` | `activar = si` y direcciones | Enciende las descargas experimentales (sección «Descargas») |
 | `overscan.cfg` | Uno, dos o cuatro números: `8`, `8 6` o `izq der arr abajo` | Recorte de la imagen en píxeles de la N64 (a 320 × 240) por lado. Por omisión `8 6`; `0` lo apaga; máximo 64. Lo escribe el menú (`0`, `8 6` o `16 12`) |
 | `video.cfg` | `salida = 720` o `1080`; `escala = auto-N`, `auto` o `1` a `5` | Salida de video y escala interna del render de la N64 (se leen al arrancar). `auto-N` ajusta la escala sin pasar N; `auto` conserva la compatibilidad anterior (3× a 720p, 4× a 1080p). Sin archivo: 720p y `auto`. Si la tele o el XMB no aceptan 1080, usa el siguiente modo. Acepta el formato viejo de una línea (`1080` o `720`). Lo escribe el menú con «Resolución» y «Escala interna» |

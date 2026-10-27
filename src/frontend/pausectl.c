@@ -108,7 +108,11 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 				p->image_do = IM_SAVE;
 			}
 		} else if (p->panel) {
-			if ((rise & (BIT(SALSA64_DS3_CIRCLE) | BIT(SALSA64_DS3_START))) || open_combo || combo) {
+			unsigned rows = p->panel_kind ? p->ach_rows : p->panel_rows;
+			if (p->panel_kind && (rise & BIT(SALSA64_DS3_CIRCLE)) && !(rise & BIT(SALSA64_DS3_START)) && !combo) {
+				p->panel = false;  /* la lista de logros vuelve al menú de pausa */
+				p->menu = true;
+			} else if ((rise & (BIT(SALSA64_DS3_CIRCLE) | BIT(SALSA64_DS3_START))) || open_combo || combo) {
 				p->panel = false;
 			} else {
 				int step = 0;
@@ -128,8 +132,8 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 				} else {
 					p->hold_bit = p->hold_n = 0;
 				}
-				if (step && p->panel_rows) {
-					int n = (int)p->panel_rows, s = p->panel_sel + step;
+				if (step && rows) {
+					int n = (int)rows, s = p->panel_sel + step;
 					/* Un paso suelto da la vuelta; los saltos se paran en los extremos. */
 					if (step == 1 || step == -1)
 						s = (s % n + n) % n;
@@ -137,7 +141,7 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 						s = s < 0 ? 0 : s >= n ? n - 1 : s;
 					p->panel_sel = s;
 				}
-				if ((rise & BIT(SALSA64_DS3_CROSS)) && p->panel_rows)
+				if ((rise & BIT(SALSA64_DS3_CROSS)) && rows && !p->panel_kind)
 					p->toggle = p->panel_sel;
 			}
 		} else if (p->menu) {
@@ -169,11 +173,23 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 					if (p->panel_avail && p->panel_rows) {
 						p->menu = false;
 						p->panel = true;
+						p->panel_kind = 0;
 						if (p->panel_sel < 0 || p->panel_sel >= (int)p->panel_rows)
 							p->panel_sel = 0;
 						p->hold_bit = p->hold_n = 0;
 					} else {
 						p->menu_do = PM_CHEATS;
+					}
+					break;
+				case PM_ACHIEVEMENTS:
+					if (p->ach_avail && p->ach_rows) {
+						p->menu = false;
+						p->panel = true;
+						p->panel_kind = 1;
+						p->panel_sel = 0;
+						p->hold_bit = p->hold_n = 0;
+					} else {
+						p->menu_do = PM_ACHIEVEMENTS;
 					}
 					break;
 				case PM_IMAGE:
@@ -220,6 +236,7 @@ enum pausectl_action pausectl_pads(struct pausectl *p, const uint32_t raw[PAUSEC
 		} else if (open_combo) {
 			if (p->panel_avail && p->panel_rows) {
 				p->panel = true;
+				p->panel_kind = 0;
 				if (p->panel_sel < 0 || p->panel_sel >= (int)p->panel_rows)
 					p->panel_sel = 0;
 				p->hold_bit = p->hold_n = 0;
@@ -251,6 +268,9 @@ void pausectl_game_end(struct pausectl *p)
 	p->accessory_do = -1;
 	p->panel_avail = false;
 	p->panel_rows = 0;
+	p->panel_kind = 0;
+	p->ach_avail = false;
+	p->ach_rows = 0;
 	p->panel_sel = 0;
 	p->toggle = -1;
 }

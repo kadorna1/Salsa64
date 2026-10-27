@@ -210,6 +210,51 @@ static void menu_cheats_row(void)
 	CHECK_EQ(pausectl_reasons(&pc), PAUSECTL_PANEL);
 }
 
+/* «Logros» (RetroAchievements): sin lista avisa sin cerrar el menú; con ella
+ * abre el mismo panel en modo de solo lectura (× no pide cambiar nada), ○
+ * vuelve al menú de pausa y START lo cierra todo. */
+static void menu_achievements_row(void)
+{
+	pausectl_init(&pc, true);
+	open_menu();
+	for (int i = 0; i < PM_ACHIEVEMENTS; i++)
+		tap(B(DOWN));
+	tap(B(CROSS));
+	CHECK(pc.menu && !pc.panel);
+	CHECK_EQ(pc.menu_do, PM_ACHIEVEMENTS);
+	pc.menu_do = -1;
+	pc.ach_avail = true;
+	pc.ach_rows = 20;
+	tap(B(CROSS));
+	CHECK(!pc.menu && pc.panel);
+	CHECK_EQ(pc.panel_kind, 1);
+	CHECK_EQ(pausectl_reasons(&pc), PAUSECTL_PANEL);
+	/* Recorre las 20 filas de la lista (no las de los trucos, que son 0). */
+	tap(B(DOWN));
+	CHECK_EQ(pc.panel_sel, 1);
+	tap(B(RIGHT));
+	CHECK_EQ(pc.panel_sel, 1 + PAUSECTL_PANEL_PAGE);
+	tap(B(UP));
+	tap(B(UP));
+	tap(B(UP));
+	CHECK_EQ(pc.panel_sel, PAUSECTL_PANEL_PAGE - 2);
+	tap(B(CROSS));
+	CHECK_EQ(pc.toggle, -1);  /* de solo lectura */
+	tap(B(CIRCLE));
+	CHECK(pc.menu && !pc.panel);
+	tap(B(CROSS));
+	CHECK(pc.panel && pc.panel_kind == 1);
+	tap(B(START));
+	CHECK(!pc.menu && !pc.panel);
+	CHECK_EQ(pausectl_reasons(&pc), 0);
+	/* La lista de trucos vuelve a ser la de siempre. */
+	pc.panel_avail = true;
+	pc.panel_rows = 3;
+	poll1(B(SELECT) | B(SQUARE), false, true);
+	CHECK(pc.panel && pc.panel_kind == 0);
+	poll1(0, false, true);
+}
+
 /* «Imagen»: su página; ←→ y × piden cambiar el valor, × en «Guardar» pide
  * guardar; ○ o «Volver» regresan al menú de pausa y START cierra todo, sin
  * que el START llegue al juego hasta soltarse. */
@@ -669,6 +714,7 @@ void t_suite_pausectl(void)
 	RUN(menu_other_closers);
 	RUN(menu_rows);
 	RUN(menu_cheats_row);
+	RUN(menu_achievements_row);
 	RUN(menu_image_page);
 	RUN(menu_accessory_page);
 	RUN(menu_exit_row);

@@ -12,7 +12,7 @@
  *     cuenta como pulsación.
  *   - START + SELECT dentro del juego (los dos apretados y uno recién):
  *     abre el menú de pausa (PM_*): Continuar, Guardar estado, Cargar estado,
- *     Ranura (←→), Trucos, Imagen, Mostrar FPS, Reiniciar (botón Reset),
+ *     Ranura (←→), Trucos, Logros (RetroAchievements), Imagen, Mostrar FPS, Reiniciar (botón Reset),
  *     Reiniciar desde cero y Salir. ↑↓ elige, × acepta, ○,
  *     START o START + SELECT otra vez lo cierran. «Salir» pide confirmación
  *     en el cuadro de abajo si `confirm`, y si no sale; los dos «Reiniciar»
@@ -52,7 +52,7 @@
 #define PAUSECTL_MENU    0x8u  /* menú de pausa (START + SELECT) */
 
 /* Filas del menú de pausa y de su página «Imagen». */
-enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_SLOT, PM_CHEATS, PM_IMAGE, PM_ACCESSORY, PM_FPS, PM_RESET, PM_RESTART, PM_EXIT, PM_ROWS };
+enum { PM_RESUME, PM_SAVE, PM_LOAD, PM_SLOT, PM_CHEATS, PM_ACHIEVEMENTS, PM_IMAGE, PM_ACCESSORY, PM_FPS, PM_RESET, PM_RESTART, PM_EXIT, PM_ROWS };
 enum { IM_FILTER, IM_DENSITY, IM_ASPECT, IM_CROP, IM_SCALE, IM_INTERP, IM_SAVE, IM_BACK, IM_ROWS };
 enum { AM_PORT1, AM_PORT2, AM_PORT3, AM_PORT4, AM_BACK, AM_ROWS };
 
@@ -90,6 +90,13 @@ struct pausectl {
 	 * abrirla sin trucos (quien llama avisa y lo baja). */
 	bool panel, panel_avail, panel_denied;
 	unsigned panel_rows;
+	/* El mismo panel muestra la lista de logros de RetroAchievements
+	 * (panel_kind 1, solo lectura: × no cambia nada, ○ vuelve al menú de
+	 * pausa). `ach_avail` y `ach_rows` los pone quien llama, como los de los
+	 * trucos; menu_do = PM_ACHIEVEMENTS si se pidió sin logros. */
+	int panel_kind;
+	bool ach_avail;
+	unsigned ach_rows;
 	int panel_sel, toggle;
 	uint32_t hold_bit, hold_n;  /* dirección mantenida y cuántas vueltas*/
 	uint32_t prev[PAUSECTL_PORTS];     /* botones de la vuelta anterior */

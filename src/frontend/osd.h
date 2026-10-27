@@ -68,6 +68,11 @@ void osd_confirm_draw(const char *question, const char *answers, float lw, float
 struct cheat_set;
 void osd_cheats_draw(const struct cheat_set *cs, int sel, float lw, float lh);
 
+/* La lista de logros de RetroAchievements (pausa > Logros): como la de trucos
+ * pero de solo lectura, con [x] en los conseguidos y los puntos a la derecha.
+ * Los datos son los de ra_list_* (ra.h). Solo PS3. */
+void osd_achievements_draw(int sel, float lw, float lh);
+
 /* Líneas de barrido sobre la imagen del juego (filtros «Líneas» de
  * VIDEOGAMES SCZ; `level` 0 ninguna, 1 suaves, 2 fuertes): x, y, w, h en el
  * espacio lógico de osd_draw, `lines` líneas de la imagen. Las dibuja
@@ -81,6 +86,7 @@ struct osd_pause_menu {
 	bool slot_has, fps_on, in_menu;
 	unsigned cheats_total, cheats_on;
 	const char *version;       /* versión corta (version.h), chica a la derecha del título; o NULL */
+	unsigned ach_total, ach_unlocked;  /* RetroAchievements: logros del juego y conseguidos (0: sin lista) */
 };
 void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh);
 

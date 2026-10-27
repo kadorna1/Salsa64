@@ -866,6 +866,55 @@ static void menu_accessory_option(void)
 	CHECK(!strcmp(menu_accessory_name(MENU_ACC_TRANSFER), "Transfer Pak"));
 }
 
+/* RetroAchievements en Opciones: apagado y sin Hardcore por omisión, las filas
+ * alternan y piden guardar, «Cuenta» abre el inicio de sesión o lo cierra
+ * según haya usuario (y no hace nada mientras se conecta), y menu.cfg lo guarda. */
+static void menu_ra_options(void)
+{
+	struct menu m;
+	nav_setup(&m, 2, 0);
+	menu_input(&m, 0, 0);
+	CHECK(!m.set.ra && !m.set.ra_hardcore);
+	m.page = MENU_PAGE_OPTIONS;
+	m.opt = MENU_OPT_RA;
+	CHECK_EQ(menu_input(&m, CROSS, 10), MENU_SETTINGS);
+	CHECK(m.set.ra);
+	menu_input(&m, 0, 20);
+	CHECK_EQ(menu_input(&m, RIGHT, 30), MENU_SETTINGS);
+	CHECK(!m.set.ra);
+	menu_input(&m, 0, 40);
+	m.opt = MENU_OPT_RA_HARDCORE;
+	CHECK_EQ(menu_input(&m, CROSS, 50), MENU_SETTINGS);
+	CHECK(m.set.ra_hardcore);
+	menu_input(&m, 0, 60);
+	m.opt = MENU_OPT_RA_ACCOUNT;
+	CHECK_EQ(menu_input(&m, CROSS, 70), MENU_RA_LOGIN);
+	menu_input(&m, 0, 80);
+	CHECK_EQ(menu_input(&m, RIGHT, 90), MENU_NONE);  /* no tiene valor que cambiar */
+	menu_input(&m, 0, 100);
+	m.ra_busy = true;
+	CHECK_EQ(menu_input(&m, CROSS, 110), MENU_NONE);
+	menu_input(&m, 0, 120);
+	m.ra_busy = false;
+	m.ra_user = "Probador";
+	CHECK_EQ(menu_input(&m, CROSS, 130), MENU_RA_LOGOUT);
+
+	struct menu_settings a, b;
+	char cfg[1024];
+	menu_settings_default(&a);
+	a.ra = true;
+	a.ra_hardcore = true;
+	int n = menu_settings_format(&a, cfg, sizeof cfg);
+	CHECK(n > 0 && n < (int)sizeof cfg);
+	menu_settings_default(&b);
+	CHECK(!b.ra && !b.ra_hardcore);
+	menu_settings_parse(&b, cfg, (size_t)n);
+	CHECK(b.ra && b.ra_hardcore);
+	CHECK(!menu_settings_cfg_differs(&a, &b));
+	b.ra_hardcore = false;
+	CHECK(menu_settings_cfg_differs(&a, &b));
+}
+
 static void menu_game_page(void)
 {
 	struct menu m;
@@ -1192,6 +1241,15 @@ static void menu_options_page(void)
 	CHECK_EQ(m.opt, MENU_OPT_REFRESH);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA_HARDCORE);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA_ACCOUNT);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
 	CHECK_EQ(m.opt, MENU_OPT_ROM_ORDER);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
@@ -1199,6 +1257,15 @@ static void menu_options_page(void)
 	menu_input(&m, 0, 79);
 	menu_input(&m, DOWN, 79);
 	CHECK_EQ(m.opt, MENU_OPT_ROM_ORDER);
+	menu_input(&m, 0, 79);
+	menu_input(&m, DOWN, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA);
+	menu_input(&m, 0, 79);
+	menu_input(&m, DOWN, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA_ACCOUNT);
+	menu_input(&m, 0, 79);
+	menu_input(&m, DOWN, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA_HARDCORE);
 	menu_input(&m, 0, 79);
 	menu_input(&m, DOWN, 79);
 	CHECK_EQ(m.opt, MENU_OPT_REFRESH);
@@ -1224,6 +1291,15 @@ static void menu_options_page(void)
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
 	CHECK_EQ(m.opt, MENU_OPT_DL_COVERS);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA_HARDCORE);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA_ACCOUNT);
+	menu_input(&m, 0, 79);
+	menu_input(&m, UP, 79);
+	CHECK_EQ(m.opt, MENU_OPT_RA);
 	menu_input(&m, 0, 79);
 	menu_input(&m, UP, 79);
 	CHECK_EQ(m.opt, MENU_OPT_ROM_ORDER);
@@ -1310,6 +1386,12 @@ static void menu_options_page(void)
 	CHECK_EQ(m.opt, MENU_OPT_ROM_ORDER);
 	CHECK_EQ(menu_input(&m, RIGHT, 79), MENU_SETTINGS);
 	CHECK_EQ(m.set.rom_order, MENU_ROM_ORDER_FILENAME);
+	/* RetroAchievements: las tres filas van entre el orden y las descargas. */
+	for (int o = MENU_OPT_RA; o <= MENU_OPT_RA_HARDCORE; o++) {
+		menu_input(&m, 0, 79);
+		menu_input(&m, DOWN, 79);
+		CHECK_EQ(m.opt, o);
+	}
 	menu_input(&m, 0, 79);
 	menu_input(&m, DOWN, 79);
 	CHECK_EQ(m.opt, MENU_OPT_DL_COVERS);
@@ -2399,6 +2481,7 @@ void t_suite_menu(void)
 	RUN(menu_pages);
 	RUN(menu_options_page);
 	RUN(menu_accessory_option);
+	RUN(menu_ra_options);
 	RUN(menu_game_page);
 	RUN(menu_density);
 	RUN(menu_controls);

@@ -61,6 +61,8 @@ void menu_settings_default(struct menu_settings *s)
 	s->rom_order = MENU_ROM_ORDER_TITLE;
 	s->accessory = MENU_ACC_PAK;
 	s->lang = MENU_LANG_AUTO;
+	s->ra = false;
+	s->ra_hardcore = false;
 }
 
 static const char *overscan_name(int o)
@@ -251,6 +253,10 @@ void menu_settings_parse(struct menu_settings *s, const char *text, size_t len)
 			s->fps = yes;
 		else if (!strcmp(key, "confirmar") && (yes || no))
 			s->confirm = yes;
+		else if (!strcmp(key, "retroachievements") && (yes || no))
+			s->ra = yes;
+		else if (!strcmp(key, "hardcore") && (yes || no))
+			s->ra_hardcore = yes;
 		else if (!strcmp(key, "aspecto")) {
 			if (!strcmp(val, "16:9"))
 				s->aspect = MENU_ASPECT_16_9;
@@ -506,7 +512,7 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 			"# Ajustes del menú de Salsa64\n# aspecto = 4:3|16:9; filtro = suave|nitido|lineas|lineas+|crt-…; "
 			"densidad = normal|fina; idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru; interpolacion = no|geometria; orden = titulo|archivo\n"
 			"fondo = %s\nfps = %s\nconfirmar = %s\naspecto = %s\nfiltro = %s\ndensidad = %s\nidioma = %s\n"
-			"interpolacion = %s\norden = %s\naccesorio = %s\n",
+			"interpolacion = %s\norden = %s\naccesorio = %s\nretroachievements = %s\nhardcore = %s\n",
 			s->waves ? "si" : "no", s->fps ? "si" : "no", s->confirm ? "si" : "no",
 			s->aspect == MENU_ASPECT_16_9 ? "16:9" : "4:3",
 			filter_key(s->filter), density_key[s->density == MENU_DENSITY_FINE],
@@ -514,7 +520,8 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 			interp_key[s->interp == MENU_INTERP_GEOMETRY],
 			s->rom_order == MENU_ROM_ORDER_FILENAME ? "archivo" : "titulo",
 			s->accessory == MENU_ACC_NONE ? "ninguno" : s->accessory == MENU_ACC_RUMBLE ? "rumble-pak"
-				: s->accessory == MENU_ACC_TRANSFER ? "transfer-pak" : "controller-pak");
+				: s->accessory == MENU_ACC_TRANSFER ? "transfer-pak" : "controller-pak",
+			s->ra ? "si" : "no", s->ra_hardcore ? "si" : "no");
 }
 
 bool menu_settings_cfg_differs(const struct menu_settings *a, const struct menu_settings *b)
@@ -749,6 +756,16 @@ static enum menu_action options_buttons(struct menu *m, uint32_t pressed)
 		m->set.accessory = (m->set.accessory + delta + MENU_ACCS) % MENU_ACCS;
 		return MENU_SETTINGS;
 	}
+	if (m->opt == MENU_OPT_RA && (pressed & change)) {
+		m->set.ra = !m->set.ra;
+		return MENU_SETTINGS;
+	}
+	if (m->opt == MENU_OPT_RA_HARDCORE && (pressed & change)) {
+		m->set.ra_hardcore = !m->set.ra_hardcore;
+		return MENU_SETTINGS;
+	}
+	if (m->opt == MENU_OPT_RA_ACCOUNT && (pressed & BIT(SALSA64_DS3_CROSS)) && !m->ra_busy)
+		return m->ra_user ? MENU_RA_LOGOUT : MENU_RA_LOGIN;
 	if (m->opt == MENU_OPT_ROM_ORDER && (pressed & change)) {
 		m->set.rom_order = m->set.rom_order == MENU_ROM_ORDER_TITLE ? MENU_ROM_ORDER_FILENAME : MENU_ROM_ORDER_TITLE;
 		return MENU_SETTINGS;
@@ -1731,6 +1748,15 @@ static void panel(const struct menu *m, float W, float H, float a)
 							       "Controller Pak guarda datos.", "Rumble Pak activa la vibración.",
 							       "Transfer Pak carga .gb/.gbc y usa .sav.", NULL,
 							       "Se guarda en menu.cfg.", NULL, NULL };
+		static const char *const ra_text[] = { "Logros de retroachievements.org en", "los juegos de N64: avisos al",
+						       "desbloquear y lista en la pausa.", NULL,
+						       "Hace falta una cuenta y red.", "Se guarda en menu.cfg.", NULL, NULL };
+		static const char *const ra_acc_text[] = { "Usuario y contraseña con el", "teclado del sistema. Solo se",
+							   "guarda el token, en ra.cfg;", "la contraseña, nunca.", NULL,
+							   "×: iniciar o cerrar sesión.", NULL, NULL };
+		static const char *const ra_hc_text[] = { "Hardcore: sin estados ni", "trucos mientras hay logros.",
+							  "Vale al abrir el siguiente", "juego.", NULL,
+							  "Se guarda en menu.cfg.", NULL, NULL };
 		const char *const order_text[] = { tr("Orden de los juegos de la lista."), NULL,
 						   tr("Se guarda en menu.cfg."), NULL, NULL };
 		/* Escala interna: tamaño y texto dependen del valor. */
@@ -1762,6 +1788,9 @@ static void panel(const struct menu *m, float W, float H, float a)
 					    : m->opt == MENU_OPT_CONFIRM ? "Confirmar al salir"
 					    : m->opt == MENU_OPT_ACCESSORY ? "Accesorio del control"
 					    : m->opt == MENU_OPT_ROM_ORDER ? "Orden de la lista"
+				    : m->opt == MENU_OPT_RA ? "RetroAchievements"
+				    : m->opt == MENU_OPT_RA_ACCOUNT ? "Cuenta de RetroAchievements"
+				    : m->opt == MENU_OPT_RA_HARDCORE ? "Hardcore"
 					    : m->opt == MENU_OPT_REFRESH ? "Actualizar lista" : "Volver";
 		const char *const *text = m->opt == MENU_OPT_WAVES ? waves_text
 					  : m->opt == MENU_OPT_OVERSCAN ? crop_text
@@ -1779,7 +1808,10 @@ static void panel(const struct menu *m, float W, float H, float a)
 					  : m->opt == MENU_OPT_FPS ? fps_text
 					  : m->opt == MENU_OPT_CONFIRM ? confirm_text
 					  : m->opt == MENU_OPT_ACCESSORY ? accessory_text
-					  : m->opt == MENU_OPT_ROM_ORDER ? order_text : back_text;
+					  : m->opt == MENU_OPT_ROM_ORDER ? order_text
+					  : m->opt == MENU_OPT_RA ? ra_text
+					  : m->opt == MENU_OPT_RA_ACCOUNT ? ra_acc_text
+					  : m->opt == MENU_OPT_RA_HARDCORE ? ra_hc_text : back_text;
 		const char *value = m->opt == MENU_OPT_WAVES ? (m->set.waves ? "Sí" : "No")
 				    : m->opt == MENU_OPT_OVERSCAN ? overscan_name(m->set.overscan)
 				    : m->opt == MENU_OPT_ASPECT ? aspect_name(m->set.aspect)
@@ -1792,7 +1824,10 @@ static void panel(const struct menu *m, float W, float H, float a)
 				    : m->opt == MENU_OPT_FPS ? (m->set.fps ? "Sí" : "No")
 				    : m->opt == MENU_OPT_CONFIRM ? (m->set.confirm ? "Sí" : "No")
 				    : m->opt == MENU_OPT_ACCESSORY ? menu_accessory_name(m->set.accessory)
-				    : m->opt == MENU_OPT_ROM_ORDER ? (m->set.rom_order == MENU_ROM_ORDER_FILENAME ? tr("Nombre de archivo") : tr("Título de cabecera")) : NULL;
+				    : m->opt == MENU_OPT_ROM_ORDER ? (m->set.rom_order == MENU_ROM_ORDER_FILENAME ? tr("Nombre de archivo") : tr("Título de cabecera"))
+				    : m->opt == MENU_OPT_RA ? (m->set.ra ? "Sí" : "No")
+				    : m->opt == MENU_OPT_RA_ACCOUNT ? (m->ra_busy ? "Conectando…" : m->ra_user ? m->ra_user : "Iniciar sesión")
+				    : m->opt == MENU_OPT_RA_HARDCORE ? (m->set.ra_hardcore ? "Sí" : "No") : NULL;
 		stext(x, y, title, tscale, 0xFFFFFFu, ca, tmax);
 		y += 56.0f;
 		/* Líneas cortas (caben en 4:3); NULL es un renglón en blanco, dos
@@ -1910,6 +1945,10 @@ static void options_column(const struct menu *m, float x, float W, float H, floa
 				  menu_accessory_name(m->set.accessory) };
 	struct row order = { "Orden de la lista", "Título de cabecera o nombre de archivo", 2, "↑", 0,
 			     m->set.rom_order == MENU_ROM_ORDER_FILENAME ? tr("Nombre de archivo") : tr("Título de cabecera") };
+	struct row ra = { "RetroAchievements", "Logros de retroachievements.org", 2, "R", 0, m->set.ra ? "Sí" : "No" };
+	struct row ra_acc = { "Cuenta de RetroAchievements", "Iniciar o cerrar sesión", 2, "●", 0,
+			      m->ra_busy ? "Conectando…" : m->ra_user ? m->ra_user : "Iniciar sesión" };
+	struct row ra_hc = { "Hardcore", "Sin estados ni trucos con logros", 2, "!", 0, m->set.ra_hardcore ? "Sí" : "No" };
 	struct row refresh = { "Actualizar lista", "Volver a leer las carpetas de ROMs", 2, "○", 0, NULL };
 	struct row controls = { "Controles", "Botones del control de N64", 2, "●", 0, NULL };
 	struct row back = { "Volver", "A la lista de juegos", 2, "◀", 0, NULL };
@@ -1929,6 +1968,9 @@ static void options_column(const struct menu *m, float x, float W, float H, floa
 	draw_row(&accessory, (float)opt_row(m, MENU_OPT_ACCESSORY) - m->opt_pos, x, W, H, a);
 	draw_row(&lang, (float)opt_row(m, MENU_OPT_LANG) - m->opt_pos, x, W, H, a);
 	draw_row(&order, (float)opt_row(m, MENU_OPT_ROM_ORDER) - m->opt_pos, x, W, H, a);
+	draw_row(&ra, (float)opt_row(m, MENU_OPT_RA) - m->opt_pos, x, W, H, a);
+	draw_row(&ra_acc, (float)opt_row(m, MENU_OPT_RA_ACCOUNT) - m->opt_pos, x, W, H, a);
+	draw_row(&ra_hc, (float)opt_row(m, MENU_OPT_RA_HARDCORE) - m->opt_pos, x, W, H, a);
 	draw_row(&refresh, (float)opt_row(m, MENU_OPT_REFRESH) - m->opt_pos, x, W, H, a);
 	draw_row(&controls, (float)opt_row(m, MENU_OPT_CONTROLS) - m->opt_pos, x, W, H, a);
 	if (m->dl_enabled) {

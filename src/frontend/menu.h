@@ -57,6 +57,8 @@ enum menu_action {
 	MENU_REFRESH,   /* volver a leer la carpeta visible */
 	MENU_CONTROLS,  /* abrir la página de remapeo */
 	MENU_CONTROLS_CHANGED, /* guardar el mapeo editado */
+	MENU_RA_LOGIN,  /* «Cuenta» sin sesión: pedir usuario y contraseña con el teclado del sistema */
+	MENU_RA_LOGOUT, /* «Cuenta» con sesión: cerrarla y borrar el token */
 };
 
 /* Recorte del overscan (SALSA64_DATA_DIR/overscan.cfg, ver main.c). */
@@ -168,12 +170,14 @@ struct menu_settings {
 	int interp;     /* enum menu_interp («interpolacion = no|geometria») */
 	int rom_order;  /* enum menu_rom_order («orden = titulo|archivo») */
 	int accessory;  /* enum menu_accessory; accesorio inicial para todos los controles */
+	bool ra;        /* RetroAchievements («retroachievements = si|no»; docs/retroachievements.md) */
+	bool ra_hardcore; /* modo Hardcore de RetroAchievements («hardcore = si|no»), apagado por omisión */
 };
 
 enum { MENU_PAGE_GAMES, MENU_PAGE_OPTIONS, MENU_PAGE_CHEATS, MENU_PAGE_GAME, MENU_PAGE_CONTROLS };
 enum { MENU_OPT_WAVES, MENU_OPT_OVERSCAN, MENU_OPT_ASPECT, MENU_OPT_FILTER, MENU_OPT_DENSITY, MENU_OPT_RESOLUTION,
        MENU_OPT_SCALE, MENU_OPT_APPLY, MENU_OPT_INTERP, MENU_OPT_FPS, MENU_OPT_CONFIRM, MENU_OPT_ACCESSORY, MENU_OPT_LANG,
-       MENU_OPT_ROM_ORDER, MENU_OPT_DL_COVERS, MENU_OPT_DL_CHEATS, MENU_OPT_REFRESH, MENU_OPT_CONTROLS, MENU_OPT_BACK, MENU_OPTS };
+       MENU_OPT_ROM_ORDER, MENU_OPT_RA, MENU_OPT_RA_ACCOUNT, MENU_OPT_RA_HARDCORE, MENU_OPT_DL_COVERS, MENU_OPT_DL_CHEATS, MENU_OPT_REFRESH, MENU_OPT_CONTROLS, MENU_OPT_BACK, MENU_OPTS };
 #define MENU_CONTROL_STICK 14
 #define MENU_CONTROL_RESET 15
 #define MENU_CONTROL_BACK 16
@@ -205,6 +209,10 @@ struct menu {
 	float control_t, control_pos;  /* control_pos sigue a control_sel con suavizado */
 	int dl_what;           /* con MENU_DOWNLOAD: 0 carátulas, 1 trucos */
 	bool dl_enabled;       /* filas «Descargar …» (experimental: download.h, dl_enabled) */
+	/* RetroAchievements (los pone main.c cada vuelta): el usuario con sesión
+	 * abierta, o NULL; y si el inicio de sesión o el teclado están en curso. */
+	const char *ra_user;
+	bool ra_busy;
 	/* Carátula de la ROM cover_rom, ya subida a la ranura 0 de rsxkit_ui por
 	 * main.c (-1: ninguna), de cover_w × cover_h puntos. cover_t es su
 	 * aparición, 0 .. 1. */

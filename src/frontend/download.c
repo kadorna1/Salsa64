@@ -5,34 +5,27 @@
 
 #include "i18n.h"
 
-#include <http/http.h>
-#include <http/https.h>
 #include <net/net.h>
 #include <net/netctl.h>
 #include <ppu-lv2.h>
-#include <ssl/ssl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/thread.h>
-#include <sysmodule/sysmodule.h>
 
 #include "cover.h"
 #include "dlutil.h"
 #include "i18n.h"
 #include "namematch.h"
+#include "netstack.h"
 #include "platform/ps3/log.h"
 #include "platform/ps3/paths.h"
 
 #define DL_CFG_PATH SALSA64_DATA_DIR "/descargas.cfg"
 #define DL_COVERS   SALSA64_DATA_DIR "/covers"
 #define DL_CHEATS   SALSA64_DATA_DIR "/cheats"
-#define HTTP_POOL   0x10000
-#define SSL_POOL    0x40000
-#define CONN_US     (10 * 1000 * 1000)
-#define RECV_US     (15 * 1000 * 1000)
 #define INDEX_MAX   (6u << 20)
 #define COVER_MAX   COVER_MAX_FILE_BYTES
 #define CHEAT_MAX   (2u << 20)
@@ -49,196 +42,11 @@ static struct {
 	bool joinable;
 } job;
 
-/* ---- La pila de red (se levanta y se baja en cada descarga) ---- */
-
-/* Módulos del sistema que hacen falta; cada uno se carga solo si no lo
- * estaba y se descarga solo si lo cargó esta descarga. La red (libnet) es
- * del logger UDP (platform/ps3/log.c): netInitialize no hace nada si ya está
- * y aquí nunca se llama a netDeinitialize, que le cortaría el log. */
-static const sysModuleId net_mods[] = { SYSMODULE_NET, SYSMODULE_NETCTL, SYSMODULE_HTTP, SYSMODULE_HTTP_UTIL,
-					SYSMODULE_SSL, SYSMODULE_HTTPS };
-#define NET_MODS (sizeof net_mods / sizeof net_mods[0])
-
-static struct {
-	void *http_pool, *ssl_pool, *certs;
-	httpsData ca;
-	bool http, https, ssl, mod[NET_MODS];
-} stack;
-
-static void net_down(void)
-{
-	if (stack.https)
-		httpsEnd();
-	if (stack.ssl)
-		sslEnd();
-	if (stack.http)
-		httpEnd();
-	for (size_t i = NET_MODS; i-- > 0;)
-		if (stack.mod[i])
-			sysModuleUnload(net_mods[i]);
-	free(stack.http_pool);
-	free(stack.ssl_pool);
-	free(stack.certs);
-	memset(&stack, 0, sizeof stack);
-}
-
-/* 0 si quedó lista; si no, un código negativo y `what` dice en qué paso. */
-static int net_up(const char **what)
-{
-	int rc;
-	u32 cert_size = 0;
-	memset(&stack, 0, sizeof stack);
-	*what = "módulos de red";
-	for (size_t i = 0; i < NET_MODS; i++) {
-		if (sysModuleIsLoaded(net_mods[i]) == 0)
-			continue;  /* ya estaba (libnet, por el logger) */
-		if ((rc = sysModuleLoad(net_mods[i])) < 0)
-			return rc;
-		stack.mod[i] = true;
-	}
-	*what = "netInitialize";
-	if ((rc = netInitialize()) < 0)
-		return rc;
-	stack.http_pool = malloc(HTTP_POOL);
-	*what = "memoria";
-	if (!stack.http_pool)
-		return -1;
-	*what = "httpInit";
-	if ((rc = httpInit(stack.http_pool, HTTP_POOL)) < 0)
-		return rc;
-	stack.http = true;
-	stack.ssl_pool = malloc(SSL_POOL);
-	*what = "memoria";
-	if (!stack.ssl_pool)
-		return -1;
-	*what = "sslInit";
-	if ((rc = sslInit(stack.ssl_pool, SSL_POOL)) < 0)
-		return rc;
-	stack.ssl = true;
-	*what = "certificados";
-	if ((rc = sslCertificateLoader(SSL_LOAD_CERT_ALL, NULL, 0, &cert_size)) < 0)
-		return rc;
-	stack.certs = malloc(cert_size);
-	if (!stack.certs)
-		return -1;
-	if ((rc = sslCertificateLoader(SSL_LOAD_CERT_ALL, stack.certs, cert_size, NULL)) < 0)
-		return rc;
-	stack.ca.ptr = stack.certs;
-	stack.ca.size = cert_size;
-	*what = "httpsInit";
-	if ((rc = httpsInit(1, &stack.ca)) < 0)
-		return rc;
-	stack.https = true;
-	return 0;
-}
-
-/* Los certificados de la consola son viejos (sin las raíces de GitHub): se
- * sigue aunque no se pueda comprobar la cadena. Lo que se baja es solo texto
- * y PNG, nunca algo que se ejecute. */
-static int ssl_accept(s32 verErr, sslCert const certs[], int n, const char *host, httpSslId id, void *arg)
-{
-	(void)certs;
-	(void)n;
-	(void)id;
-	(void)arg;
-	if (verErr)
-		salsa64_log("descargas: certificado de %s no verificable (0x%x): se sigue", host ? host : "?", (unsigned)verErr);
-	return 0;
-}
-
-/* GET de `url` a un búfer que crece hasta `cap`. 0 bien; si no, -1 y *code
- * lleva el estado HTTP (>= 100) o el error de libhttp (negativo). */
+/* GET de `url` a un búfer que crece hasta `cap` (netstack_request). */
 static int http_get(const char *url, uint8_t **buf, size_t *len, size_t cap, int *code)
 {
-	int rc, status = 0, result = -1;
-	httpClientId cid = 0;
-	httpTransId tid = 0;
-	httpUri uri;
-	void *pool = NULL;
-	u32 need = 0;
-	size_t used = 0, room = 0;
-	uint8_t *data = NULL;
-
-	*code = 0;
-	if ((rc = httpCreateClient(&cid)) < 0) {
-		*code = rc;
-		goto end;
-	}
-	httpClientSetConnTimeout(cid, CONN_US);
-	httpClientSetRecvTimeout(cid, RECV_US);
-	httpClientSetSendTimeout(cid, RECV_US);
-	httpClientSetUserAgent(cid, USER_AGENT);
-	httpClientSetAutoRedirect(cid, 1);
-	httpClientSetSslCallback(cid, ssl_accept, NULL);
-	if ((rc = httpUtilParseUri(&uri, url, NULL, 0, &need)) < 0) {
-		*code = rc;
-		goto end;
-	}
-	pool = malloc(need);
-	if (!pool || (rc = httpUtilParseUri(&uri, url, pool, need, NULL)) < 0) {
-		*code = pool ? rc : -1;
-		goto end;
-	}
-	if ((rc = httpCreateTransaction(&tid, cid, HTTP_METHOD_GET, &uri)) < 0 || (rc = httpSendRequest(tid, NULL, 0, NULL)) < 0) {
-		*code = rc;
-		goto end;
-	}
-	if ((rc = httpResponseGetStatusCode(tid, &status)) < 0) {
-		*code = rc;
-		goto end;
-	}
-	if (status != HTTP_STATUS_CODE_OK) {
-		*code = status;
-		goto end;
-	}
-	for (;;) {
-		if (job.cancel) {
-			*code = -2;
-			goto end;
-		}
-		if (room - used < 16384) {
-			size_t nsz = room ? room * 2 : 65536;
-			if (nsz > cap + 16384)
-				nsz = cap + 16384;
-			if (nsz <= used + 1) {
-				*code = -3;  /* más grande de lo permitido */
-				goto end;
-			}
-			uint8_t *n = realloc(data, nsz);
-			if (!n) {
-				*code = -1;
-				goto end;
-			}
-			data = n;
-			room = nsz;
-		}
-		u32 got = 0;
-		rc = httpRecvResponse(tid, (char *)data + used, (u32)(room - used - 1), &got);
-		if (rc < 0) {
-			*code = rc;
-			goto end;
-		}
-		if (!got)
-			break;
-		used += got;
-		if (used > cap) {
-			*code = -3;
-			goto end;
-		}
-	}
-	data[used] = '\0';
-	*buf = data;
-	*len = used;
-	data = NULL;
-	result = 0;
-end:
-	if (tid)
-		httpDestroyTransaction(tid);
-	if (cid)
-		httpDestroyClient(cid);
-	free(pool);
-	free(data);
-	return result;
+	struct ns_req r = { "GET", url, NULL, 0, NULL, USER_AGENT, cap, 0, &job.cancel };
+	return netstack_request(&r, buf, len, code);
 }
 
 static bool write_file(const char *path, const uint8_t *data, size_t len)
@@ -302,7 +110,7 @@ static void job_main(void *arg)
 	size_t ilen = 0, nlen = 0;
 	int code = 0;
 	const char *step = "";
-	bool netctl = false;
+	bool netctl = false, acquired = false;
 
 	if (!read_cfg(&cfg) || !cfg.enabled) {
 		fail("Las descargas están apagadas (descargas.cfg)");
@@ -318,7 +126,8 @@ static void job_main(void *arg)
 	if (!index_url[0])
 		snprintf(index_url, sizeof index_url, "%sindex.txt", base);
 
-	int rc = net_up(&step);
+	int rc = netstack_acquire(&step);
+	acquired = rc >= 0;
 	if (rc < 0) {
 		salsa64_log("descargas: red: falló %s (%d)", step, rc);
 		fail("No hay red: conecta la consola a internet");
@@ -405,7 +214,8 @@ out:
 	free(names);
 	if (netctl)
 		netCtlTerm();
-	net_down();
+	if (acquired)
+		netstack_release();
 	sysThreadExit(0);
 }
 
@@ -413,6 +223,7 @@ bool dl_start(int what, const struct dl_rom *roms, unsigned n)
 {
 	if (job.state == DL_RUNNING)
 		return false;
+	netstack_init();
 	dl_shutdown();
 	if (!n)
 		return false;
