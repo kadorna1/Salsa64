@@ -45,7 +45,16 @@ Reglas de la búsqueda:
   carpeta de ROMs (o de una subcarpeta) esos nombres sí se muestran. No se
   ocultan las demás carpetas vacías: saber si una carpeta tiene ROMs
   obligaría a leer cada una al releer la lista.
-- La ROM más grande que se puede abrir es de 64 MB.
+- Una ROM de hasta 64 MB se lee entera a memoria al abrirla. Las de más de 64 MB
+  (hacks y homebrew, hasta los 252 MB que direcciona el cartucho) se abren **por
+  fragmentos**: se quedan en el disco y el emulador lee páginas de 256 KB bajo
+  demanda a una caché de 32 MB. El log lo dice («por fragmentos») y cada 5 s
+  cuenta lecturas, fallos de caché y milisegundos de lectura (línea «rom:»).
+  Se aceptan los tres órdenes de bytes (z64, v64, n64). Un archivo `rom-paginada`
+  en la carpeta de datos fuerza el modo por fragmentos también para ROMs
+  pequeñas (para comparar), y `rom-cache` con una cifra fija los MB de la caché
+  (1 a 128; por omisión 32). Un fallo de caché espera al disco duro: con ROMs
+  grandes puede haber tirones cortos cuando el juego carga datos nuevos.
 - **Opciones → Orden de la lista** elige el título de la cabecera o el nombre
   del archivo (`orden = titulo|archivo` en `menu.cfg`). Si la fuente no puede
   mostrar algún carácter del título de la cabecera, se usa el nombre del

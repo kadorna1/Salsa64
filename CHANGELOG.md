@@ -6,6 +6,19 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+### Added
+- **ROMs of more than 64 MB** (hacks and homebrew; up to the 252 MB the cartridge
+  bus can address, issue #13): ROMs bigger than 64 MB are no longer rejected.
+  They stay on the disk and the emulator reads 256 KB pages on demand into a
+  32 MB LRU cache (PI DMA, CPU reads of the cartridge domain, the HLE boot and
+  the recompiler's instruction fetch all go through it). ROMs of 64 MB or less
+  still load entirely into memory, as before. z64, v64 and n64 byte orders are
+  all accepted. The log reports the mode, the page and cache sizes and, every
+  5 s, cache misses and disk read times. A `rom-paginada` file in the data
+  folder forces the paged mode for any ROM, and `rom-cache` sets the cache size
+  in MB. Not yet tested on a real PS3: a cache miss waits for the hard disk, so
+  short hitches are possible when a game streams new data.
+
 ## [0.2.13] — 2026-10-26
 
 ### Added

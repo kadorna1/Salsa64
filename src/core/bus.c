@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "core/endian.h"
+#include "core/rompg.h"
 #include "core/save.h"
 #include "cpu/rec.h"
 #include "cpu/vr4300.h"
@@ -60,8 +61,33 @@ void salsa64_bus_set_rom(struct salsa64_bus *bus, const uint8_t *rom, uint32_t s
 	uint32_t max = SALSA64_CART_ROM_END - SALSA64_CART_ROM_ADDR;
 	bus->rom = rom;
 	bus->rom_size = size > max ? max : size;
+	bus->rom_resident = bus->rom_size;
+	bus->rompg = NULL;
 	if (bus->cpu && bus->cpu->rec)  /* puede haber código compilado desde la ROM anterior */
 		salsa64_rec_flush_why(bus->cpu->rec, SALSA64_REC_FLUSH_ROM);
+}
+
+void salsa64_bus_set_rom_paged(struct salsa64_bus *bus, const uint8_t *head, uint32_t head_size, uint32_t size,
+			       struct salsa64_rompg *pg)
+{
+	salsa64_bus_set_rom(bus, head, size);
+	bus->rom_resident = head_size < bus->rom_size ? head_size : bus->rom_size;
+	bus->rompg = pg;
+}
+
+void salsa64_bus_rom_read(struct salsa64_bus *bus, uint32_t off, uint8_t *dst, uint32_t len)
+{
+	uint32_t n = 0;
+
+	if (off < bus->rom_size) {
+		n = bus->rom_size - off < len ? bus->rom_size - off : len;
+		if (!bus->rompg || (uint64_t)off + n <= bus->rom_resident)
+			memcpy(dst, bus->rom + off, n);
+		else
+			salsa64_rompg_read(bus->rompg, off, dst, n);
+	}
+	if (n < len)
+		memset(dst + n, 0, len - n);
 }
 
 void salsa64_bus_set_isviewer(struct salsa64_bus *bus, uint8_t *buf, salsa64_isv_fn out, void *ctx)
@@ -140,12 +166,19 @@ static void rcp_write(struct salsa64_bus *bus, uint32_t paddr, uint32_t value)
 /* Bus PI de 16 bits: el RCP lee dos medias palabras desde la dirección par,
  * así que una lectura de 8/16 bits en paddr & 2 trae la palabra que empieza
  * ahí (n64brew.dev: Memory map, "PI external bus"). */
-static uint32_t pi_bus_read(const struct salsa64_bus *bus, uint32_t paddr)
+static uint32_t pi_bus_read(struct salsa64_bus *bus, uint32_t paddr)
 {
 	paddr &= ~1u;
 	if (isv_hit(bus, paddr) && paddr + 4 <= SALSA64_ISV_ADDR + SALSA64_ISV_SIZE)
 		return salsa64_rd32(bus->isv + (paddr - SALSA64_ISV_ADDR));
 	uint32_t off = paddr - SALSA64_CART_ROM_ADDR, v = 0;
+	if (bus->rompg && (uint64_t)off + 4 > bus->rom_resident) {
+		if (off >= bus->rom_resident && off + 4 <= bus->rom_size)
+			return salsa64_rompg_rd32(bus->rompg, off);
+		uint8_t b[4];
+		salsa64_bus_rom_read(bus, off, b, 4);  /* a caballo de la cabecera o pasando el final */
+		return salsa64_rd32(b);
+	}
 	for (unsigned k = 0; k < 4; k++)
 		v = v << 8 | (off + k < bus->rom_size ? bus->rom[off + k] : 0);
 	return v;

@@ -56,12 +56,17 @@ typedef void (*salsa64_isv_fn)(void *ctx, const uint8_t *text, uint32_t len);
 struct salsa64_cpu;
 struct salsa64_save;
 struct salsa64_mempak;
+struct salsa64_rompg;
 
 struct salsa64_bus {
 	uint8_t *rdram;
 	uint32_t rdram_size;
 	uint32_t rom_size;
+	/* `rom` vale para los primeros `rom_resident` bytes (la ROM entera, o la cabecera de 4 KB si va por fragmentos);
+	 * el resto se pide con salsa64_bus_rom_read (rompg.c lo trae del disco). */
+	uint32_t rom_resident;
 	const uint8_t *rom;
+	struct salsa64_rompg *rompg;  /* NULL: la ROM está entera en `rom` */
 	struct salsa64_cpu *cpu;  /* destino de las interrupciones del MI */
 	uint8_t *isv;             /* búfer del ISViewer o NULL (apagado) */
 	salsa64_isv_fn isv_out;
@@ -100,6 +105,11 @@ void salsa64_bus_reset(struct salsa64_bus *bus);
 /* Igual, conservando la RDRAM (reset suave: botón Reset, NMI). */
 void salsa64_bus_reset_warm(struct salsa64_bus *bus);
 void salsa64_bus_set_rom(struct salsa64_bus *bus, const uint8_t *rom, uint32_t size);
+/* ROM por fragmentos: `head` son los primeros `head_size` bytes (>= 4 KB) en orden z64 y `size` el tamaño total. */
+void salsa64_bus_set_rom_paged(struct salsa64_bus *bus, const uint8_t *head, uint32_t head_size, uint32_t size,
+			       struct salsa64_rompg *pg);
+/* Copia `len` bytes de la ROM desde `off` (lo que pase del final lee 0). Sirve para ROM entera y por fragmentos. */
+void salsa64_bus_rom_read(struct salsa64_bus *bus, uint32_t off, uint8_t *dst, uint32_t len);
 /* Activa el ISViewer con un búfer de SALSA64_ISV_SIZE bytes que pone quien
  * llama (NULL lo apaga). `out` recibe cada texto impreso. */
 void salsa64_bus_set_isviewer(struct salsa64_bus *bus, uint8_t *buf, salsa64_isv_fn out, void *ctx);

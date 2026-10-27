@@ -167,6 +167,7 @@
 #include <rsxkit/ui.h>
 #include <spukit/spukit.h>
 
+#include "core/rompg.h"
 #include "core/boot.h"
 #include "core/endian.h"
 #include "core/faultlog.h"
@@ -304,7 +305,13 @@ SYS_PROCESS_PARAM(1001, 0x100000);
 #define PROFILE_STEP_ENTRIES 512          /* entradas escritas por vuelta, si escribe el hilo de presentación */
 #define PROFILE_IO_PRIO  1500             /* el hilo que escribe el perfil: por debajo de todos */
 #define PROFILE_IO_STACK (64u << 10)
-#define ROM_MAX      (64u << 20)
+#define ROM_MAX      (64u << 20)          /* la ROM que cabe entera en memoria; más grande, por fragmentos */
+#define ROM_FILE_MAX 0x0FC00000u          /* 252 MB: todo el espacio del cartucho (0x10000000–0x1FBFFFFF) */
+#define ROM_PAGE_SHIFT 18u                /* páginas de 256 KB */
+#define ROM_CACHE_MB 32u                  /* caché de páginas por omisión */
+#define ROM_HEAD     4096u                /* la cabecera y el IPL3, siempre en memoria */
+#define ROM_PAGED_FLAG SALSA64_DATA_DIR "/rom-paginada"  /* existe: aun las ROMs pequeñas van por fragmentos */
+#define ROM_CACHE_CFG  SALSA64_DATA_DIR "/rom-cache"     /* MB de la caché (1 a 128), una cifra */
 #define FB_MAX_W     640
 #define FB_MAX_H     576
 #define STATS_US     5000000u
@@ -1412,8 +1419,24 @@ static void *rom_alloc(size_t len)
 	return memalign(128, len);
 }
 
+static FILE *rom_fp;             /* ROM por fragmentos (más abajo): el archivo abierto, */
+static uint8_t *rom_head;        /* su cabecera de 4 KB, que es lo que ve el resto del frontend, */
+static struct salsa64_rompg rom_pg;  /* y la caché de páginas */
 static void rom_free(void *p)
 {
+	if (p && p == rom_head) {  /* ROM por fragmentos: la cabecera, el archivo y la caché */
+		salsa64_rompg_close(&rom_pg);
+		if (rom_fp)
+			fclose(rom_fp);
+		rom_fp = NULL;
+		free(rom_head);
+		rom_head = NULL;
+		if (rom_pages) {
+			sysMemoryFree((sys_mem_addr_t)(uintptr_t)rom_pages);
+			rom_pages = NULL;
+		}
+		return;
+	}
 	if (p && p == rom_pages) {
 		sysMemoryFree((sys_mem_addr_t)(uintptr_t)p);
 		rom_pages = NULL;
@@ -1468,9 +1491,86 @@ static void heap_report(const char *when)
 		    um_ok ? um.available >> 10 : 0, um_ok ? um.total >> 10 : 0, heap_fit, pages_fit);
 }
 
-/* Lee una ROM entera: en `buf` (de `cap` bytes) o, con buf NULL, en
- * memoria reservada a su medida (rom_alloc; se suelta con rom_free). NULL si
- * no se pudo o no mide entre 0x1000 bytes y ROM_MAX (o cap). */
+/* ROM por fragmentos (docs/memory-budget.md): el archivo queda abierto, el núcleo pide páginas de 256 KB a una caché con
+ * LRU que sale de páginas del sistema, y lo único que devuelve read_rom_file es la cabecera de 4 KB (rom_head). */
+static uint64_t clock_us(void);
+
+static int rom_rd(void *user, uint64_t off, uint8_t *dst, size_t len)
+{
+	FILE *f = user;
+	if (fseek(f, (long)off, SEEK_SET) != 0)
+		return -1;
+	return (int)fread(dst, 1, len, f);
+}
+
+/* Caché de `*bytes` (múltiplo de 1 MB) en páginas del sistema, bajando a la mitad hasta 4 MB si no hay tanto. */
+static void *rom_cache_alloc(size_t *bytes)
+{
+	const size_t floor_b = *bytes < (4u << 20) ? *bytes : (4u << 20);
+	for (size_t b = *bytes; b >= floor_b; b >>= 1) {
+		sys_mem_addr_t addr = 0;
+		if (!rom_pages && sysMemoryAllocate(b, SYS_MEMORY_PAGE_SIZE_1M, &addr) == 0) {
+			rom_pages = (void *)(uintptr_t)addr;
+			*bytes = b;
+			return rom_pages;
+		}
+	}
+	return NULL;
+}
+
+static unsigned rom_cache_mb_cfg(void)
+{
+	unsigned mb = ROM_CACHE_MB;
+	FILE *f = fopen(ROM_CACHE_CFG, "r");
+	if (f) {
+		unsigned v = 0;
+		if (fscanf(f, "%u", &v) == 1 && v >= 1 && v <= 128)
+			mb = v;
+		fclose(f);
+	}
+	return mb;
+}
+
+/* Abre `path` por fragmentos; devuelve la cabecera (rom_head) o NULL sin dejar nada reservado. */
+static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool forced)
+{
+	size_t cache_bytes = (size_t)rom_cache_mb_cfg() << 20;
+	if (cache_bytes > (((size_t)len + (1u << 20) - 1) & ~((size_t)(1u << 20) - 1)))
+		cache_bytes = ((size_t)len + (1u << 20) - 1) & ~((size_t)(1u << 20) - 1);
+	uint8_t *head = memalign(128, ROM_HEAD);
+	void *cache = head ? rom_cache_alloc(&cache_bytes) : NULL;
+	if (!head || !cache || fseek(f, 0, SEEK_SET) != 0 || fread(head, 1, ROM_HEAD, f) != ROM_HEAD) {
+		salsa64_log("ROM %s: no pude preparar la lectura por fragmentos (caché de %u MB)", path,
+			    (unsigned)(cache_bytes >> 20));
+		if (cache) {
+			sysMemoryFree((sys_mem_addr_t)(uintptr_t)rom_pages);
+			rom_pages = NULL;
+		}
+		free(head);
+		return NULL;
+	}
+	setvbuf(f, NULL, _IONBF, 0);  /* lecturas de 256 KB directas, sin pasar por el búfer de stdio */
+	enum salsa64_rom_format fmt = salsa64_rom_normalize(head, ROM_HEAD);
+	if (salsa64_rompg_open(&rom_pg, rom_rd, f, len, fmt, ROM_PAGE_SHIFT, cache, cache_bytes) != 0) {
+		sysMemoryFree((sys_mem_addr_t)(uintptr_t)rom_pages);
+		rom_pages = NULL;
+		free(head);
+		salsa64_log("ROM %s: no pude abrir la caché de páginas", path);
+		return NULL;
+	}
+	rom_pg.clock_us = clock_us;
+	rom_fp = f;
+	rom_head = head;
+	salsa64_log("ROM %s: %u bytes, por fragmentos (páginas de %u KB, caché de %u MB = %u páginas de %u en total)%s", path,
+		    (unsigned)len, 1u << (ROM_PAGE_SHIFT - 10), (unsigned)(cache_bytes >> 20), rom_pg.nslots,
+		    rom_pg.npages, forced ? " [forzado por rom-paginada]" : "");
+	return head;
+}
+
+/* Lee una ROM entera: en `buf` (de `cap` bytes) o, con buf NULL, en memoria reservada a su medida (rom_alloc; se suelta
+ * con rom_free). Con buf NULL, una ROM de más de ROM_MAX (o con el archivo rom-paginada) se abre por fragmentos y lo que
+ * devuelve es su cabecera. NULL si no se pudo o no mide entre 0x1000 bytes y ROM_MAX (o cap; ROM_FILE_MAX por
+ * fragmentos). */
 static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint32_t *size)
 {
 	FILE *f = fopen(path, "rb");
@@ -1480,7 +1580,14 @@ static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint
 	if (fseek(f, 0, SEEK_END) == 0)
 		len = ftell(f);
 	uint8_t *dst = NULL;
-	if (len >= 0x1000 && (uint32_t)len <= (buf ? cap : ROM_MAX) && fseek(f, 0, SEEK_SET) == 0) {
+	bool forced = !buf && file_exists(ROM_PAGED_FLAG);
+	if (!buf && len >= 0x1000 && (uint64_t)len <= ROM_FILE_MAX && (forced || (uint64_t)len > ROM_MAX) && !rom_head) {
+		dst = rom_open_paged(f, path, (uint32_t)len, forced);
+		if (dst) {
+			*size = (uint32_t)len;
+			return dst;  /* el archivo queda abierto hasta rom_free */
+		}
+	} else if (len >= 0x1000 && (uint32_t)len <= (buf ? cap : ROM_MAX) && fseek(f, 0, SEEK_SET) == 0) {
 		dst = buf ? buf : rom_alloc((size_t)len);
 		if (dst && fread(dst, 1, (size_t)len, f) != (size_t)len) {
 			if (!buf)
@@ -3362,6 +3469,17 @@ static void stats(uint64_t now)
 		    "%u veces (%.1f/s)",
 		    pad_poll.polls, pad_poll.max_gap_us / 1e3, n64.bus.pif.reads[0] - sw.pif_reads0,
 		    (n64.bus.pif.reads[0] - sw.pif_reads0) * 1e6 / dt);
+	if (n64.bus.rompg) {
+		uint64_t acc, miss, ra, us;
+		salsa64_rompg_window(n64.bus.rompg, &acc, &miss, &ra, &us);
+		salsa64_log("rom: por fragmentos, %llu lecturas, %llu fallos de caché y %llu páginas por adelantado en %.1f s "
+			    "(%.1f ms de lectura del disco, %.1f ms por página; la más lenta, %.1f ms); %llu MB leídos "
+			    "desde el arranque del juego, %llu errores",
+			    (unsigned long long)acc, (unsigned long long)miss, (unsigned long long)ra, dt / 1e6, us / 1e3,
+			    miss + ra ? us / 1e3 / (miss + ra) : 0.0, n64.bus.rompg->read_max_us / 1e3,
+			    (unsigned long long)(n64.bus.rompg->read_bytes >> 20), (unsigned long long)n64.bus.rompg->errs);
+		n64.bus.rompg->read_max_us = 0;
+	}
 	/* Cada microcódigo gráfico nuevo, una vez por juego: con su CRC, un
 	 * reporte dice qué variante usa sin repetir la sesión. */
 	while (n64.bus.rsp.ucodes_logged < n64.bus.rsp.ucodes_n) {
@@ -5132,7 +5250,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 {
 	int rc;
 	err[0] = '\0';
-	salsa64_rom_normalize(rom, rom_size);
+	if (rom != rom_head)  /* por fragmentos, la cabecera y cada página ya se normalizaron al leerlas */
+		salsa64_rom_normalize(rom, rom_size);
 	memset(rdram, 0, SALSA64_RDRAM_MAX);  /* cada juego arranca igual, venga después del que venga */
 	salsa64_n64_init(&n64, rdram, SALSA64_RDRAM_MAX);
 	bool si_immediate = file_exists(SALSA64_DATA_DIR "/sin-si-diferido");
@@ -5236,7 +5355,10 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	}
 
 	salsa64_faultlog_install(&n64.cpu, salsa64_log);
-	salsa64_bus_set_rom(&n64.bus, rom, rom_size);
+	if (rom == rom_head)
+		salsa64_bus_set_rom_paged(&n64.bus, rom, ROM_HEAD, rom_size, &rom_pg);
+	else
+		salsa64_bus_set_rom(&n64.bus, rom, rom_size);
 	if (!salsa64_boot_hle(&n64, SALSA64_BOOT_TV_AUTO, &boot_info)) {
 		salsa64_log("%s: FALLO al arrancar %s: %s", res_tag, source, boot_info.error);
 		snprintf(err, err_size, tr("No arrancó %s: %s"), source, boot_info.error);
@@ -5250,7 +5372,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_log("ROM %s \"%s\", %u bytes, %s, entrada 0x%08X, TV %s", source, title, rom_size,
 		    boot_info.kind == SALSA64_BOOT_ELF ? "ELF (IPL3 libre)" : "carga plana", boot_info.entry,
 		    boot_info.tv == SALSA64_TV_PAL ? "PAL" : boot_info.tv == SALSA64_TV_MPAL ? "MPAL" : "NTSC");
-	if (!(selftest_on || gfxtest_on || audiotest_on))
+	if (rom == rom_head)
+		salsa64_log("ROM: por fragmentos, sin CRC-32 por megabyte (leería %u MB del disco)", rom_size >> 20);
+	else if (!(selftest_on || gfxtest_on || audiotest_on))
 		log_rom_crcs(rom, rom_size);
 	savefile_open(&save_file, &save, &n64.bus, rom, SAVES_DIR, SAVE_CFG, SALSA64_SAVE_AUTO, salsa64_log);
 	/* Yoshi's Story (NYS, todas las regiones) lee sus capas de fondo CI8 desde la RDRAM: espera sus copias. */

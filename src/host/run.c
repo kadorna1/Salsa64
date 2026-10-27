@@ -117,6 +117,7 @@
 #include "ares.h"
 #include "core/boot.h"
 #include "core/endian.h"
+#include "core/rompg.h"
 #include "core/state.h"
 #include "rdp/blackbox.h"
 #include "cpu/rec.h"
@@ -3289,6 +3290,48 @@ static uint8_t *read_file(const char *path, size_t *size)
 	return buf;
 }
 
+/* ROM por fragmentos (--rom-paged): el archivo queda abierto, la caché es de malloc y la cabecera de 4 KB, ya en orden
+ * z64, es lo que devuelve (se suelta con free). El resto lo pide el bus a salsa64_rompg_read. */
+static int rom_file_rd(void *user, uint64_t off, uint8_t *dst, size_t len)
+{
+	FILE *f = user;
+	if (fseek(f, (long)off, SEEK_SET) != 0)
+		return -1;
+	return (int)fread(dst, 1, len, f);
+}
+
+static uint8_t *read_rom_paged(const char *path, size_t *size, unsigned page_kb, unsigned cache_kb,
+			       struct salsa64_rompg *pg)
+{
+	FILE *f = fopen(path, "rb");
+	long len;
+	unsigned shift = 10;
+	uint8_t *head = malloc(4096);
+	uint8_t *cache = malloc((size_t)cache_kb << 10);
+
+	while ((1u << (shift - 10)) < page_kb)
+		shift++;
+	if (!f || !head || !cache || fseek(f, 0, SEEK_END) != 0 || (len = ftell(f)) < 0x1000 ||
+	    (uint64_t)len > 0xFC00000u || fseek(f, 0, SEEK_SET) != 0 || fread(head, 1, 4096, f) != 4096) {
+		if (f)
+			fclose(f);
+		free(head);
+		free(cache);
+		return NULL;
+	}
+	enum salsa64_rom_format fmt = salsa64_rom_normalize(head, 4096);
+	if (salsa64_rompg_open(pg, rom_file_rd, f, (uint32_t)len, fmt, shift, cache, (size_t)cache_kb << 10) != 0) {
+		fclose(f);
+		free(head);
+		free(cache);
+		return NULL;
+	}
+	fprintf(stderr, "salsa64-run: ROM %ld bytes por fragmentos (páginas de %u KB, caché de %u KB, %u ranuras)\n", len,
+		page_kb, cache_kb, pg->nslots);
+	*size = (size_t)len;
+	return head;
+}
+
 static void dump_regs(void)
 {
 	static const char *const names[32] = {
@@ -3358,7 +3401,7 @@ static bool dump_frame(const char *path)
 enum { OPT_REC = 0x100, OPT_LOCKSTEP, OPT_PAD, OPT_TRACE_FROM, OPT_TRACE_FAULTS, OPT_RAM_DUMP, OPT_TRACE_AUDIO,
        OPT_FRAME_EVERY, OPT_NO_PAK, OPT_LLE, OPT_LLE_SPEED, OPT_LLE_CHECK, OPT_LLE_CHECK_JPEG, OPT_LLE_CHECK_GFX, OPT_POKE, OPT_TRACE_FB, OPT_STATE_SAVE,
        OPT_STATE_LOAD, OPT_FIELDS, OPT_PROFILE, OPT_STATE_ZIP, OPT_INTERP, OPT_INTERP_K, OPT_INTERP_DECIMATE,
-       OPT_INTERP_DISP, OPT_PERFILADO, OPT_STOP_GFX, OPT_PADS, OPT_PAD_PORT, OPT_RESET_AT, OPT_NMI_AT };
+       OPT_INTERP_DISP, OPT_PERFILADO, OPT_STOP_GFX, OPT_PADS, OPT_PAD_PORT, OPT_RESET_AT, OPT_NMI_AT, OPT_ROM_PAGED };
 
 /* ---- Estados guardados (--state-save, --state-load) ------------------------- */
 
@@ -3513,6 +3556,7 @@ static void usage(FILE *out)
 	      "                        bloque, y la RDRAM en cada campo del VI y cada N bloques\n"
 	      "                        (por omisión 4096)\n"
 	      "      --no-idle         no saltar los bucles de espera\n"
+	      "      --rom-paged PAG_KB,CACHE_KB  lee la ROM por fragmentos del archivo (caché LRU) en vez de entera\n"
 	      "      --perfilado DIR   la sesión de la app de perfilado (docs/perfilado.md) en\n"
 	      "                        DIR/<juego>-<CRC>/<n>.sesion; SALSA64_PERFILADO_CFG con las\n"
 	      "                        claves de perfilado.cfg separadas por comas\n"
@@ -3616,6 +3660,7 @@ int main(int argc, char **argv)
 		{ "interp-disp", required_argument, NULL, OPT_INTERP_DISP },
 		{ "profile", required_argument, NULL, OPT_PROFILE },
 		{ "perfilado", required_argument, NULL, OPT_PERFILADO },
+		{ "rom-paged", required_argument, NULL, OPT_ROM_PAGED },
 		{ "trace-gfx", required_argument, NULL, 'Q' },
 		{ "trace-fb", no_argument, NULL, OPT_TRACE_FB },
 		{ "raster-dump", required_argument, NULL, 'D' },
@@ -3633,6 +3678,8 @@ int main(int argc, char **argv)
 	bool regs = false, idle = true, use_rec = false, lockstep = false;
 	const char *frame_path = NULL, *gfx_path = NULL, *save_dir = NULL, *profile_path = NULL;
 	bool gfx_check = false, audio_check = false;
+	bool rom_paged = false;                   /* --rom-paged PAGINA_KB,CACHE_KB: la ROM se lee por fragmentos */
+	unsigned rp_page_kb = 256, rp_cache_kb = 32768;
 	const char *wav_path = NULL;
 	const char *dump_path = NULL, *ram_path = NULL;
 	uint32_t frame_every = 0;
@@ -3757,6 +3804,14 @@ int main(int argc, char **argv)
 		case OPT_INTERP_DISP: iopt.max_disp = strtof(optarg, NULL); break;
 		case OPT_PROFILE: profile_path = optarg; break;
 		case OPT_PERFILADO: hp.root = optarg; break;
+		case OPT_ROM_PAGED:
+			if (sscanf(optarg, "%u,%u", &rp_page_kb, &rp_cache_kb) != 2 || rp_page_kb < 4 ||
+			    (rp_page_kb & (rp_page_kb - 1)) || rp_cache_kb < 2 * rp_page_kb) {
+				usage(stderr);
+				return 3;
+			}
+			rom_paged = true;
+			break;
 		case 'D': dump_path = optarg; break;
 		case 'A': wav_path = optarg; break;
 		case 'Z': audio_check = true; break;
@@ -3793,13 +3848,15 @@ int main(int argc, char **argv)
 
 	const char *path = argv[optind];
 	size_t rom_size = 0;
-	uint8_t *rom = read_file(path, &rom_size);
+	static struct salsa64_rompg rom_pg;
+	uint8_t *rom = rom_paged ? read_rom_paged(path, &rom_size, rp_page_kb, rp_cache_kb, &rom_pg)
+				 : read_file(path, &rom_size);
 	if (!rom) {
 		fprintf(stderr, "salsa64-run: no se pudo leer %s\n", path);
 		return 3;
 	}
 	static const char *const fmt_names[] = { ".z64", ".v64 (convertida)", ".n64 (convertida)" };
-	enum salsa64_rom_format fmt = salsa64_rom_normalize(rom, rom_size);
+	enum salsa64_rom_format fmt = rom_paged ? (enum salsa64_rom_format)rom_pg.fmt : salsa64_rom_normalize(rom, rom_size);
 
 	void *fm_window = NULL;
 	if (use_rec && salsa64_host_env_on("SALSA64_REC_FASTMEM")) {
@@ -3909,7 +3966,10 @@ int main(int argc, char **argv)
 		n64.cpu.exc_hook = trace_exc;
 	salsa64_faultlog_install(&n64.cpu, save_log);
 	salsa64_bus_set_isviewer(&n64.bus, isv_buf, isv_out, NULL);
-	salsa64_bus_set_rom(&n64.bus, rom, (uint32_t)(rom_size > UINT32_MAX ? UINT32_MAX : rom_size));
+	if (rom_paged)
+		salsa64_bus_set_rom_paged(&n64.bus, rom, 4096, (uint32_t)rom_size, &rom_pg);
+	else
+		salsa64_bus_set_rom(&n64.bus, rom, (uint32_t)(rom_size > UINT32_MAX ? UINT32_MAX : rom_size));
 	struct salsa64_boot_info info;
 	if (!salsa64_boot_hle(&n64, tv, &info)) {
 		fprintf(stderr, "salsa64-run: no se pudo arrancar %s: %s\n", path, info.error);
@@ -3986,7 +4046,10 @@ int main(int argc, char **argv)
 			salsa64_si_set_immediate(&ref.bus, si_immediate);
 			salsa64_cpu_set_idle(&ref.cpu, idle);
 			salsa64_bus_set_isviewer(&ref.bus, ref_isv_buf, ref_isv_out, NULL);
-			salsa64_bus_set_rom(&ref.bus, rom, (uint32_t)(rom_size > UINT32_MAX ? UINT32_MAX : rom_size));
+			if (rom_paged)
+				salsa64_bus_set_rom_paged(&ref.bus, rom, 4096, (uint32_t)rom_size, &rom_pg);
+			else
+				salsa64_bus_set_rom(&ref.bus, rom, (uint32_t)(rom_size > UINT32_MAX ? UINT32_MAX : rom_size));
 			ref.bus.rsp.gfx_cycles = n64.bus.rsp.gfx_cycles;
 			ref.bus.rsp.dp_cycles = n64.bus.rsp.dp_cycles;
 			ref.bus.rsp.audio_cycles = n64.bus.rsp.audio_cycles;
@@ -4306,6 +4369,11 @@ int main(int argc, char **argv)
 		return 3;
 	}
 	interp_report();
+	if (rom_paged)
+		fprintf(stderr, "salsa64-run: ROM por fragmentos: %llu accesos, %llu fallos, %llu páginas por adelantado, "
+			"%llu errores, %.1f MB leídos del archivo\n", (unsigned long long)rom_pg.acc,
+			(unsigned long long)rom_pg.miss, (unsigned long long)rom_pg.ra, (unsigned long long)rom_pg.errs,
+			(double)rom_pg.read_bytes / 1048576.0);
 	if (getenv("SALSA64_PS3_RB")) {
 		extern uint32_t ps3_rb, ps3_rb_old;
 		fprintf(stderr, "salsa64-run: ps3-rb: la regla de copias de la PS3 pediría %u (con el ancho del último origen "

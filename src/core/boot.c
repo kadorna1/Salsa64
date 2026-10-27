@@ -109,20 +109,25 @@ static void boot_common(struct salsa64_n64 *n64, const uint8_t *rom)
 	 * en cero: ya lo deja así el reset. */
 }
 
-static uint32_t elf_find(const struct salsa64_bus *bus)
+static uint32_t elf_find(struct salsa64_bus *bus)
 {
 	uint32_t end = bus->rom_size < ELF_SEARCH_LIMIT ? bus->rom_size : ELF_SEARCH_LIMIT;
-	for (uint32_t off = SALSA64_ROM_IPL3_END; off + 0x40 <= end; off += 0x100)
-		if (salsa64_rd32(bus->rom + off) == ELF_MAGIC)
+	uint8_t w[4];
+	for (uint32_t off = SALSA64_ROM_IPL3_END; off + 0x40 <= end; off += 0x100) {
+		salsa64_bus_rom_read(bus, off, w, 4);  /* con la ROM por fragmentos, lee de la caché */
+		if (salsa64_rd32(w) == ELF_MAGIC)
 			return off;
+	}
 	return 0;
 }
 
 static bool boot_elf(struct salsa64_n64 *n64, uint32_t elf, struct salsa64_boot_info *info)
 {
 	struct salsa64_bus *bus = &n64->bus;
-	const uint8_t *e = bus->rom + elf;
+	uint8_t e[0x40];  /* cabecera del ELF: lo demás se lee de la ROM según haga falta */
 	uint32_t room = bus->rom_size - elf;
+
+	salsa64_bus_rom_read(bus, elf, e, sizeof e);
 
 	if (e[5] != 2)
 		return fail(info, "ELF little-endian (el IPL3 de libdragon tampoco lo acepta)");
@@ -137,7 +142,8 @@ static bool boot_elf(struct salsa64_n64 *n64, uint32_t elf, struct salsa64_boot_
 	/* Igual que libdragon: solo los 32 bits bajos de cada campo de 64. */
 	info->loaded = 0;
 	for (uint32_t i = 0; i < phnum; i++) {
-		const uint8_t *ph = e + phoff + i * phsize;
+		uint8_t ph[0x38];
+		salsa64_bus_rom_read(bus, elf + phoff + i * phsize, ph, phsize);
 		uint32_t type = salsa64_rd32(ph);
 		uint32_t flags = salsa64_rd32(ph + (elf64 ? 0x04 : 0x18));
 		uint32_t offset = salsa64_rd32(ph + (elf64 ? 0x0C : 0x04));
@@ -156,7 +162,7 @@ static bool boot_elf(struct salsa64_n64 *n64, uint32_t elf, struct salsa64_boot_
 			return fail(info, "segmento del ELF fuera de la RDRAM");
 		if (offset > room || filesz > room - offset)
 			return fail(info, "segmento del ELF fuera de la ROM");
-		memcpy(bus->rdram + pa, e + offset, filesz);
+		salsa64_bus_rom_read(bus, elf + offset, bus->rdram + pa, filesz);
 		memset(bus->rdram + pa + filesz, 0, memsz - filesz);
 		info->loaded += filesz;
 	}
@@ -284,7 +290,7 @@ static bool boot_flat(struct salsa64_n64 *n64, struct salsa64_boot_info *info)
 		len = FLAT_LOAD_SIZE;
 	if (!rdram_range(bus, entry, len, &pa))
 		return fail(info, "la dirección de arranque del encabezado no cae en la RDRAM");
-	memcpy(bus->rdram + pa, bus->rom + SALSA64_ROM_IPL3_END, len);
+	salsa64_bus_rom_read(bus, SALSA64_ROM_IPL3_END, bus->rdram + pa, len);
 	if (info->cic == SALSA64_CIC_6106 && !boot_x106_copy(n64, info->tv))
 		return fail(info, "el IPL3 6106 no produjo su segunda etapa");
 	if (info->cic == SALSA64_CIC_6103)

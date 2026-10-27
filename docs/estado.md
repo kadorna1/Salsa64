@@ -1,5 +1,12 @@
 # Estado
 
+## 2026-10-26 — #13, ROMs de más de 64 MB por fragmentos
+- `src/core/rompg.c` (adaptado de SalsaDS): caché LRU de páginas de 256 KB sobre el archivo; PI DMA, lecturas de palabra del CPU, búsqueda del recompilador y arranque HLE pasan por `salsa64_bus_rom_read` / `rompg_rd32`. Intercambio de bytes de v64/n64 página a página.
+- Frontend: ROM > 64 MB (hasta 252 MB) o archivo `rom-paginada` → cabecera de 4 KB en memoria y caché de 32 MB en páginas del sistema (`rom-cache` ajusta los MB); línea «rom:» cada 5 s en el log.
+- Host: `salsa64-run --rom-paged PAG_KB,CACHE_KB`. OoT y Mario Kart 64 (intérprete, 300 y 1200 campos) con caché diminuta: imagen y estado idénticos a la ROM entera.
+- Pruebas `rompg` (ROM sintética de 80 MB, z64/v64/n64, bordes de página, final, DMA, expulsión, arranque ELF y plano).
+- Falta la PS3 real: tirones por fallos de caché y velocidad del disco.
+
 ## 2026-10-26 — #34, profundidad de LEGO Racers
 - Las cajas 2219/2277 muestran la parrilla y 2650/2842 la carrera; sus 58 tareas crudas conservan coches, pista y HUD.
 - En la carrera de ares, HLE y RDP real coinciden en escena; el framebuffer da 23,80 dB por píxel, 29,97 dB en 4×4 y diferencia media <1/255 por canal.
