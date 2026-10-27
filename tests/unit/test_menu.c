@@ -17,6 +17,8 @@
 #include "frontend/cover.h"
 #include "test.h"
 
+void t_ziprom_suite(void);
+
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2417,6 +2419,7 @@ void t_suite_menu(void)
 	RUN(version_texts);
 	RUN(menu_version_place);
 	RUN(menu_preview);
+	t_ziprom_suite();
 	romlist_free(nav_list);
 	romlist_free(frame_list);
 }
