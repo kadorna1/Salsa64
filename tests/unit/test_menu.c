@@ -498,12 +498,14 @@ static void menu_refresh_buttons(void)
 	static const char *const labels[] = { "Actualizar lista", "Refresh list", "Actualiser la liste",
 					      "Liste aktualisieren", "Aggiorna elenco", "Atualizar lista",
 					      "Lijst vernieuwen", "Uppdatera listan", "Opdater listen",
-					      "Oppdater listen", "Päivitä lista" };
+					      "Oppdater listen", "Päivitä lista", "Odśwież listę", "Listeyi yenile",
+					      "Обновить список" };
 	static const char *const notices[] = { "3 ROMs encontradas", "3 ROMs found", "3 ROM trouvées",
 					       "3 ROMs gefunden", "3 ROM trovate", "3 ROMs encontradas",
 					       "3 ROM's gevonden", "3 ROM-filer hittades", "3 ROM-filer fundet",
-					       "3 ROM-filer funnet", "3 ROMia löytyi" };
-	for (int lang = 0; lang <= MENU_LANG_FI; lang++) {
+					       "3 ROM-filer funnet", "3 ROMia löytyi", "Znaleziono ROM-ów: 3",
+					       "3 ROM bulundu", "Найдено ROM: 3" };
+	for (int lang = 0; lang <= MENU_LANG_RU; lang++) {
 		i18n_set(lang);
 		CHECK(!strcmp(tr("Actualizar lista"), labels[lang]));
 		menu_set_status(&m, "%u ROMs encontradas", 3u);
@@ -1300,7 +1302,7 @@ static void menu_options_page(void)
 	CHECK_EQ(m.set.lang, MENU_LANG_AUTO);
 	menu_input(&m, 0, 79);
 	CHECK_EQ(menu_input(&m, LEFT, 79), MENU_SETTINGS);
-	CHECK_EQ(m.set.lang, MENU_LANG_FI);
+	CHECK_EQ(m.set.lang, MENU_LANG_RU);
 	m.set.lang = MENU_LANG_ES;
 	/* Orden y descargas: cambia y guarda la forma de ordenar; × pide bajar. */
 	menu_input(&m, 0, 79);

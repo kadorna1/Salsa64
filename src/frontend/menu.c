@@ -126,18 +126,18 @@ const char *menu_overscan_name(int o)
 {
 	return overscan_name(o);
 }
-static const char *const lang_key[MENU_LANGS] = { "es", "en", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "fi", "auto" };
+static const char *const lang_key[MENU_LANGS] = { "es", "en", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "fi", "pl", "tr", "ru", "auto" };
 static const char *const density_key[MENU_DENSITIES] = { "normal", "fina" };
 static const char *const interp_key[MENU_INTERPS] = { "no", "geometria" };
 static const char *const lang_label[MENU_LANGS] = { "Español", "English", "Français", "Deutsch", "Italiano", "Português",
-						    "Nederlands", "Svenska", "Dansk", "Norsk", "Suomi", "Automático" };
+						    "Nederlands", "Svenska", "Dansk", "Norsk", "Suomi", "Polski", "Türkçe", "Русский", "Automático" };
 
 /* El selector recorre Automático y luego los idiomas en este orden. */
 static int lang_step(int cur, bool back)
 {
 	static const int order[MENU_LANGS] = { MENU_LANG_AUTO, MENU_LANG_ES, MENU_LANG_EN, MENU_LANG_FR, MENU_LANG_DE,
 					       MENU_LANG_IT, MENU_LANG_PT, MENU_LANG_NL, MENU_LANG_SV, MENU_LANG_DA,
-					       MENU_LANG_NO, MENU_LANG_FI };
+					       MENU_LANG_NO, MENU_LANG_FI, MENU_LANG_PL, MENU_LANG_TR, MENU_LANG_RU };
 	int at = 0;
 	for (int i = 0; i < MENU_LANGS; i++)
 		if (order[i] == cur)
@@ -483,7 +483,7 @@ int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 {
 	return snprintf(buf, size,
 			"# Ajustes del menú de Salsa64\n# aspecto = 4:3|16:9; filtro = suave|nitido|lineas|lineas+|crt-…; "
-			"densidad = normal|fina; idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi; interpolacion = no|geometria; orden = titulo|archivo\n"
+			"densidad = normal|fina; idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru; interpolacion = no|geometria; orden = titulo|archivo\n"
 			"fondo = %s\nfps = %s\nconfirmar = %s\naspecto = %s\nfiltro = %s\ndensidad = %s\nidioma = %s\n"
 			"interpolacion = %s\norden = %s\naccesorio = %s\n",
 			s->waves ? "si" : "no", s->fps ? "si" : "no", s->confirm ? "si" : "no",

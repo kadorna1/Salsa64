@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Salsa64 — idiomas. tr("texto en español") da el texto en el idioma elegido
- * (Opciones > Idioma; menu.cfg «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi»).
+ * (Opciones > Idioma; menu.cfg «idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru»).
  * Lo que no está en la tabla (i18n.c) sale tal cual. Sin dependencias de
  * PSL1GHT: el idioma de la consola lo lee el frontend y se lo pasa a
  * i18n_set_system().
@@ -12,12 +12,13 @@
 #include <stddef.h>
 
 /* Idiomas con tabla (todos menos el español, que es la clave). */
-#define MENU_LANGS_TR 10
+#define MENU_LANGS_TR 13
 
 /* 0 español, 1 inglés, 2 francés, 3 alemán, 4 italiano, 5 portugués,
- * 6 neerlandés, 7 sueco, 8 danés, 9 noruego, 10 finés (los valores de
+ * 6 neerlandés, 7 sueco, 8 danés, 9 noruego, 10 finés, 11 polaco, 12 turco,
+ * 13 ruso (los valores de
  * enum menu_lang en menu.h) y I18N_AUTO: el idioma de la consola. */
-#define I18N_AUTO 11
+#define I18N_AUTO 14
 void i18n_set(int lang);
 int i18n_lang(void);  /* el idioma en uso, nunca I18N_AUTO */
 

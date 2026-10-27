@@ -68,8 +68,9 @@ static void same_formats(void)
 
 static void glyphs(void)
 {
-	/* Los íconos de filas que el menú dibuja con la fuente. */
-	const char *icons = "~□▶─A↓■▲●#?◀►";
+	/* Los íconos de filas que el menú dibuja con la fuente y las letras propias
+	 * del polaco, el turco y el ruso. */
+	const char *icons = "~□▶─A↓■▲●#?◀►ĄąĆćĘęŁłŃńŚśŹźŻżĞğİıŞşÇçÖöÜüАЯабяёЁ";
 	for (const char *p = icons; *p;) {
 		uint32_t cp = rsxkit_utf8_next(&p);
 		if (!rsxkit_font_has(cp)) {
@@ -159,6 +160,12 @@ static void lookup(void)
 	CHECK(!strcmp(tr("Volver"), "Tilbake"));
 	i18n_set(10);
 	CHECK(!strcmp(tr("Volver"), "Takaisin"));
+	i18n_set(11);
+	CHECK(!strcmp(tr("Volver"), "Wróć"));
+	i18n_set(12);
+	CHECK(!strcmp(tr("Volver"), "Geri"));
+	i18n_set(13);
+	CHECK(!strcmp(tr("Volver"), "Назад"));
 	/* Lo que no está sale igual (títulos de juegos, rutas...). */
 	CHECK(!strcmp(tr("GoldenEye 007"), "GoldenEye 007"));
 	CHECK(tr("Rareza") != NULL);
@@ -194,7 +201,7 @@ static void automatic(void)
 {
 	/* SYSUTIL_LANG_*: 0 ja, 1 en-US, 2 fr, 3 es, 4 de, 5 it, 6 nl, 7 pt-PT, 8 ru, 9 ko, 10 zh-T, 11 zh-S,
 	 * 12 fi, 13 sv, 14 da, 15 no, 16 pl, 17 pt-BR, 18 en-GB, 19 tr. */
-	static const int want[20] = { 1, 1, 2, 0, 3, 4, 6, 5, 1, 1, 1, 1, 10, 7, 8, 9, 1, 5, 1, 1 };
+	static const int want[20] = { 1, 1, 2, 0, 3, 4, 6, 5, 13, 1, 1, 1, 10, 7, 8, 9, 11, 5, 1, 12 };
 	for (int sys = 0; sys < 20; sys++) {
 		if (i18n_from_system(sys) != want[sys]) {
 			printf("   idioma de la consola %d: %d (esperado %d)\n", sys, i18n_from_system(sys), want[sys]);
@@ -216,6 +223,16 @@ static void automatic(void)
 	i18n_set(I18N_AUTO);
 	CHECK_EQ(i18n_lang(), 7);
 	CHECK(!strcmp(tr("Volver"), "Tillbaka"));
+	i18n_set_system(8);  /* ruso */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 13);
+	CHECK(!strcmp(tr("Volver"), "Назад"));
+	i18n_set_system(16);  /* polaco */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 11);
+	i18n_set_system(19);  /* turco */
+	i18n_set(I18N_AUTO);
+	CHECK_EQ(i18n_lang(), 12);
 	i18n_set_system(9);  /* coreano: inglés */
 	i18n_set(I18N_AUTO);
 	CHECK_EQ(i18n_lang(), 1);
@@ -230,6 +247,7 @@ static void automatic(void)
 	CHECK_EQ(i18n_resolve(3), 3);
 	CHECK(!strcmp(i18n_code(I18N_AUTO), "auto"));
 	CHECK(!strcmp(i18n_code(10), "fi"));
+	CHECK(!strcmp(i18n_code(13), "ru"));
 
 	i18n_set_system(-1);
 	i18n_set(0);

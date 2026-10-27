@@ -15,7 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* es -> en, fr, de, it, pt, nl, sv, da, no, fi */
+/* es -> en, fr, de, it, pt, nl, sv, da, no, fi, pl, tr, ru */
 struct entry {
 	const char *es;
 	const char *t[MENU_LANGS_TR];
@@ -28,7 +28,7 @@ static const struct entry table[] = {
 static int lang_cur;
 static int sys_lang = -1;
 
-static const char *const codes[] = { "es", "en", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "fi" };
+static const char *const codes[] = { "es", "en", "fr", "de", "it", "pt", "nl", "sv", "da", "no", "fi", "pl", "tr", "ru" };
 
 int i18n_from_system(int sys)
 {
@@ -41,10 +41,13 @@ int i18n_from_system(int sys)
 	case 7:               /* portugués (Portugal) */
 	case 17: return 5;   /* portugués (Brasil): comparten columna */
 	case 12: return 10;  /* finés */
+	case 16: return 11;  /* polaco */
+	case 19: return 12;  /* turco */
+	case 8:  return 13;  /* ruso */
 	case 13: return 7;   /* sueco */
 	case 14: return 8;   /* danés */
 	case 15: return 9;   /* noruego */
-	default: return 1;   /* inglés (también japonés, coreano, chino, ruso, polaco, turco...) */
+	default: return 1;   /* inglés (también japonés, coreano, chino...) */
 	}
 }
 

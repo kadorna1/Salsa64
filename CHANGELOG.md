@@ -7,8 +7,9 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Added
-- **Five more languages and an "Automatic" setting:** Dutch, Swedish, Danish,
-  Norwegian and Finnish join Spanish, English, French, German, Italian and
+- **Eight more languages and an "Automatic" setting:** Dutch, Swedish, Danish,
+  Norwegian, Finnish, Polish, Turkish and Russian (the menu font gains the
+  Polish and Turkish letters and basic Cyrillic) join Spanish, English, French, German, Italian and
   Portuguese. "Automatic" (the default for new setups) follows the console's
   system language; languages without a translation fall back to English.
   An explicit choice already saved in `menu.cfg` is kept. Every on-screen
