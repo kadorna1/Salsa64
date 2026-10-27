@@ -62,12 +62,17 @@ jobs:
       - name: Pull existing PS3 toolchain image
         run: docker pull "$SALSA64_IMAGE"
 
+      - name: Install host zlib headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev
+
       - name: Run host regression suite
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/logs
-          tools/build.sh test-host 2>&1 | tee build/logs/dr-mario-host-tests.log
+          make test-host 2>&1 | tee build/logs/dr-mario-host-tests.log
 
       - name: Download pinned zlib source for the PPU
         shell: bash
