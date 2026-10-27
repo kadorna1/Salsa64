@@ -28,9 +28,13 @@ Dos formas de llevarlas allí:
 
 Reglas de la búsqueda:
 
-- Extensiones: `.z64`, `.v64` y `.n64` (mayúsculas o minúsculas). Se aceptan
+- Extensiones: `.z64`, `.v64`, `.n64` y `.zip` (mayúsculas o minúsculas). Se aceptan
   los tres órdenes de bytes (big-endian, byte-swapped y little-endian); el
-  formato se reconoce por la cabecera, no por la extensión.
+  formato se reconoce por la cabecera, no por la extensión. Un ZIP debe ser
+  estándar, sin cifrado ni ZIP64, y contener al menos una ROM con extensión
+  `.z64`, `.v64` o `.n64`; se elige la primera entrada compatible. Admite
+  compresión Deflate o archivos almacenados sin compresión. La ROM extraída
+  no puede superar 64 MiB y se comprueba el CRC-32 antes de arrancarla.
 - Las carpetas aparecen primero. × entra en una carpeta y la fila `..`
   vuelve al nivel anterior. Se recorren también las subcarpetas de cada
   carpeta `salsa64`.
