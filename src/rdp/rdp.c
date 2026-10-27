@@ -2249,19 +2249,14 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		return false;
 	uint32_t x0 = 0, y0 = 0;
 	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
-	/* Reconcile CPU writes before source selection. This game's framebuffer can
-	 * contain RSX-only pixels, so upload changed spans rather than replacing the
-	 * whole surface. Once those spans are synchronized, the profile-specific
-	 * lookup intentionally keeps using that RSX surface even when its last RDP
-	 * draw is old: falling back to RDRAM would lose the RSX-only pixels. */
+	/* Reconcile CPU writes before source selection. Dr. Mario's Glide profile
+	 * uses the old framebuffer as a texture (read_back_to_screen=1). A live
+	 * RSX-owned surface can remain authoritative after the normal freshness
+	 * window because RDRAM lacks RSX-only pixels; upload any changed CPU spans
+	 * first. CPU-owned surfaces are never safe for this shortcut. */
 	bool profile_surface_synced = false;
-	/* Only reconcile live RSX-owned targets. A CPU-owned target, or one that
-	 * has aged out of the normal source window, is read from RDRAM: copying a
-	 * few changed spans into its surface does not reconstruct untouched rows.
-	 * In particular, Dr. Mario's 214e00/328 copy buffer is CPU-owned. */
 	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram &&
-	    !rdp.tg.t[slot].cpu_owned &&
-	    rdp.tg.task - rdp.tg.t[slot].last_task <= RDP_TARGETS_FRESH) {
+	    !rdp.tg.t[slot].cpu_owned) {
 		if (profile_cpu_rows_changed(slot)) {
 			uint32_t regions = prime_profile_cpu_spans(slot, true);
 			if (regions) {
@@ -2289,7 +2284,7 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		profile_surface_synced = true;
 	}
 	enum rdp_texsrc src = profile_surface_synced
-		? rdp_targets_texture_synced(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0)
+		? rdp_targets_texture_synced(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, true, &slot, &x0, &y0)
 		: rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
 	if (profile_surface_synced) {
 		const char *source = src == RDP_TEXSRC_SELF ? "SELF" :

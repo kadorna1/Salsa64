@@ -312,17 +312,18 @@ enum rdp_texsrc rdp_targets_texture(struct rdp_targets *s, uint32_t addr, uint32
 	return RDP_TEXSRC_RSX;
 }
 
-/* This helper assumes its caller has reconciled a live RSX-owned surface.
- * Keep the age cutoff as a safety net: reconciliation does not make an old
- * render target current. */
+/* The caller has reconciled changed RDRAM spans into a live surface. Normal
+ * lookups keep the three-task cutoff; selected compatibility profiles may opt
+ * to use an older RSX-owned surface because its RSX-only pixels are not present
+ * in RDRAM. Never override CPU ownership: that surface may not be complete. */
 enum rdp_texsrc rdp_targets_texture_synced(struct rdp_targets *s, uint32_t addr, uint32_t pitch, uint32_t bpp,
-					   int cur, int *slot, uint32_t *x0, uint32_t *y0)
+					   int cur, bool allow_stale, int *slot, uint32_t *x0, uint32_t *y0)
 {
 	int i = rdp_targets_locate(s, addr, pitch, bpp, x0, y0);
 	*slot = i;
 	if (i < 0)
 		return RDP_TEXSRC_NONE;
-	if (s->task - s->t[i].last_task > RDP_TARGETS_FRESH) {
+	if (s->t[i].cpu_owned || (!allow_stale && s->task - s->t[i].last_task > RDP_TARGETS_FRESH)) {
 		s->tex_rdram++;
 		return RDP_TEXSRC_RDRAM;
 	}

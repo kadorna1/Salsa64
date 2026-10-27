@@ -5451,9 +5451,16 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 				fbfx = 2;
 			fclose(ff);
 		}
-		/* Dr. Mario 64's copy-from-RDRAM handling is per changed target row;
-		 * keep the normal framebuffer readbacks enabled so other background
-		 * and auxiliary images keep their established contents. */
+		/* GLideN64's Dr. Mario profile keeps framebuffer emulation on,
+		 * enables CopyColorFromRDRAM, and disables CopyColorToRDRAM. Here fbfx=2
+		 * also schedules auxiliary RSX->RDRAM readbacks; those make the reusable
+		 * 214e00 surface CPU-owned and defeat render-to-texture use. Keep fbfx=1
+		 * for this title: framebuffer surfaces stay live and CPU-written spans
+		 * are still uploaded by the CopyColorFromRDRAM profile. */
+		if (dr_mario64 && fbfx != 1) {
+			fbfx = 1;
+			salsa64_log("compatibilidad: Dr. Mario 64 desactiva copias auxiliares RSX->RDRAM; mantiene render a textura y CopyColorFromRDRAM");
+		}
 		salsa64_rdp_fbfx(fbfx);
 		salsa64_log("efectos de framebuffer: %s", fbfx <= 0 ? "apagados" : fbfx == 1 ? "render a textura" :
 								"render a textura y copias a la RDRAM");
