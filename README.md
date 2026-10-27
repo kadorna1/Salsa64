@@ -38,15 +38,15 @@ Work in progress, but already playable on a real PS3:
 - **RDP on the RSX:** combiners translated to RSX fragment programs generated
   at run time (there is no Cg compiler on the console).
 - **Frontend:** XMB-style ROM menu, DualShock 3 → N64 controller mapping,
-  EEPROM, SRAM and FlashRAM saves.
+  EEPROM, SRAM and FlashRAM saves; Controller Pak, Rumble Pak and
+  experimental Transfer Pak.
 - **Video:** 720p or 1080p output with internal render scale 1× to 5×;
   framebuffer effects (render to texture, copies back to N64 memory, motion
   blur read from the RSX); save states, FPS counter, PS button pause.
 - **Filters:** five CRT filters made for this project (shadow mask, a small
   Trinitron TV over RGB, S-Video or composite, and a big Trinitron), still
   experimental; on a real PS3 all five fit in the frame time at 1080p.
-- **Not yet:** large SRAM saves (768 Kbit, 1 Mbit) and Controller/Rumble/
-  Transfer Pak.
+- **Not yet:** large SRAM saves (768 Kbit, 1 Mbit).
 
 Performance numbers are logged in [docs/perf-log.md](docs/perf-log.md). Only
 measurements on a real PS3 count; RPCS3 is used for functional tests.
