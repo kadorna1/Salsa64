@@ -6,6 +6,8 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+## [0.2.13] — 2026-10-26
+
 ### Added
 - **PS3 system font for all text, and Japanese, Korean and Chinese menus:**
   menus, pause, notices and option panels now use the console's own XMB font
@@ -14,7 +16,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   Chinese are offered (and picked by "Automatic") only when the system font
   loads; otherwise they fall back to English as before. The built-in 8x13
   font remains as a fallback, and the file `/dev_hdd0/salsa64/fuente-propia`
-  forces it. Needs testing on a real PS3.
+  forces it.
 - **Eight more languages and an "Automatic" setting:** Dutch, Swedish, Danish,
   Norwegian, Finnish, Polish, Turkish and Russian (the menu font gains the
   Polish and Turkish letters and basic Cyrillic) join Spanish, English, French, German, Italian and
@@ -39,6 +41,11 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   using no save chip, without affecting its Controller Pak support (#34).
 - XBUS RDP lists no longer share decoded-texture cache storage with an
   in-flight graphics SPE task (`texturas-xbus-viejo` restores the old path).
+
+### Changed
+- **Faster CRT filters:** the filter output is reused when a frame repeats and
+  full frames skip one copy, so the RSX does less work per frame (about 23 %
+  less GPU time in Diddy Kong Racing on a real PS3).
 
 ## [0.2.12] — 2026-10-26
 
