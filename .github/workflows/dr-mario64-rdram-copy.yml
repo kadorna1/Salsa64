@@ -36,19 +36,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git tag -f v2.12b "$GITHUB_SHA"
+          git tag -f v2.12c "$GITHUB_SHA"
           echo "Building $(git describe --tags --always --dirty) from $GITHUB_SHA"
-
-      # Reuse the image already pulled successfully by the v2.11b PS3 build.
-      # main only changed a Docker metadata label, not the toolchain or libraries.
-      # Pinning this tag prevents a cache miss from trying to rebuild GCC/binutils.
-      - name: Select existing toolchain image
-        shell: bash
-        run: |
-          set -euo pipefail
-          IMAGE="ghcr.io/kadorna1/salsa64-toolchain:10ba33a3a3733eaa"
-          echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
-          echo "Reusing published toolchain image: $IMAGE"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -57,10 +46,28 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Deliberately fail fast if the known image is unavailable; never compile
-      # a fresh PS3 toolchain from this gameplay-fix workflow.
-      - name: Pull existing PS3 toolchain image
-        run: docker pull "$SALSA64_IMAGE"
+      # The Dockerfile on main already builds pinned static PPU zlib. Reuse
+      # the image keyed to that exact Dockerfile; only build/publish it once
+      # if the matching image is not available in GHCR.
+      - name: Reuse or build current PS3 toolchain image
+        shell: bash
+        run: |
+          set -euo pipefail
+          DOCKERFILE_HASH="$(sha256sum docker/Dockerfile | cut -c1-16)"
+          IMAGE="ghcr.io/kadorna1/salsa64-toolchain:$DOCKERFILE_HASH"
+          echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          if docker pull "$IMAGE"; then
+            if docker run --rm "$IMAGE" sh -c 'test -s "$PS3DEV/portlibs/ppu/include/zlib.h" && test -s "$PS3DEV/portlibs/ppu/lib/libz.a"'; then
+              echo "Using cached toolchain image with PPU zlib: $IMAGE"
+              exit 0
+            fi
+            echo "Cached image does not contain PPU zlib; rebuilding from docker/Dockerfile."
+          else
+            echo "No cached image for Dockerfile $DOCKERFILE_HASH; building it once."
+          fi
+          SALSA64_IMAGE="$IMAGE" tools/docker-image.sh
+          docker run --rm "$IMAGE" sh -c 'test -s "$PS3DEV/portlibs/ppu/include/zlib.h" && test -s "$PS3DEV/portlibs/ppu/lib/libz.a"'
+          docker push "$IMAGE"
 
       - name: Install host zlib headers
         run: |
@@ -74,38 +81,11 @@ jobs:
           mkdir -p build/logs
           make test-host 2>&1 | tee build/logs/dr-mario-host-tests.log
 
-      - name: Download pinned zlib source for the PPU
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p build/third_party build/logs
-          curl --fail --location --silent --show-error \
-            https://zlib.net/fossils/zlib-1.3.2.tar.gz \
-            -o /tmp/zlib-1.3.2.tar.gz
-          echo "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16  /tmp/zlib-1.3.2.tar.gz" | sha256sum --check
-          tar -xzf /tmp/zlib-1.3.2.tar.gz -C build/third_party
-
-      - name: Build zlib for the PS3 PPU
-        shell: bash
-        run: |
-          set -euo pipefail
-          tools/build.sh --sh '
-            set -eu
-            cd /src/build/third_party/zlib-1.3.2
-            CC=ppu-gcc AR=ppu-ar RANLIB=ppu-ranlib \
-              CFLAGS="-O2 -mcpu=cell -mno-relative-jumptables" \
-              ./configure --static --prefix=/src/build/ps3-portlibs
-            make -j2
-            make install
-          '
-          test -s build/ps3-portlibs/include/zlib.h
-          test -s build/ps3-portlibs/lib/libz.a
-
       - name: Build PS3 PKG
         shell: bash
         run: |
           set -euo pipefail
-          tools/build.sh -C src/frontend pkg ZLIB_PREFIX=/src/build/ps3-portlibs 2>&1 | tee build/logs/dr-mario-ps3-package.log
+          tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/dr-mario-ps3-package.log
           test -s build/salsa64/salsa64.pkg
 
       - name: Upload package and diagnostics
