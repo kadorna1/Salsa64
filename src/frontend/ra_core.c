@@ -363,7 +363,7 @@ void ra_core_login_password(struct ra_core *c, const char *user, const char *pas
 bool ra_core_login_begin(struct ra_core *c, const char *user, char *pass)
 {
 	size_t ul = user ? strlen(user) : 0, pl = pass ? strlen(pass) : 0;
-	note(c, "RA: inicio de sesión: usuario «%s» (%zu bytes), contraseña de %zu bytes", user ? user : "", ul, pl);
+	note(c, "RA: inicio de sesión: usuario «%s» (%u bytes), contraseña de %u bytes", user ? user : "", (unsigned)ul, (unsigned)pl);
 	bool ok = ul > 0 && pl > 0 && c->login != RA_LOGGING_IN;
 	if (!ok)
 		note(c, "RA: inicio de sesión no válido (%s)", !ul ? "usuario vacío" : !pl ? "contraseña vacía" : "ya hay uno en curso");

@@ -298,7 +298,7 @@ static void do_http(struct job *j, bool net_ok)
 		code = -4;
 	}
 	if (rc == 0) {
-		salsa64_log("RA: %s -> HTTP 200, %zu bytes", kind, len);
+		salsa64_log("RA: %s -> HTTP 200, %u bytes", kind, (unsigned)len);
 		ra_core_complete(ra.core, j->id, 200, (const char *)buf, len);
 	} else {
 		salsa64_log("RA: %s -> %s %d (0x%x)", kind, code >= 100 ? "HTTP" : "error", code, (unsigned)code);
@@ -319,10 +319,10 @@ static void do_hash(struct job *j)
 	bool ok = ra_rom_hash(j->rom, j->rom_size, hash);
 	uint64_t t1 = sysGetSystemTime();
 	if (!ok) {
-		salsa64_log("RA: la ROM no se pudo identificar (%zu bytes)", j->rom_size);
+		salsa64_log("RA: la ROM no se pudo identificar (%u bytes)", (unsigned)j->rom_size);
 		push_notice(tr("RA: no se pudo identificar la ROM"));
 	} else if (ra.rom == j->rom) {  /* el juego sigue abierto */
-		salsa64_log("RA: huella %s (%zu bytes, %.0f ms)", hash, j->rom_size, (double)(t1 - t0) / 1000.0);
+		salsa64_log("RA: huella %s (%u bytes, %.0f ms)", hash, (unsigned)j->rom_size, (double)(t1 - t0) / 1000.0);
 		ra_core_load_game(ra.core, hash);
 	}
 	ra.hashing = 0;
@@ -588,8 +588,8 @@ static void osk_step(void)
 	}
 	u16_to_utf8(osk.text, osk.ret.len, osk.pass, sizeof osk.pass);
 	memset(osk.text, 0, sizeof osk.text);
-	salsa64_log("RA: teclado: usuario «%s» (%zu bytes), contraseña de %zu bytes", osk.user, strlen(osk.user),
-		    strlen(osk.pass));
+	salsa64_log("RA: teclado: usuario «%s» (%u bytes), contraseña de %u bytes", osk.user, (unsigned)strlen(osk.user),
+		    (unsigned)strlen(osk.pass));
 	snprintf(ra.user, sizeof ra.user, "%s", osk.user);
 	push_notice(tr("RA: conectando…"));
 	ra.login_t = now;
