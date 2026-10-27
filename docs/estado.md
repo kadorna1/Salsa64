@@ -1,5 +1,15 @@
 # Estado
 
+## 2026-10-26 — #34, profundidad de LEGO Racers
+- Las cajas 2219/2277 muestran la parrilla y 2650/2842 la carrera; sus 58 tareas crudas conservan coches, pista y HUD.
+- En la carrera de ares, HLE y RDP real coinciden en escena; el framebuffer da 23,80 dB por píxel, 29,97 dB en 4×4 y diferencia media <1/255 por canal.
+- Cada tarea borra `3c3f00`, dibuja un auxiliar de 32/64 y vuelve a borrar antes del framebuffer 320 × 240 (`1853c0`/`1aac00`).
+- En PS3 los auxiliares van a 5× y el framebuffer a 3×: el segundo borrado se ejecutaba aún ligado al auxiliar y solo cubría 160/320 frente a 960 × 720.
+- No es el caso de RE2: hay cero color images reutilizadas como z image y cero cargas de z desde RDRAM.
+- Para NLG el borrado queda pendiente hasta ligar el destino siguiente y sobrevive si esa profundidad crece; `zclear-inmediato` restaura el camino anterior.
+- LEGO Racers figura explícitamente sin chip de guardado; el Controller Pak no cambia.
+- `test-host`: 713/713; `test-roms` y build PS3 completos; 8/8 escenas doradas, RE2 y Conker idénticos al árbol anterior.
+
 ## 2026-10-26 — Rumble Pak y Transfer Pak experimental
 - Accesorio global, por juego y por puerto en pausa; el DS3 usa solo el motor grande y se apaga en todo cierre.
 - Transfer Pak propio: secuencias 8D→89→89 y 88→84→80, acceso protegido y MBC1/2/3/5 con SRAM.

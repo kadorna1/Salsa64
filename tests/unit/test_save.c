@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Salsa64 — pruebas del guardado del cartucho (src/core/save.c y savedb.c):
  * EEPROM por el PIF, SRAM por DMA del PI y acceso directo, tipo de cada ROM,
@@ -359,7 +360,7 @@ static void detect_table(void)
 		{ "NZLE", 2, SALSA64_SAVE_SRAM_256K }, { "NZLP", 0, SALSA64_SAVE_SRAM_256K },
 		{ "CZLJ", 0, SALSA64_SAVE_SRAM_256K }, { "NKTE", 0, SALSA64_SAVE_EEPROM_4K },
 		{ "NFXE", 0, SALSA64_SAVE_EEPROM_4K }, { "NGEE", 0, SALSA64_SAVE_EEPROM_4K },
-		{ "NPDE", 1, SALSA64_SAVE_EEPROM_16K },
+		{ "NPDE", 1, SALSA64_SAVE_EEPROM_16K }, { "NLGE", 0, SALSA64_SAVE_NONE },
 		/* Excepciones por región y versión. */
 		{ "NK4J", 0, SALSA64_SAVE_SRAM_256K }, { "NK4J", 1, SALSA64_SAVE_SRAM_256K },
 		{ "ND3J", 0, SALSA64_SAVE_EEPROM_16K }, { "NWTJ", 0, SALSA64_SAVE_EEPROM_4K },

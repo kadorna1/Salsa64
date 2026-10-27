@@ -214,6 +214,11 @@ void salsa64_rdp_drop_targets(void);
 /* Las copias de las capas de 8 bits (big8) se esperan solo si el juego lo pide
  * (Yoshi's Story: las lee como CI8 desde la RDRAM); por omisión no se esperan. */
 void salsa64_rdp_set_big8_wait(bool wait);
+/* Interruptor por juego: cada borrado de z espera al próximo destino que se
+ * liga. LEGO Racers emite el borrado antes de cambiar de color image y
+ * alterna una auxiliar de 32 x 32 y el framebuffer de 320 x 240 con la misma
+ * z image; ejecutarlo sobre el destino anterior lo recorta al pequeño. */
+void salsa64_rdp_zclear_target(bool on);
 /* Diagnóstico: antes de cada tarea, espera mediante sondeo a que el RSX
  * termine todas las anteriores. No emite órdenes desde el hilo productor. */
 void salsa64_rdp_set_texture_wait(bool wait);

@@ -15,9 +15,9 @@
  * desacuerdos (NK4 fuera de las versiones japonesas 1.0 y 1.1, NO2, NDD):
  * esos juegos se configuran a mano en guardado.cfg.
  *
- * Los juegos que guardan solo en el Controller Pak (Donald Duck Quack
- * Attack/Goin' Quackers, NDQ; Rush 2049, NRU; Hydro Thunder, NHT) no llevan
- * tipo de cartucho: no deben aparecer en ninguna lista.
+ * Los juegos que guardan solo en el Controller Pak no llevan memoria de
+ * guardado en el cartucho. LEGO Racers se enumera como NONE para distinguir
+ * ese caso conocido de un código desconocido.
  */
 #include "core/save.h"
 
@@ -40,6 +40,8 @@ static const struct {
 };
 
 /* Códigos de 3 caracteres (todas las regiones), en orden alfabético. */
+static const char none[] = "NLG";
+
 static const char eeprom4k[] =
 	"CLB" "NAB" "NAD" "NAG" "NB6" "NBC" "NBD" "NBH" "NBK" "NBM" "NBN" "NBV"
 	"NCG" "NCH" "NCR" "NCT" "NCU" "NCX" "NDR" "NDU" "NDY" "NEA" "NER"
@@ -82,6 +84,7 @@ bool salsa64_save_from_table(const uint8_t *rom, enum salsa64_save_type *type)
 		size_t len;
 		enum salsa64_save_type type;
 	} lists[] = {
+		{ none, sizeof none - 1, SALSA64_SAVE_NONE },
 		{ eeprom4k, sizeof eeprom4k - 1, SALSA64_SAVE_EEPROM_4K },
 		{ eeprom16k, sizeof eeprom16k - 1, SALSA64_SAVE_EEPROM_16K },
 		{ sram256k, sizeof sram256k - 1, SALSA64_SAVE_SRAM_256K },

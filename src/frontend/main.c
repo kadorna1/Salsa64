@@ -5255,6 +5255,15 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	savefile_open(&save_file, &save, &n64.bus, rom, SAVES_DIR, SAVE_CFG, SALSA64_SAVE_AUTO, salsa64_log);
 	/* Yoshi's Story (NYS, todas las regiones) lee sus capas de fondo CI8 desde la RDRAM: espera sus copias. */
 	salsa64_rdp_set_big8_wait(rom[0x3B] == 'N' && rom[0x3C] == 'Y' && rom[0x3D] == 'S');
+	/* LEGO Racers (NLG) comparte la z image entre auxiliares de 32 x 32 y el
+	 * framebuffer: cada borrado se difiere hasta ligar su color image. */
+	bool lego_zclear = rom[0x3B] == 'N' && rom[0x3C] == 'L' && rom[0x3D] == 'G';
+	bool zclear_old = file_exists(SALSA64_DATA_DIR "/zclear-inmediato");
+	lego_zclear = lego_zclear && !zclear_old;
+	salsa64_rdp_zclear_target(lego_zclear);
+	if (rom[0x3B] == 'N' && rom[0x3C] == 'L' && rom[0x3D] == 'G')
+		salsa64_log("profundidad: borrados %s (zclear-inmediato)",
+			lego_zclear ? "ligados al próximo destino" : "inmediatos");
 	{
 		struct menu_game gc;
 		menu_game_default(&gc);

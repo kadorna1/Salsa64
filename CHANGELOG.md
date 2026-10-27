@@ -32,6 +32,11 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   and keep Transfer Pak state in save states (thanks to kadorna1, #45/#46).
 
 ### Fixed
+- **LEGO Racers:** cars and scenery no longer disappear when its 32/64-pixel
+  auxiliary targets and 320-pixel framebuffer share one depth image. Depth
+  clears now wait for the colour target they precede; `zclear-inmediato`
+  restores the previous path for comparison. The game is also recognized as
+  using no save chip, without affecting its Controller Pak support (#34).
 - XBUS RDP lists no longer share decoded-texture cache storage with an
   in-flight graphics SPE task (`texturas-xbus-viejo` restores the old path).
 
