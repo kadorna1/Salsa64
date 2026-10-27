@@ -380,9 +380,9 @@ static void targets_texture_policy(void)
 	CHECK(rdp_targets_readback(&s, fb, true, true));
 }
 
-/* Dr. Mario 64: after CPU spans have been reconciled, keep reading the
- * RSX surface even when its last RDP draw is old. RDRAM does not contain all
- * of this game's RSX-only pixels. The generic lookup still applies its three-task freshness cutoff. */
+/* Dr. Mario 64: a caller may bypass generic ownership/freshness only after
+ * proving the target is live and RSX-owned and reconciling CPU spans. This
+ * helper itself trusts that precondition; the runtime caller checks it. */
 static void targets_texture_synced_surface(void)
 {
 	const uint32_t FB = 0x3da800;
