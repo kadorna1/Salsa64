@@ -15,6 +15,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   the pause menu, and an optional Hardcore mode (no save states, no cheats).
   Network requests run on their own thread over the PS3 HTTPS stack. See
   `docs/retroachievements.md`. Texts are machine-translated in all 18 languages.
+- **ZIP ROM loading:** the browser detects `.zip` archives, reads the embedded N64 header for the game list, and extracts the first supported `.z64`/`.v64`/`.n64` member using zlib. Deflate and stored entries are supported; full extraction checks the uncompressed size and CRC-32 before launch.
 
 ## [0.2.13] — 2026-10-26
 
