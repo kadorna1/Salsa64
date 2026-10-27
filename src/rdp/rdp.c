@@ -2224,7 +2224,8 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 	uint32_t bpp = gt->src_siz == 2u ? 2 : gt->src_siz == 1u && gt->where == GFX_TEX_TARGET ? 1 : 0;
 	if (rdp.fbfx < 1 || !gt->src_addr || !bpp)
 		return false;
-	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
+	uint32_t x0 = 0, y0 = 0;
+	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, (int *)&x0, (int *)&y0);
 	/* CopyColorFromRDRAM must run before deciding whether to sample a live
 	 * target from the RSX or decode it from RDRAM. rdp_targets_texture()
 	 * deliberately returns RDRAM for CPU-owned targets, so find the target
