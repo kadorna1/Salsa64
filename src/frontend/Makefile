@@ -88,10 +88,11 @@ gfx2_STACK_ARGS := --edge gfx_dl_f3dex2:cbfd_command $(GFX_STACK_LIBC)
 gfx3_STACK_ARGS := --edge gfx_dl_f3d:f5_command $(GFX_STACK_LIBC)
 gfx4_STACK_ARGS := $(GFX_STACK_LIBC)
 gfx5_STACK_ARGS := --ignore gfx_dl_f3d --edge gfx_dl_f3dex2:acclaim_command $(GFX_STACK_LIBC)
-CFLAGS  := -I$(PS3DEV)/portlibs/ppu/include -ffp-contract=off -fno-math-errno
+ZLIB_PREFIX ?= $(PS3DEV)/portlibs/ppu
+CFLAGS  := -I$(ZLIB_PREFIX)/include -ffp-contract=off -fno-math-errno
 LIBS    := -lrsx -lgcm_sys -laudio -lio -lfontFT -lfont -lsysutil -lhttp -lhttputil -lssl -lnetctl -lnet -lsysmodule -lrt -llv2 -lm -lz
 # Caché del recompilador al final del segmento de texto (docs/rec-ppe.md).
-LDFLAGS := -L$(PS3DEV)/portlibs/ppu/lib -T $(abspath $(R))/mk/rec-cache.ld -T lv2.ld
+LDFLAGS := -L$(ZLIB_PREFIX)/lib -T $(abspath $(R))/mk/rec-cache.ld -T lv2.ld
 
 include $(R)/mk/ps3.mk
 
