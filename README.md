@@ -99,6 +99,10 @@ Full guide (in Spanish): [docs/uso-ps3.md](docs/uso-ps3.md).
 - Optional text files in `/dev_hdd0/salsa64` change the button mapping
   (`controles.cfg`), the save type per game (`guardado.cfg`), audio
   (`audio.cfg`) and overscan cropping (`overscan.cfg`); see the guide.
+- **RetroAchievements** (off by default, Options). Regular achievements work.
+  Salsa64's Hardcore mode is **not yet approved by RetroAchievements**: approval
+  requires 6 public months and will be requested in April 2027.
+  See `docs/retroachievements.md`.
 
 ## Reporting problems and compatibility
 
