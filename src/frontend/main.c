@@ -220,6 +220,7 @@
 #include "cart_plastic_bin.h"
 #include "cart_label_bin.h"
 #include "frontend/cartucho3d.h"
+#include "frontend/thumbs.h"
 
 SYS_PROCESS_PARAM(1001, 0x100000);
 
@@ -5206,6 +5207,7 @@ static int ui_init_once(void)
 		{
 			ui_cart_icon_load();
 			ui_cart3d_load();
+			thumbs_init(COVERS_DIR);
 		}
 	}
 	/* La salida puede cambiar sin reiniciar («Aplicar ahora»). */
@@ -6272,7 +6274,10 @@ static void download_poll(uint32_t buttons)
 		menu_set_status(&menu, "%s: %u nuevas, %u ya estaban, %u sin coincidencia", tr(st.what ? "Trucos" : "Carátulas"),
 				st.got, st.have, st.missing);
 		if (!st.what && st.got)
+		{
 			menu.cover_rom = cover_tried = -1;  /* a buscar las carátulas de nuevo */
+			thumbs_forget_missing();
+		}
 	}
 }
 
@@ -6286,6 +6291,8 @@ static void menu_show(const char *shot)
 	if (!seda)
 		seda_release();
 	menu.cart_icon = ui_cart_icon;
+	thumbs_frame();
+	menu.thumb = thumbs_ready() ? thumbs_get : NULL;
 	/* Cartucho 3D en la fila elegida; su etiqueta lleva la carátula cuando ya cargó. */
 	menu.cart3d = cartucho3d_ready() ? cartucho3d_draw : NULL;
 	if (menu.cart3d) {

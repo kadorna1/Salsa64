@@ -1231,11 +1231,23 @@ static void icon_body(float x, float y, float s, float a)
 /* El cartucho: el render del modelo (ranura MENU_CART_SLOT, 256 × 128: el
  * cartucho entero con su sticker a la izquierda), un poco más grande que los
  * otros íconos; sin él, el plano. */
-static void icon_cart(const struct menu *m, float x, float y, float s, float a)
+/* El sticker del sprite de frente, como fracción del cuadrado de 128 × 128. */
+#define STICKER_X0 0.230f
+#define STICKER_X1 0.733f
+#define STICKER_Y0 0.219f
+#define STICKER_Y1 0.785f
+
+static void icon_cart(const struct menu *m, const struct rom_entry *rom, float dist, float x, float y, float s, float a)
 {
 	if (m->cart_icon) {
 		float c = s * 1.3f, cx = x + (s - c) * 0.5f, cy = y + (s - c) * 0.5f;
 		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 0.0f, 0.0f, 128.0f, 128.0f, rgba(0xFFFFFFu, a));
+		float t[4];
+		/* La carátula, en el sticker (con las esquinas redondeadas de la miniatura). */
+		if (m->thumb && rom && a > 0.3f && m->thumb(m->thumb_user, rom, dist, t))
+			rsxkit_ui_image_part(MENU_THUMBS_SLOT, cx + STICKER_X0 * c, cy + STICKER_Y0 * c,
+					     (STICKER_X1 - STICKER_X0) * c, (STICKER_Y1 - STICKER_Y0) * c, t[0], t[1], t[2], t[3],
+					     rgba(0xFFFFFFu, a));
 		return;
 	}
 	icon_body(x, y, s, a);
@@ -1356,6 +1368,9 @@ struct row {
 	const char *value;  /* a la derecha del título (opciones) */
 };
 
+/* La ROM de la fila que se dibuja (para su miniatura); NULL si no es una ROM. */
+static const struct rom_entry *row_rom;
+
 static void draw_row(const struct menu *m, const struct row *r, float d, float x, float W, float H, float a)
 {
 	float ad = fabsf(d), k = smooth(1.0f - ad), y = row_y(d, H);
@@ -1372,7 +1387,7 @@ static void draw_row(const struct menu *m, const struct row *r, float d, float x
 	if (r->icon == 0 && m->cart3d && k > 0.5f)
 		icon_cart3d(m, x, y - s * 0.5f, s, alpha);
 	else if (r->icon == 0)
-		icon_cart(m, x, y - s * 0.5f, s, alpha);
+		icon_cart(m, row_rom, ad, x, y - s * 0.5f, s, alpha);
 	else if (r->icon == 1)
 		icon_options(x, y - s * 0.5f, s, alpha);
 	else if (r->icon == 3)
@@ -1947,7 +1962,9 @@ static void games_column(const struct menu *m, float x, float W, float H, float 
 	for (int i = first; i <= last; i++) {
 		float d = i - m->pos;
 		struct row r = { 0 };
+		row_rom = NULL;
 		if (i < (int)m->list->count) {
+			row_rom = m->list->e[i].kind == ROMLIST_ROM ? &m->list->e[i] : NULL;
 			const struct rom_entry *e = &m->list->e[i];
 			r.title = romlist_display_title(e);
 			r.label = label_color(r.title);

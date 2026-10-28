@@ -13,6 +13,7 @@
 #include <rsxkit/ui.h>
 
 #include "frontend/cartucho_mesh.h"
+#include "frontend/thumbs_calc.h"
 #include "test.h"
 
 static uint8_t *load(size_t *n)
@@ -216,6 +217,73 @@ static void ui_hook(void)
 	rsxkit_ui_batch(NULL, 0, 0.0f, 0.0f);
 }
 
+static void thumb_scaling(void)
+{
+	/* Mitad izquierda negra, derecha blanca, 200 × 300: la reducción conserva la raya. */
+	static uint8_t src[200 * 300 * 4], dst[THUMB_BYTES];
+	for (unsigned y = 0; y < 300; y++)
+		for (unsigned x = 0; x < 200; x++) {
+			uint8_t *p = src + ((size_t)y * 200 + x) * 4;
+			p[0] = p[1] = p[2] = x < 100 ? 0 : 255;
+			p[3] = 255;
+		}
+	thumb_scale(src, 200, 300, dst);
+	const uint8_t *mid = dst + ((size_t)64 * THUMB_W + 20) * 4, *right = dst + ((size_t)64 * THUMB_W + 70) * 4;
+	CHECK_EQ(mid[0], 0);
+	CHECK_EQ(mid[3], 255);
+	CHECK_EQ(right[0], 255);
+	/* Las esquinas son transparentes y el borde del medio de cada lado, opaco. */
+	CHECK_EQ(dst[3], 0);
+	CHECK_EQ(dst[((size_t)(THUMB_W - 1)) * 4 + 3], 0);
+	CHECK_EQ(dst[((size_t)(THUMB_H - 1) * THUMB_W) * 4 + 3], 0);
+	CHECK_EQ(dst[((size_t)(THUMB_H - 1) * THUMB_W + THUMB_W - 1) * 4 + 3], 0);
+	CHECK_EQ(dst[((size_t)64 * THUMB_W) * 4 + 3], 255);
+	CHECK_EQ(dst[((size_t)(THUMB_W / 2)) * 4 + 3], 255);
+	/* Una fuente más chica que la casilla también sirve. */
+	static uint8_t tiny[4 * 4 * 4];
+	memset(tiny, 200, sizeof tiny);
+	thumb_scale(tiny, 4, 4, dst);
+	CHECK_EQ(dst[((size_t)64 * THUMB_W + 48) * 4], 200);
+}
+
+static void thumb_lru(void)
+{
+	struct thumb_cache c;
+	thumb_cache_init(&c);
+	CHECK_EQ(thumb_cache_find(&c, 7, 1), -1);
+	int seen[THUMB_CELLS] = { 0 };
+	for (uint32_t k = 1; k <= THUMB_CELLS; k++) {
+		int cell = thumb_cache_assign(&c, 100 + k, k);
+		CHECK(cell >= 0 && cell < THUMB_CELLS && !seen[cell]);
+		seen[cell] = 1;
+	}
+	CHECK_EQ(thumb_cache_find(&c, 103, 20), 2);  /* la tercera: usada en el cuadro 20 */
+	/* Una décima desaloja la menos usada (la primera, cuadro 1), no la que acaba de usarse. */
+	int cell = thumb_cache_assign(&c, 999, 21);
+	CHECK_EQ(cell, 0);
+	CHECK_EQ(thumb_cache_find(&c, 101, 22), -1);
+	CHECK(thumb_cache_find(&c, 103, 22) >= 0);
+	/* Lo usado en el cuadro en curso se desaloja al final. */
+	for (int i = 0; i < THUMB_CELLS; i++)
+		c.stamp[i] = 50;
+	c.stamp[5] = 49;
+	CHECK_EQ(thumb_cache_assign(&c, 555, 50), 5);
+	CHECK(c.hits >= 2 && c.misses >= 2);
+	/* Los que no tienen carátula se recuerdan en un anillo y se pueden olvidar. */
+	for (uint32_t k = 1; k <= THUMB_MISSING + 5; k++)
+		thumb_cache_mark_missing(&c, 1000 + k);
+	CHECK(!thumb_cache_is_missing(&c, 1001));            /* el más viejo salió */
+	CHECK(thumb_cache_is_missing(&c, 1000 + THUMB_MISSING + 5));
+	thumb_cache_forget_missing(&c);
+	CHECK(!thumb_cache_is_missing(&c, 1000 + THUMB_MISSING + 5));
+	CHECK(thumb_key("a") != 0 && thumb_key("a") != thumb_key("b"));
+	/* Las casillas caben en el atlas, separadas. */
+	uint32_t x, y;
+	thumb_cell_origin(THUMB_CELLS - 1, &x, &y);
+	CHECK(x + THUMB_W <= THUMB_ATLAS_W && y + THUMB_H <= THUMB_ATLAS_H);
+	CHECK(THUMB_STEP_X > THUMB_W && THUMB_STEP_Y > THUMB_H);
+}
+
 void t_suite_cartucho(void)
 {
 	RUN(parse);
@@ -224,4 +292,6 @@ void t_suite_cartucho(void)
 	RUN(painter);
 	RUN(label);
 	RUN(ui_hook);
+	RUN(thumb_scaling);
+	RUN(thumb_lru);
 }

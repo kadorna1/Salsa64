@@ -40,6 +40,7 @@
 #define MENU_REPEAT_FAST_AFTER_US 1500000u
 #define MENU_REPEAT_FAST_US       45000u
 #define MENU_STATUS_MAX           120
+#define MENU_THUMBS_SLOT          2   /* atlas de miniaturas de carátulas (thumbs.h) */
 #define MENU_CART_SLOT            1   /* ranura del 2D con el ícono del cartucho (la 0 es la carátula) */
 #define MENU_DIRS_MAX             4
 
@@ -188,6 +189,11 @@ enum { MENU_OPT_WAVES, MENU_OPT_OVERSCAN, MENU_OPT_ASPECT, MENU_OPT_FILTER, MENU
  * «Densidad», solo con el CRT de máscara de sombra. */
 
 typedef void (*menu_cart3d_fn)(void *user, float cx, float cy, float size, float alpha);
+struct rom_entry;
+/* La miniatura de la carátula de una ROM (main.c: thumbs.h): su rectángulo
+ * (x, y, w, h en píxeles) en la ranura MENU_THUMBS_SLOT del 2D, o false si
+ * no está (aún, o no hay). `dist` es la distancia de la fila a la elegida. */
+typedef bool (*menu_thumb_fn)(void *user, const struct rom_entry *e, float dist, float rect[4]);
 
 struct menu {
 	const struct romlist *list;
@@ -245,6 +251,8 @@ struct menu {
 	 * un gancho del 2D con el centro, el alto y la opacidad; NULL, el sprite. */
 	menu_cart3d_fn cart3d;
 	void *cart3d_user;
+	menu_thumb_fn thumb;   /* miniaturas de las filas que no son la elegida; NULL, ninguna */
+	void *thumb_user;
 	bool cart_icon;        /* el ícono del cartucho está en la ranura MENU_CART_SLOT del 2D */
 	/* Arriba a la derecha, chico, bajo el contador (los pone main.c): la
 	 * versión corta (version.h) y, en un paquete de prueba, «título ·
