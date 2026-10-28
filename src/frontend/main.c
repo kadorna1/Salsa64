@@ -5528,6 +5528,26 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	char title[21];
 	memcpy(title, rom + 0x20, 20);
 	title[20] = '\0';
+	/* GLideN64's equivalent per-game setting is EnableCopyColorFromRDRAM:
+	 * Dr. Mario 64 needs CPU-updated pixels uploaded into a reused color
+	 * image. Normalize punctuation/spaces so regional title variants match. */
+	char title_compact[21];
+	size_t title_compact_len = 0;
+	for (unsigned k = 0; k < 20 && title[k]; k++) {
+		unsigned char ch = (unsigned char)title[k];
+		if (ch >= 'a' && ch <= 'z')
+			ch = (unsigned char)(ch - 'a' + 'A');
+		if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'))
+			title_compact[title_compact_len++] = (char)ch;
+	}
+	title_compact[title_compact_len] = '\0';
+	bool dr_mario64 = strstr(title_compact, "DRMARIO64") != NULL;
+	salsa64_rdp_copy_color_from_rdram(dr_mario64);
+	/* Avoid stale main-framebuffer RSX→RDRAM copy-back for this game, while
+	 * retaining the other framebuffer effects. */
+	salsa64_rdp_copy_color_to_rdram(!dr_mario64);
+	if (dr_mario64)
+		salsa64_log("compatibilidad: Dr. Mario 64 CopyColorFromRDRAM activo; espejo automático del framebuffer principal desactivado");
 	salsa64_log("ROM %s \"%s\", %u bytes, %s, entrada 0x%08X, TV %s", source, title, rom_size,
 		    boot_info.kind == SALSA64_BOOT_ELF ? "ELF (IPL3 libre)" : "carga plana", boot_info.entry,
 		    boot_info.tv == SALSA64_TV_PAL ? "PAL" : boot_info.tv == SALSA64_TV_MPAL ? "MPAL" : "NTSC");
