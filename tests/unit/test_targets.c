@@ -397,21 +397,32 @@ static void targets_texture_synced_surface(void)
 	uint32_t x0, y0;
 	CHECK_EQ(rdp_targets_texture(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
 	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, true, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(slot, fb);
 	rdp_targets_rdram_uploaded(&s, fb);
 	CHECK(!s.t[fb].cpu_owned);
-	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RSX);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, false, &slot, &x0, &y0), RDP_TEXSRC_RSX);
 	CHECK_EQ(slot, fb);
 	for (int k = 0; k < RDP_TARGETS_FRESH + 2; k++)
 		rdp_targets_task(&s);
 	CHECK_EQ(rdp_targets_texture(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
 	CHECK_EQ(slot, fb);
-	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, false, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
 	CHECK_EQ(slot, fb);
-	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, false, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
 	CHECK_EQ(slot, fb);
-	CHECK_EQ(s.tex_rdram, 4);
+	CHECK_EQ(s.tex_rdram, 5);
 	CHECK_EQ(s.tex_rsx, 1);
 	CHECK_EQ(s.tex_self, 0);
+	/* The opt-in profile may sample stale data after reconciling RDRAM,
+	 * but must still reject CPU-owned targets. */
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, true, &slot, &x0, &y0), RDP_TEXSRC_RSX);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, true, &slot, &x0, &y0), RDP_TEXSRC_SELF);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(s.tex_rdram, 5);
+	CHECK_EQ(s.tex_rsx, 2);
+	CHECK_EQ(s.tex_self, 1);
 }
 
 /* La misma memoria con otro tamaño de texel. Majora's Mask: la pausa usa
