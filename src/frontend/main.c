@@ -6389,6 +6389,9 @@ static bool direct_launch(void)
  * en el mismo orden de siempre. */
 #define INTRO_OFF_PATH  SALSA64_DATA_DIR "/sin-intro"
 #define INTRO_TEST_PATH SALSA64_DATA_DIR "/intro-prueba"
+#define INTRO_WAIT_PATH SALSA64_DATA_DIR "/intro-espera"  /* ms de negro tras videoConfigure antes del encendido */
+#define VIDEO_KEEP_PATH SALSA64_DATA_DIR "/video-sin-reconfigurar"
+#define INTRO_WAIT_DEFAULT_MS 1500  /* tras un videoConfigure: lo que tarda un monitor en volver a dar imagen (a medir) */
 #define PRELOAD_PRIO   1500
 #define PRELOAD_STACK  0x100000
 
@@ -6464,6 +6467,66 @@ static void preload_finish(void)
  * aplicación desde el XMB no cuentan). */
 static bool intro_was_shown;
 
+/* Cuatro píxeles del búfer trasero (antes del flip) para el log: lo que
+ * se presenta de verdad, en un momento de la secuencia. */
+static void intro_probe(const char *what)
+{
+	const rsxkit_screen *sc = rsxkit_screen_info();
+	uint32_t pitch;
+	rsxkit_finish();
+	const volatile uint32_t *px = rsxkit_back_buffer(&pitch);
+	uint32_t w = pitch / 4, sum = 0, n = 0;
+	for (uint32_t y = sc->height / 8; y < sc->height; y += sc->height / 8)
+		for (uint32_t x = sc->width / 4; x < sc->width - sc->width / 4; x += sc->width / 8, n++)
+			sum += (px[y * w + x] >> 8 & 0xFF) + (px[y * w + x] >> 16 & 0xFF) + (px[y * w + x] & 0xFF);
+	salsa64_log("intro: píxeles de «%s»: centro %08x, (%u,%u) %08x, luz media de la rejilla %u/255", what,
+		    px[sc->height / 2 * w + sc->width / 2], sc->width / 2, sc->height / 8, px[sc->height / 8 * w + sc->width / 2],
+		    n ? sum / (3 * n) : 0);
+}
+
+/* Negro hasta `ms` después del videoConfigure de rsxkit_init: el monitor
+ * puede quedarse sin imagen unos segundos al renegociar el HDMI. Sale al
+ * saltarla (true) o al cerrar la aplicación. */
+static bool intro_wait_black(void)
+{
+	const rsxkit_video_boot *vb = rsxkit_video_boot_info();
+	int ms = vb->configured ? INTRO_WAIT_DEFAULT_MS : 0;
+	FILE *f = fopen(INTRO_WAIT_PATH, "r");
+	if (f) {
+		int v;
+		if (fscanf(f, "%d", &v) == 1 && v >= 0 && v <= 20000)
+			ms = v;
+		fclose(f);
+	}
+	uint64_t until = (vb->configured_us ? vb->configured_us : (uint64_t)sysGetSystemTime()) + (uint64_t)ms * 1000u;
+	uint64_t t0 = sysGetSystemTime();
+	uint32_t held = 0xFFFFFFFFu;
+	bool first = true, skip = false;
+	while (!app_quit && (uint64_t)sysGetSystemTime() < until && !skip) {
+		beat.pres++;
+		beat.pres_at = "intro: espera";
+		sysutil_check();
+		uint32_t buttons = 0;
+		update_pads(&buttons);
+		if (first)
+			held = buttons;
+		first = false;
+		if (buttons & ~held & ((1u << SALSA64_DS3_CROSS) | (1u << SALSA64_DS3_CIRCLE)))
+			skip = true;
+		held = buttons;
+		if (pausectl_overlay(&pause_ctl) && !rsxkit_frame_ready()) {
+			sysUsleep(OVERLAY_US);
+			continue;
+		}
+		frame_begin("intro: espera, flip anterior");
+		frame_end("intro: espera, flip");
+	}
+	salsa64_log("intro: espera en negro de %d ms tras el video (videoConfigure %s): esperó %llu ms%s", ms,
+		    vb->configured ? "llamado" : "omitido", (unsigned long long)((sysGetSystemTime() - t0) / 1000),
+		    skip ? ", saltada" : "");
+	return skip;
+}
+
 static void intro_run(void)
 {
 	if (!pre.threaded || !ui_ok)
@@ -6473,8 +6536,11 @@ static void intro_run(void)
 		return;
 	}
 	intro_was_shown = true;
+	bool skip = intro_wait_black();
 	uint32_t held = 0xFFFFFFFFu;
-	bool first = true, skip = false;
+	bool first = true;
+	unsigned shown = 0;
+	bool probed_static = false, probed_logo = false;
 	while (!app_quit) {
 		beat.pres++;
 		beat.pres_at = "intro: sysutil";
@@ -6491,10 +6557,18 @@ static void intro_run(void)
 			sysUsleep(OVERLAY_US);
 			continue;
 		}
-		if (intro_update(pre.done != 0, skip) == INTRO_DONE)
+		enum intro_phase cur = intro_update(pre.done != 0, skip);
+		if (cur == INTRO_DONE)
 			break;
 		frame_begin("intro: flip anterior");
 		bool ok = intro_draw();
+		/* Sondeo de lo que va a la pantalla: encendido, estática y logo. */
+		if (++shown == 20 && cur == INTRO_POWER)
+			intro_probe("encendido");
+		if (cur == INTRO_STATIC && !probed_static && (probed_static = true))
+			intro_probe("estática");
+		if (cur == INTRO_LOGO && !probed_logo && (probed_logo = true))
+			intro_probe("logo");
 		frame_end("intro: flip");
 		first = false;
 		if (!ok)
@@ -6893,6 +6967,14 @@ int main(int argc, char **argv)
 	video_scale_configured = video_load(&video_cfg);
 	rsxkit_config vcfg;
 	const rsxkit_config *vc = video_config_for(video_cfg.resolution, &vcfg);
+	if (file_exists(VIDEO_KEEP_PATH)) {
+		/* Experimental: no videoConfigure si el modo ya es el del XMB. */
+		if (!vc) {
+			memset(&vcfg, 0, sizeof vcfg);
+			vc = &vcfg;
+		}
+		vcfg.keep_mode = 1;
+	}
 	int rc = rsxkit_init(vc);
 	if (rc == RSXKIT_OK)
 		rsxkit_set_wait_hook(rsx_wait_hook, NULL, RSX_HOOK_US, RSX_HOOK_PERIOD_US);
@@ -6905,6 +6987,11 @@ int main(int argc, char **argv)
 	const rsxkit_screen *sc = rsxkit_screen_info();
 	salsa64_log("RSX listo: %ux%u, tele %s%s", sc->width, sc->height, sc->aspect > 1.5f ? "16:9" : "4:3",
 		    vc ? " (video.cfg: 1080)" : "");
+	{
+		const rsxkit_video_boot *vb = rsxkit_video_boot_info();
+		salsa64_log("video: la salida estaba en el modo %d, se eligió el %d, %s", vb->prev_mode, vb->mode,
+			    vb->configured ? "videoConfigure llamado" : "modo conservado sin videoConfigure (video-sin-reconfigurar)");
+	}
 	if (file_exists(SALSA64_DATA_DIR "/filtros-autoprueba")) {
 		bool ok = salsa64_filters_selftest();
 		salsa64_log("RESULTADO filtros: %s", ok ? "OK" : "FALLO");
