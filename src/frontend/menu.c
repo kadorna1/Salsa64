@@ -22,6 +22,7 @@
 #include "core/rom.h"
 #include "core/save.h"
 #include "padmap.h"
+#include "prompts.h"
 
 #define BIT(b) (1u << (b))
 #define DIRS   (BIT(SALSA64_DS3_UP) | BIT(SALSA64_DS3_DOWN) | BIT(SALSA64_DS3_LEFT) | BIT(SALSA64_DS3_RIGHT))
@@ -1159,6 +1160,17 @@ static void stext(float x, float y, const char *s, float scale, uint32_t rgb, fl
 	rsxkit_ui_text_fit(x, y, s, scale, rgba(rgb, a), max);
 }
 
+/* Como stext, con íconos de botones en lugar de los símbolos (prompts.h). */
+static void ptext(float x, float y, const char *s, float scale, uint32_t rgb, float a, float max)
+{
+	if (a <= 0.004f)
+		return;
+	s = tr(s);
+	float off = scale >= 2.0f ? 2.0f : 1.5f;
+	prompt_draw(x + off, y + off, s, scale, rgba(0x000000u, a * 0.55f), true, max);
+	prompt_draw(x, y, s, scale, rgba(rgb, a), false, max);
+}
+
 static uint32_t hsv(float h, float s, float v)
 {
 	float c = v * s, hp = fmodf(h, 360.0f) / 60.0f, x = c * (1.0f - fabsf(fmodf(hp, 2.0f) - 1.0f)), m = v - c;
@@ -1283,10 +1295,11 @@ static void ui_letter(float cx, float cy, const char *g, float sc, uint32_t rgb,
 }
 
 /* El botón de N64 de la fila `i` de la página de controles (el orden de
- * salsa64_padmap: A, B, Z, Start, L, R, cruceta ↑↓←→, C ↑↓←→; y el stick). */
-static void icon_n64(float x, float y, float s, int i, float a)
+ * salsa64_padmap: A, B, Z, Start, L, R, cruceta ↑↓←→, C ↑↓←→; y el stick),
+ * con los íconos de GameCube de Kenney (prompts.h); sin ellos, con
+ * rectángulos y discos. */
+static void icon_n64_plain(float x, float y, float s, int i, float a)
 {
-	icon_body(x, y, s, a);
 	float cx = x + s * 0.5f, cy = y + s * 0.5f, r = s * 0.32f, sc = s / 24.0f;
 	static const char *const arrows[] = { "↑", "↓", "←", "→" };
 	if (i == 0 || i == 1 || i == 3) {  /* A azul, B verde, Start rojo */
@@ -1311,6 +1324,27 @@ static void icon_n64(float x, float y, float s, int i, float a)
 		ui_disc(cx, cy, r, 0xA4AAB0u, a);
 		ui_disc(cx, cy, r * 0.45f, 0x6F757Bu, a);
 	}
+}
+
+static void icon_n64(float x, float y, float s, int i, float a)
+{
+	icon_body(x, y, s, a);
+	if (!prompts_enabled()) {
+		icon_n64_plain(x, y, s, i, a);
+		return;
+	}
+	static const unsigned char ids[] = {
+		PROMPT_N64_A, PROMPT_N64_B, PROMPT_N64_Z, PROMPT_N64_START, PROMPT_N64_L, PROMPT_N64_R,
+		PROMPT_N64_DPAD_UP, PROMPT_N64_DPAD_DOWN, PROMPT_N64_DPAD_LEFT, PROMPT_N64_DPAD_RIGHT,
+		PROMPT_N64_C_UP, PROMPT_N64_C_DOWN, PROMPT_N64_C_LEFT, PROMPT_N64_C_RIGHT, PROMPT_N64_STICK,
+	};
+	int id = ids[i >= 0 && i < (int)(sizeof ids) ? i : (int)sizeof ids - 1];
+	float z = s * 0.84f;
+	/* El tinte (gris de Z, L y R) multiplica el alfa de a. */
+	uint32_t t = prompt_table[id].tint;
+	uint32_t al = (uint32_t)(clampf(a, 0.0f, 1.0f) * (float)(t & 0xFFu) + 0.5f);
+	rsxkit_ui_image_part(PROMPTS_SLOT, x + (s - z) * 0.5f, y + (s - z) * 0.5f, z, z, prompt_table[id].x, prompt_table[id].y,
+			     PROMPT_CELL, PROMPT_CELL, (t & 0xFFFFFF00u) | al);
 }
 
 static float row_y(float d, float H)
@@ -1368,8 +1402,12 @@ static void draw_row(const struct menu *m, const struct row *r, float d, float x
 		stext(tx + tw + 24.0f, ty, r->value, scale, C_ACCENT, alpha, 0);
 	}
 	float ks = smooth((k - 0.35f) / 0.65f);
-	if (r->sub && ks > 0.0f)
-		stext(tx, ty + th + 6.0f, r->sub, 1.5f, C_DIM, alpha * ks, W * 0.53f - tx);
+	if (r->sub && ks > 0.0f) {
+		if (r->icon != 0)
+			ptext(tx, ty + th + 6.0f, r->sub, 1.5f, C_DIM, alpha * ks, W * 0.53f - tx);
+		else
+			stext(tx, ty + th + 6.0f, r->sub, 1.5f, C_DIM, alpha * ks, W * 0.53f - tx);
+	}
 }
 
 static const char *location(const char *path, char *buf, size_t n)
@@ -1688,9 +1726,9 @@ static void panel(const struct menu *m, float W, float H, float a)
 		stext(x, y + 30.0f, control_button_value(m, m->control_sel), 2.0f, C_ACCENT, a, PANEL_MAX(2.0f));
 		if (m->control_capture) {
 			stext(x, py + ph - 70.0f, tr("Pulsa uno o dos botones"), 1.35f, C_WARN, a, PANEL_MAX(1.35f));
-			stext(x, py + ph - 42.0f, tr("START cancela · SELECT sin asignar"), 1.2f, C_DIM, a, PANEL_MAX(1.2f));
+			ptext(x, py + ph - 42.0f, tr("START cancela · SELECT sin asignar"), 1.2f, C_DIM, a, PANEL_MAX(1.2f));
 		} else if (m->control_sel == MENU_CONTROL_STICK) {
-			stext(x, py + ph - 52.0f, tr("× alterna el stick analógico"), 1.35f, C_DIM, a, PANEL_MAX(1.35f));
+			ptext(x, py + ph - 52.0f, tr("× alterna el stick analógico"), 1.35f, C_DIM, a, PANEL_MAX(1.35f));
 		}
 #undef PANEL_MAX
 		return;
@@ -1865,7 +1903,7 @@ static void panel(const struct menu *m, float W, float H, float a)
 			if (!text[i])
 				dim = true;
 			else
-				stext(x, y, text[i], dscale, dim ? C_DIM : C_TEXT, ca, lmax);
+				ptext(x, y, text[i], dscale, dim ? C_DIM : C_TEXT, ca, lmax);
 		}
 		if (value)
 			stext(x, y + 16.0f, value, tscale, C_ACCENT, ca, 0);
@@ -2067,15 +2105,15 @@ void menu_frame(struct menu *m, float lw, float lh, uint64_t now_us)
 
 	/* Pie: mensaje, botones y cómo volver. */
 	if (m->status[0])
-		stext(W * 0.06f, H * 0.815f, m->status, 1.6f, C_WARN, a, W * 0.88f);
-	stext(W * 0.06f, H * 0.865f,
+		ptext(W * 0.06f, H * 0.815f, m->status, 1.6f, C_WARN, a, W * 0.88f);
+	ptext(W * 0.06f, H * 0.865f,
 	      m->page == MENU_PAGE_CONTROLS ? tr("×  Asignar o elegir   ↑↓  Mover   ○  Volver")
 	      : m->page == MENU_PAGE_GAMES ? "×  Abrir   ↑↓  Elegir   □  Trucos   SELECT  Ajustes   △  Opciones"
 		      : m->page == MENU_PAGE_GAME ? "×  Cambiar      ↑↓  Elegir      ○  Volver"
 	      : m->page == MENU_PAGE_CHEATS ? "×  Activar o desactivar      ↑↓  Elegir      ○  Volver"
 					     : "×  Cambiar      ○  Volver",
 	      1.6f, C_TEXT, a, 0);
-	stext(W * 0.06f, H * 0.865f + 30.0f, "En el juego, START + SELECT abre el menú de pausa.", 1.35f, C_DIM, a, 0);
+	ptext(W * 0.06f, H * 0.865f + 30.0f, "En el juego, START + SELECT abre el menú de pausa.", 1.35f, C_DIM, a, 0);
 
 	if (m->loading) {
 		rsxkit_ui_rect(0, 0, W, H, rgba(0x000000u, 0.55f));

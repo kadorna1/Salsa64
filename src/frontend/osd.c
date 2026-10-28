@@ -13,6 +13,7 @@
 #include "cheats.h"
 #include "i18n.h"
 #include "pausectl.h"
+#include "prompts.h"
 #include "ra.h"
 
 static struct {
@@ -47,6 +48,12 @@ void osd_notice_clear(void)
 static float tw(const char *s, float sc)
 {
 	return rsxkit_ui_text_width(s, sc);
+}
+
+/* Pie con los botones como íconos (prompts.h), con la sombra que lleva el texto. */
+static void hint(float x, float y, const char *s, float sc, uint32_t rgba)
+{
+	prompt_draw(x, y, s, sc, rgba, false, 0.0f);
 }
 
 void osd_scanlines_set(int level, float x, float y, float w, float h, unsigned lines)
@@ -101,7 +108,7 @@ void osd_confirm_draw(const char *question, const char *answers, float lw, float
 	rsxkit_ui_rect(b.x - 2.0f, b.y - 2.0f, b.w + 4.0f, b.h + 4.0f, 0xFFFFFF60);
 	rsxkit_ui_rect(b.x, b.y, b.w, b.h, 0x141414F0);
 	rsxkit_ui_text(b.qx, b.qy, tr(question), b.qscale, 0xFFFFFFFF, 0);
-	rsxkit_ui_text(b.ax, b.ay, tr(answers), b.ascale, 0xC8C8C8FF, 0);
+	prompt_draw(b.ax, b.ay, tr(answers), b.ascale, 0xC8C8C8FF, false, 0.0f);
 	rsxkit_ui_end();
 }
 
@@ -142,8 +149,7 @@ void osd_cheats_draw(const struct cheat_set *cs, int sel, float lw, float lh)
 		snprintf(line, sizeof line, "%d / %u", sel + 1, rows);
 		rsxkit_ui_text(x + w - pad - tw(line, 1.5f), y + pad + 6.0f, line, 1.5f, 0xB0B0B0FF, 0);
 	}
-	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("×  Activar o desactivar     ↑↓  Elegir     ○  Cerrar"), 1.5f,
-		       0xC8C8C8FF, 0);
+	hint(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("×  Activar o desactivar     ↑↓  Elegir     ○  Cerrar"), 1.5f, 0xC8C8C8FF);
 	rsxkit_ui_end();
 }
 
@@ -193,8 +199,7 @@ void osd_achievements_draw(int sel, float lw, float lh)
 		rsxkit_ui_rect(x + w - 14.0f, y + pad + title_h, 4.0f, th, 0xFFFFFF20);
 		rsxkit_ui_rect(x + w - 14.0f, by, 4.0f, bh, 0xFFFFFFA0);
 	}
-	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("↑↓  Elegir     ○  Volver     START  Continuar"), 1.5f,
-		       0xC8C8C8FF, 0);
+	hint(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("↑↓  Elegir     ○  Volver     START  Continuar"), 1.5f, 0xC8C8C8FF);
 	rsxkit_ui_end();
 }
 
@@ -269,7 +274,7 @@ void osd_pause_menu_draw(const struct osd_pause_menu *m, float lw, float lh)
 			rsxkit_ui_text(vx, ry, val, sc, cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
 		}
 	}
-	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("×  Aceptar     ↑↓  Elegir     ○  Continuar"), 1.5f, 0xC8C8C8FF, 0);
+	hint(x + pad, y + h - pad - RSXKIT_FONT_H * 1.5f, tr("×  Aceptar     ↑↓  Elegir     ○  Continuar"), 1.5f, 0xC8C8C8FF);
 	rsxkit_ui_end();
 }
 
@@ -302,8 +307,7 @@ void osd_accessory_menu_draw(const struct osd_accessory_menu *m, float lw, float
 			rsxkit_ui_text(x + w - pad - tw(val, sc), ry, val, sc,
 				       cur ? 0x9CC8FFFF : 0xA8B4C4FF, 0);
 	}
-		rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.4f,
-		       tr("×  Cambiar      ↑↓  Elegir      ○  Volver"), 1.4f, 0xC8C8C8FF, 0);
+		hint(x + pad, y + h - pad - RSXKIT_FONT_H * 1.4f, tr("×  Cambiar      ↑↓  Elegir      ○  Volver"), 1.4f, 0xC8C8C8FF);
 	rsxkit_ui_end();
 }
 
@@ -340,7 +344,6 @@ void osd_image_menu_draw(const struct osd_image_menu *m, float lw, float lh)
 			   : m->scale_pending ? "La escala nueva se pone al seguir jugando." : NULL;
 	if (note)
 		rsxkit_ui_text(x + pad, fy, tr(note), 1.35f, m->sel == IM_FILTER ? 0xA0A0A0FF : 0x9CC8FFFF, 0);
-	rsxkit_ui_text(x + pad, y + h - pad - RSXKIT_FONT_H * 1.4f, tr("×  Cambiar      ↑↓  Elegir      ○  Volver"), 1.4f, 0xC8C8C8FF,
-		       0);
+	hint(x + pad, y + h - pad - RSXKIT_FONT_H * 1.4f, tr("×  Cambiar      ↑↓  Elegir      ○  Volver"), 1.4f, 0xC8C8C8FF);
 	rsxkit_ui_end();
 }
