@@ -13,7 +13,7 @@ include $(ROOT)/mk/rcheevos.mk
 CFLAGS  := -std=gnu11 -O2 -g -Wall -Wextra -Werror -ffp-contract=off -fno-math-errno -DAUD_DEBUG -DGFX_CENSUS \
            -I$(ROOT)/src -I$(ROOT)/lib/spukit/include -I$(CURDIR) -I$(ROOT)/lib/rsxkit/include $(RC_DEFS) $(RC_INC) $(SAN) $(EXTRA_CFLAGS)
 LDFLAGS := $(SAN) $(EXTRA_LDFLAGS)
-LDLIBS  := -lm -lz
+LDLIBS  := -lm -lz -pthread
 
 # lib/rsxkit/src/fpgen.c es el codificador de fragment programs del RSX:
 # C puro, sin PSL1GHT, probado aquí con un intérprete del microcódigo.

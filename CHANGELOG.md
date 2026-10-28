@@ -25,9 +25,12 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   all accepted. The log reports the mode, the page and cache sizes and, every
   5 s, cache misses and disk read times. A `rom-paginada` file in the data
   folder forces the paged mode for any ROM, and `rom-cache` sets the cache size
-  in MB. Tested on a real PS3 with B3313 (96 MB) at full speed; a cache miss
-  still waits for the hard disk, so short hitches are possible when a game
-  streams new data.
+  in MB. Tested on a real PS3 with B3313 (96 MB) at full speed. The disk is read
+  on a background thread: a miss queues the next pages too, so the emulation
+  thread no longer stops for the hard disk unless the data it needs is not on
+  its way yet (a `rom-lectura-sincrona` file in the data folder goes back to
+  blocking reads). On B3313 normal play does not touch the disk; entering a
+  new area can still wait a few hundred ms when the hard disk is slow to seek.
 - **"Silk" menu background** (Options > Background: Waves → Silk → No): three
   translucent fabric ribbons that twist and ripple, with glowing edges where
   the cloth turns sideways, small light specks drifting along them and a

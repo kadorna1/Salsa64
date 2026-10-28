@@ -315,6 +315,8 @@ SYS_PROCESS_PARAM(1001, 0x100000);
 #define ROM_HEAD     4096u                /* la cabecera y el IPL3, siempre en memoria */
 #define ROM_PAGED_FLAG SALSA64_DATA_DIR "/rom-paginada"  /* existe: aun las ROMs pequeñas van por fragmentos */
 #define ROM_CACHE_CFG  SALSA64_DATA_DIR "/rom-cache"     /* MB de la caché (1 a 128), una cifra */
+#define ROM_SYNC_FLAG  SALSA64_DATA_DIR "/rom-lectura-sincrona"  /* existe: sin hilo lector, cada fallo espera al disco */
+#define ROM_DEPTH      8u                 /* páginas que se piden por adelantado en segundo plano */
 #define FB_MAX_W     640
 #define FB_MAX_H     576
 #define STATS_US     5000000u
@@ -1576,6 +1578,10 @@ static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool for
 		return NULL;
 	}
 	rom_pg.clock_us = clock_us;
+	if (file_exists(ROM_SYNC_FLAG))
+		salsa64_log("ROM %s: rom-lectura-sincrona, sin hilo lector", path);
+	else if (salsa64_rompg_async_start(&rom_pg, ROM_DEPTH) != 0)
+		salsa64_log("ROM %s: no pude crear el hilo lector, la lectura queda síncrona", path);
 	rom_fp = f;
 	rom_head = head;
 	salsa64_log("ROM %s: %u bytes, por fragmentos (páginas de %u KB, caché de %u MB = %u páginas de %u en total)%s", path,
@@ -3520,14 +3526,18 @@ static void stats(uint64_t now)
 		    pad_poll.polls, pad_poll.max_gap_us / 1e3, n64.bus.pif.reads[0] - sw.pif_reads0,
 		    (n64.bus.pif.reads[0] - sw.pif_reads0) * 1e6 / dt);
 	if (n64.bus.rompg) {
-		uint64_t acc, miss, ra, us;
-		salsa64_rompg_window(n64.bus.rompg, &acc, &miss, &ra, &us);
-		salsa64_log("rom: por fragmentos, %llu lecturas, %llu fallos de caché y %llu páginas por adelantado en %.1f s "
-			    "(%.1f ms de lectura del disco, %.1f ms por página; la más lenta, %.1f ms); %llu MB leídos "
-			    "desde el arranque del juego, %llu errores",
-			    (unsigned long long)acc, (unsigned long long)miss, (unsigned long long)ra, dt / 1e6, us / 1e3,
-			    miss + ra ? us / 1e3 / (miss + ra) : 0.0, n64.bus.rompg->read_max_us / 1e3,
-			    (unsigned long long)(n64.bus.rompg->read_bytes >> 20), (unsigned long long)n64.bus.rompg->errs);
+		struct salsa64_rompg_win w;
+		const struct salsa64_rompg *rp = n64.bus.rompg;
+		salsa64_rompg_window(n64.bus.rompg, &w);
+		salsa64_log("rom: por fragmentos%s, %llu lecturas en %.1f s: %llu precargas acertadas, %llu esperas a páginas en "
+			    "camino (%.1f ms en total, la más larga %.1f ms), %llu fallos fríos (%.1f ms esperando), %llu "
+			    "páginas pedidas por adelantado; disco: %.1f ms de lectura, %.1f ms por página, la más lenta "
+			    "%.1f ms; %llu MB leídos desde el arranque del juego, %llu errores",
+			    rp->as ? " (lector en segundo plano)" : " (síncrono)", (unsigned long long)w.acc, dt / 1e6,
+			    (unsigned long long)w.pf_hit, (unsigned long long)w.wait_n, w.wait_us / 1e3,
+			    w.wait_max_us / 1e3, (unsigned long long)w.miss, w.cold_us / 1e3, (unsigned long long)w.ra,
+			    w.us / 1e3, w.miss + w.ra ? w.us / 1e3 / (w.miss + w.ra) : 0.0, rp->read_max_us / 1e3,
+			    (unsigned long long)(rp->read_bytes >> 20), (unsigned long long)rp->errs);
 		n64.bus.rompg->read_max_us = 0;
 	}
 	/* Cada microcódigo gráfico nuevo, una vez por juego: con su CRC, un
