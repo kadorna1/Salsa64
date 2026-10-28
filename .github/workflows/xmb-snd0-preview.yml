@@ -96,7 +96,7 @@ jobs:
           test -s build/salsa64/obj/pkg/SND0.AT3
           cmp assets/ps3/SND0.AT3 build/salsa64/obj/pkg/SND0.AT3
           python3 tools/check-snd0.py build/salsa64/obj/pkg/SND0.AT3 >> build/logs/snd0-validation.log
-          echo "SND0.AT3 staged byte-for-byte at the PKG root."
+          echo "SND0.AT3 staged byte-for-byte at the PKG root and validated as PS3-style ATRAC3."
 
       - name: Upload package and diagnostics
         if: always()
