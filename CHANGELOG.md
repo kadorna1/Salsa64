@@ -6,6 +6,8 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+## [0.2.14] — 2026-10-28
+
 ### Added
 - **Button icons in the menus:** the footer hints, panel help, pause menu and
   dialogs show DualShock 3 button icons (cross, circle, square, triangle, d-pad,
@@ -21,7 +23,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   the pause menu, and an optional Hardcore mode (no save states, no cheats).
   Network requests run on their own thread over the PS3 HTTPS stack. See
   `docs/retroachievements.md`. Texts are machine-translated in all 18 languages.
-- **ZIP ROM loading:** the browser detects `.zip` archives, reads the embedded N64 header for the game list, and extracts the first supported `.z64`/`.v64`/`.n64` member using zlib. Deflate and stored entries are supported; full extraction checks the uncompressed size and CRC-32 before launch.
+- **ZIP ROM loading** (thanks to **kadorna1**, #48): the browser detects `.zip` archives, reads the embedded N64 header for the game list, and extracts the first supported `.z64`/`.v64`/`.n64` member using zlib. Deflate and stored entries are supported; full extraction checks the uncompressed size and CRC-32 before launch.
 - **ROMs of more than 64 MB** (hacks and homebrew; up to the 252 MB the cartridge
   bus can address, issue #13): ROMs bigger than 64 MB are no longer rejected.
   They stay on the disk and the emulator reads 256 KB pages on demand into a
