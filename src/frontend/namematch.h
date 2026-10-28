@@ -10,6 +10,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* Busca en `dir` un archivo con extensión `ext` («.png», sin distinguir
  * mayúsculas) cuyo nombre, sin lo que va entre () y [] ni signos, sea el de la
@@ -30,5 +31,21 @@ bool name_find(const char *dir, const char *ext, const char *rom_name, const cha
  * servidor) en lugar de una carpeta: deja el nombre elegido en `name`. */
 bool name_find_list(const char *list, size_t len, const char *ext, const char *rom_name, const char *title,
 		    const char *code, size_t min_key, char *name, size_t size);
+
+/* Una carpeta leída una sola vez: nombres con la extensión `ext` y sus claves ya
+ * hechas, para buscar sin volver al disco (y sin normalizar cada nombre en cada
+ * búsqueda). NULL si no se pudo abrir la carpeta. Hasta 8192 nombres y 2 MB;
+ * con 1000 carátulas son ~100 KB. */
+struct name_index;
+struct name_index *name_index_build(const char *dir, const char *ext);
+void name_index_free(struct name_index *x);
+size_t name_index_count(const struct name_index *x);
+size_t name_index_bytes(const struct name_index *x);  /* memoria reservada */
+/* <base><ext> tal cual o con otras mayúsculas (el nombre del archivo, en `name`). */
+bool name_index_exact(const struct name_index *x, const char *ext, const char *base, size_t base_len, char *name,
+		      size_t size);
+/* Como name_find, sobre el índice. */
+bool name_index_find(const struct name_index *x, const char *ext, const char *rom_name, const char *title,
+		     const char *code, size_t min_key, char *name, size_t size);
 
 #endif

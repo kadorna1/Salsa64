@@ -21,7 +21,7 @@
 
 /* RUNNING lo hace el hilo; DONE_* lo recoge thumbs_frame; BIGWAIT: la carátula
  * completa está en `src` esperando a thumbs_big_poll. */
-enum { JOB_IDLE, JOB_RUNNING, JOB_DONE_OK, JOB_DONE_NONE, JOB_DONE_ERR, JOB_BIGWAIT };
+enum { JOB_IDLE, JOB_RUNNING, JOB_DONE_OK, JOB_DONE_NONE, JOB_DONE_ERR, JOB_BIGWAIT, JOB_DONE_INDEX };
 enum { SRC_NONE, SRC_DISK, SRC_PNG };
 
 struct request {
@@ -45,7 +45,11 @@ static struct {
 	int big_token;
 	/* El trabajo en el hilo. */
 	volatile int job;
-	bool job_big;
+	bool job_big, job_index;
+	bool reindex;                    /* hay que leer la carpeta de carátulas otra vez */
+	uint64_t index_us;
+	unsigned index_count;
+	size_t index_bytes;
 	int job_token;
 	struct request req;
 	volatile int src;                /* de dónde salió el resultado (SRC_*) */
@@ -139,6 +143,13 @@ static int read_cache(const char *cpath, char *png)
 
 static void run_job(void)
 {
+	if (th.job_index) {  /* leer la carpeta una vez: cover_find ya no va al disco */
+		uint64_t t = now_us();
+		th.index_count = cover_index_build(th.dir, &th.index_bytes);
+		th.index_us = now_us() - t;
+		th.job = JOB_DONE_INDEX;
+		return;
+	}
 	char cpath[300], png[256] = "";
 	bool have_cpath = mini_path(th.req.name, cpath, sizeof cpath);
 	th.us_find = th.us_read = th.us_dec = th.us_scale = th.us_disk = 0;
@@ -285,6 +296,7 @@ bool thumbs_init(const char *dir)
 		return false;
 	}
 	th.ready = true;
+	th.reindex = true;  /* el índice de la carpeta, lo primero que hace el hilo */
 	salsa64_log("miniaturas: %d casillas de %dx%d en la ranura %d del 2D, %u KB de copias, hilo de baja prioridad, "
 		    "caché en disco en %s/.mini",
 		    THUMB_CELLS, THUMB_W, THUMB_H, THUMBS_SLOT, (unsigned)(sizeof th.px >> 10), dir);
@@ -398,6 +410,12 @@ void thumbs_frame(void)
 	th.frame++;
 	lwsync();
 	int j = th.job;
+	if (j == JOB_DONE_INDEX) {
+		salsa64_log("miniaturas: índice de la carpeta de carátulas: %u PNG en %.1f ms, %u KB de memoria", th.index_count,
+			    (double)th.index_us / 1000.0, (unsigned)(th.index_bytes >> 10));
+		th.job = j = JOB_IDLE;
+		th.job_index = false;
+	}
 	if (j == JOB_DONE_OK || j == JOB_DONE_NONE || j == JOB_DONE_ERR) {
 		bool big = th.job_big;
 		if (j == JOB_DONE_OK) {
@@ -447,6 +465,14 @@ void thumbs_frame(void)
 	/* Lo que una fila pidió y ya llegó entretanto no se vuelve a pedir. */
 	if (th.want.set && (cell_of(th.want.key) >= 0 || thumb_cache_is_missing(&th.cache, th.want.key)))
 		th.want.set = false;
+	if (j == JOB_IDLE && th.reindex) {
+		th.reindex = false;
+		th.job_index = true;
+		lwsync();
+		th.job = JOB_RUNNING;
+		sysSemPost(th.sem, 1);
+		j = JOB_RUNNING;
+	}
 	if (j == JOB_IDLE && (th.big_want.set || th.want.set)) {
 		bool big = th.big_want.set;
 		th.req = big ? th.big_want : th.want;
@@ -463,6 +489,8 @@ void thumbs_frame(void)
 
 void thumbs_forget_missing(void)
 {
-	if (th.ready)
+	if (th.ready) {
 		thumb_cache_forget_missing(&th.cache);
+		th.reindex = true;  /* llegaron carátulas: el índice se rehace */
+	}
 }

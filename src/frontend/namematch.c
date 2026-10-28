@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -111,14 +112,32 @@ static int fuzzy(const char *file, size_t fn, const char *want, size_t wn, size_
 }
 
 /* De dónde salen los nombres: una carpeta o una lista con un nombre por línea. */
+struct name_index {
+	char *pool;           /* nombres y claves, uno tras otro con su NUL */
+	size_t pool_len, pool_cap;
+	uint32_t *name_off, *key_off;
+	size_t n, cap;
+};
+
 struct name_src {
 	DIR *dir;
 	const char *list;
 	size_t len, pos;
+	const struct name_index *idx;  /* un índice en memoria: nombres y claves ya hechos */
+	size_t ipos;
 };
 
-static bool src_next(struct name_src *src, char *name, size_t size)
+/* `key`: la clave ya calculada (índice) o NULL. */
+static bool src_next(struct name_src *src, char *name, size_t size, const char **key)
 {
+	*key = NULL;
+	if (src->idx) {
+		if (src->ipos >= src->idx->n)
+			return false;
+		snprintf(name, size, "%s", src->idx->pool + src->idx->name_off[src->ipos]);
+		*key = src->idx->pool + src->idx->key_off[src->ipos++];
+		return true;
+	}
 	if (src->dir) {
 		struct dirent *de = readdir(src->dir);
 		if (!de)
@@ -163,13 +182,18 @@ static bool name_search(struct name_src *src, const char *ext, const char *rom_n
 	int best = 0, tier = 0;
 	bool ambiguous = false;
 	char tier_key[128] = "", name[256];
-	while (src_next(src, name, sizeof name)) {
+	const char *pre;
+	while (src_next(src, name, sizeof name, &pre)) {
 		size_t n = strlen(name);
 		if (n <= el || strcasecmp(name + n - el, ext))
 			continue;
-		char kc[128];
-		if (!name_key(name, n - el, kc, sizeof kc))
-			continue;
+		char kb[128];
+		const char *kc = pre;
+		if (!kc) {
+			if (!name_key(name, n - el, kb, sizeof kb))
+				continue;
+			kc = kb;
+		}
 		size_t kn = strlen(kc);
 		int s = fuzzy(kc, kn, kr, nr, min_key), s2 = fuzzy(kc, kn, kt, nt, min_key);
 		if (s2 > s)
@@ -201,7 +225,7 @@ static bool name_search(struct name_src *src, const char *ext, const char *rom_n
 bool name_find(const char *dir, const char *ext, const char *rom_name, const char *title, const char *code, size_t min_key,
 	       char *path, size_t size)
 {
-	struct name_src src = { opendir(dir), NULL, 0, 0 };
+	struct name_src src = { .dir = opendir(dir) };
 	if (!src.dir)
 		return false;
 	char found[256];
@@ -215,6 +239,115 @@ bool name_find(const char *dir, const char *ext, const char *rom_name, const cha
 bool name_find_list(const char *list, size_t len, const char *ext, const char *rom_name, const char *title,
 		    const char *code, size_t min_key, char *name, size_t size)
 {
-	struct name_src src = { NULL, list, len, 0 };
+	struct name_src src = { .list = list, .len = len };
+	return name_search(&src, ext, rom_name, title, code, min_key, name, size);
+}
+
+/* ---- Índice en memoria de una carpeta ------------------------------------------- */
+
+#define INDEX_MAX_ENTRIES 8192
+#define INDEX_MAX_POOL    (2u << 20)
+
+static bool index_add(struct name_index *x, const char *name, size_t n, const char *key, size_t kn)
+{
+	if (x->n >= INDEX_MAX_ENTRIES || x->pool_len + n + kn + 2 > INDEX_MAX_POOL)
+		return false;
+	if (x->n == x->cap) {
+		size_t cap = x->cap ? x->cap * 2 : 256;
+		uint32_t *a = realloc(x->name_off, cap * sizeof *a), *b = realloc(x->key_off, cap * sizeof *b);
+		if (a)
+			x->name_off = a;
+		if (b)
+			x->key_off = b;
+		if (!a || !b)
+			return false;
+		x->cap = cap;
+	}
+	if (x->pool_len + n + kn + 2 > x->pool_cap) {
+		size_t cap = x->pool_cap ? x->pool_cap * 2 : 16384;
+		while (cap < x->pool_len + n + kn + 2)
+			cap *= 2;
+		char *p = realloc(x->pool, cap);
+		if (!p)
+			return false;
+		x->pool = p;
+		x->pool_cap = cap;
+	}
+	x->name_off[x->n] = (uint32_t)x->pool_len;
+	memcpy(x->pool + x->pool_len, name, n);
+	x->pool[x->pool_len + n] = '\0';
+	x->pool_len += n + 1;
+	x->key_off[x->n] = (uint32_t)x->pool_len;
+	memcpy(x->pool + x->pool_len, key, kn);
+	x->pool[x->pool_len + kn] = '\0';
+	x->pool_len += kn + 1;
+	x->n++;
+	return true;
+}
+
+struct name_index *name_index_build(const char *dir, const char *ext)
+{
+	DIR *d = opendir(dir);
+	if (!d)
+		return NULL;
+	struct name_index *x = calloc(1, sizeof *x);
+	if (!x) {
+		closedir(d);
+		return NULL;
+	}
+	size_t el = strlen(ext);
+	struct dirent *de;
+	while ((de = readdir(d)) != NULL) {
+		size_t n = strnlen(de->d_name, 255);
+		char key[128];
+		if (n <= el || strcasecmp(de->d_name + n - el, ext) || !name_key(de->d_name, n - el, key, sizeof key))
+			continue;
+		if (!index_add(x, de->d_name, n, key, strlen(key)))
+			break;
+	}
+	closedir(d);
+	return x;
+}
+
+void name_index_free(struct name_index *x)
+{
+	if (!x)
+		return;
+	free(x->pool);
+	free(x->name_off);
+	free(x->key_off);
+	free(x);
+}
+
+size_t name_index_count(const struct name_index *x)
+{
+	return x ? x->n : 0;
+}
+
+size_t name_index_bytes(const struct name_index *x)
+{
+	return x ? sizeof *x + x->pool_cap + x->cap * 2 * sizeof(uint32_t) : 0;
+}
+
+bool name_index_exact(const struct name_index *x, const char *ext, const char *base, size_t base_len, char *name, size_t size)
+{
+	size_t el = strlen(ext);
+	for (size_t i = 0; x && i < x->n; i++) {
+		const char *f = x->pool + x->name_off[i];
+		size_t n = strlen(f);
+		if (n == base_len + el && !strncasecmp(f, base, base_len) && !strcasecmp(f + base_len, ext)) {
+			snprintf(name, size, "%s", f);
+			return true;
+		}
+	}
+	return false;
+}
+
+bool name_index_find(const struct name_index *x, const char *ext, const char *rom_name, const char *title,
+		     const char *code, size_t min_key, char *name, size_t size)
+{
+	if (!x)
+		return false;
+	struct name_src src = { .idx = x };
 	return name_search(&src, ext, rom_name, title, code, min_key, name, size);
 }

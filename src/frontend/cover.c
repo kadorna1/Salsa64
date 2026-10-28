@@ -729,8 +729,51 @@ static bool find_png(const char *dir, const char *base, size_t base_len, char *p
 	return found;
 }
 
+/* El índice de la carpeta de carátulas (una sola, la del menú). */
+static struct {
+	struct name_index *idx;
+	char dir[256];
+} g_index;
+
+unsigned cover_index_build(const char *dir, size_t *bytes)
+{
+	struct name_index *x = name_index_build(dir, ".png"), *old = g_index.idx;
+	if (x) {
+		snprintf(g_index.dir, sizeof g_index.dir, "%s", dir);
+		__sync_synchronize();
+		g_index.idx = x;
+	}
+	if (old && x)
+		name_index_free(old);  /* nadie lo usa ya: cover_find solo corre en el hilo que lo hizo */
+	if (bytes)
+		*bytes = name_index_bytes(g_index.idx);
+	return (unsigned)name_index_count(g_index.idx);
+}
+
+void cover_index_free(void)
+{
+	name_index_free(g_index.idx);
+	g_index.idx = NULL;
+}
+
+static bool index_find(const char *dir, const char *rom_name, const char *title, const char *code, char *path, size_t size)
+{
+	const struct name_index *x = g_index.idx;
+	char name[256];
+	const char *dot = strrchr(rom_name, '.');
+	size_t stem = dot && dot > rom_name ? (size_t)(dot - rom_name) : strlen(rom_name);
+	bool ok = (stem && name_index_exact(x, ".png", rom_name, stem, name, sizeof name)) ||
+		  (code && code[0] && strlen(code) <= 8 && name_index_exact(x, ".png", code, strlen(code), name, sizeof name)) ||
+		  name_index_find(x, ".png", rom_name, title, code, 4, name, sizeof name);
+	if (ok)
+		snprintf(path, size, "%s/%s", dir, name);
+	return ok;
+}
+
 bool cover_find(const char *dir, const char *rom_name, const char *title, const char *code, char *path, size_t size)
 {
+	if (g_index.idx && !strcmp(dir, g_index.dir))
+		return index_find(dir, rom_name, title, code, path, size);
 	const char *dot = strrchr(rom_name, '.');
 	size_t stem = dot && dot > rom_name ? (size_t)(dot - rom_name) : strlen(rom_name);
 	if (stem && find_png(dir, rom_name, stem, path, size))

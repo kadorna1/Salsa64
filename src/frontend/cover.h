@@ -46,6 +46,14 @@ enum cover_result cover_decode_png(const uint8_t *data, size_t size, uint8_t *rg
 enum cover_result cover_load_png(const char *path, uint8_t *rgba, unsigned *w, unsigned *h);
 const char *cover_result_name(enum cover_result r);
 
+/* Índice en memoria de la carpeta de carátulas: se lee una vez (cover_index_build,
+ * que tarda lo que la carpeta; hacerlo en un hilo) y cover_find busca en él sin
+ * tocar el disco mientras la carpeta sea la misma. Con otra carpeta, o sin índice,
+ * va al disco como siempre. cover_index_build rehace el índice (tras descargar
+ * carátulas); devuelve cuántos PNG tiene y deja en *bytes la memoria. */
+unsigned cover_index_build(const char *dir, size_t *bytes);
+void cover_index_free(void);
+
 /* El archivo de la carátula de una ROM en `dir`: <rom sin extensión>.png y
  * luego <code>.png (sin distinguir mayúsculas) y, por último, una de nombre
  * parecido y de su región (namematch.h): así valen los nombres de RetroArch

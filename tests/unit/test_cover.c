@@ -388,6 +388,45 @@ static void files(void)
 	CHECK_EQ(system(cmd), 0);
 }
 
+/* El índice en memoria da lo mismo que ir al disco, y sigue dando lo mismo con la carpeta borrada. */
+static void index_same_as_disk(void)
+{
+	char dir[] = "/tmp/salsa64-covers-XXXXXX";
+	CHECK(mkdtemp(dir) != NULL);
+	static const char *const names[] = { "Mario Golf (USA).png", "Mario Kart 64 (USA).png", "NSME.PNG",
+					      "007 - GoldenEye (USA).png", "Star Fox 64 (U).png", "Zelda no Densetsu (J).png",
+					      "Indiana Jones and the Infernal Machine (USA).png" };
+	char path[300], a[300], b[300];
+	for (unsigned i = 0; i < sizeof names / sizeof names[0]; i++) {
+		snprintf(path, sizeof path, "%s/%s", dir, names[i]);
+		put_file(path, "x", 1);
+	}
+	struct q { const char *rom, *title, *code; } qs[] = {
+		{ "Star Fox 64 (U).z64", NULL, "NFXE" }, { "Super Mario 64.z64", "SM64", "NSME" },
+		{ "GoldenEye 007.z64", "GOLDENEYE", "NGEE" }, { "zzz.z64", "MARIO", NULL }, { "Mario Golf.z64", "MARIO GOLF 64", NULL },
+		{ "Indiana Jones.z64", "INDIANA", "NINE" }, { "Otra.z64", NULL, NULL }, { "mario kart 64 (usa).n64", NULL, NULL },
+	};
+	bool disk[sizeof qs / sizeof qs[0]];
+	char res[sizeof qs / sizeof qs[0]][300];
+	for (unsigned i = 0; i < sizeof qs / sizeof qs[0]; i++) {
+		disk[i] = cover_find(dir, qs[i].rom, qs[i].title, qs[i].code, res[i], sizeof res[i]);
+	}
+	size_t bytes = 0;
+	CHECK_EQ(cover_index_build(dir, &bytes), 7);
+	CHECK(bytes > 0 && bytes < 100000);
+	char cmd[400];
+	snprintf(cmd, sizeof cmd, "rm -rf '%s'", dir);  /* con la carpeta borrada, solo el índice responde */
+	CHECK_EQ(system(cmd), 0);
+	for (unsigned i = 0; i < sizeof qs / sizeof qs[0]; i++) {
+		bool idx = cover_find(dir, qs[i].rom, qs[i].title, qs[i].code, a, sizeof a);
+		CHECK_EQ(idx, disk[i]);
+		if (idx && disk[i])
+			CHECK(!strcmp(a, res[i]));
+	}
+	(void)b;
+	cover_index_free();
+}
+
 void t_suite_cover(void)
 {
 	RUN(color_types);
@@ -396,6 +435,7 @@ void t_suite_cover(void)
 	RUN(downscale);
 	RUN(errors);
 	RUN(files);
+	RUN(index_same_as_disk);
 	/* Lo mismo con puff (el respaldo): mismos píxeles y mismos errores. */
 	cover_use_puff(true);
 	RUN(color_types);
