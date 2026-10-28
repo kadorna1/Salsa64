@@ -6,8 +6,9 @@
  *
  * Archivos: SALSA64_DATA_DIR/covers/<nombre de la ROM sin extensión>.png o,
  * si no está, <código del juego>.png (los 4 caracteres de la cabecera, p. ej.
- * NSME.png). Sin dependencias de PSL1GHT ni de zlib: el desinflado está aquí
- * (puff, de Mark Adler, escrito de nuevo para este programa). Admite todos
+ * NSME.png). Sin dependencias de PSL1GHT. El desinflado de los IDAT es el de zlib; puff (de
+ * Mark Adler, escrito de nuevo para este programa) queda dentro para comparar
+ * tiempos (cover_use_puff) y como respaldo. Admite todos
  * los tipos de color y profundidades de PNG, también entrelazado (Adam7).
  * La imagen se reduce por promedio de las cajas que caen en cada píxel; una
  * más chica que el máximo se deja como está (la escala el RSX).
@@ -36,11 +37,22 @@ enum cover_result {
 	COVER_UNSUPPORTED,  /* un modo de PNG que no existe (profundidad que no va con el tipo) */
 };
 
+/* Con true, los IDAT se desinflan con puff en vez de zlib (por omisión, zlib). */
+void cover_use_puff(bool on);
+
 /* Decodifica un PNG en memoria. `rgba` tiene COVER_RGBA_BYTES; deja el
  * tamaño final en *w y *h. */
 enum cover_result cover_decode_png(const uint8_t *data, size_t size, uint8_t *rgba, unsigned *w, unsigned *h);
 enum cover_result cover_load_png(const char *path, uint8_t *rgba, unsigned *w, unsigned *h);
 const char *cover_result_name(enum cover_result r);
+
+/* Índice en memoria de la carpeta de carátulas: se lee una vez (cover_index_build,
+ * que tarda lo que la carpeta; hacerlo en un hilo) y cover_find busca en él sin
+ * tocar el disco mientras la carpeta sea la misma. Con otra carpeta, o sin índice,
+ * va al disco como siempre. cover_index_build rehace el índice (tras descargar
+ * carátulas); devuelve cuántos PNG tiene y deja en *bytes la memoria. */
+unsigned cover_index_build(const char *dir, size_t *bytes);
+void cover_index_free(void);
 
 /* El archivo de la carátula de una ROM en `dir`: <rom sin extensión>.png y
  * luego <code>.png (sin distinguir mayúsculas) y, por último, una de nombre

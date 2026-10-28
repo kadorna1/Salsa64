@@ -18,7 +18,7 @@ APPID   := SLSA00120
 endif
 SRCS    := main.c audio_out.c audio_sync.c menu.c osd.c osd_fps.c pacer.c padmap.c pausectl.c scale_auto.c replay.c romlist.c ziprom.c savefile.c mempakfile.c transferpakfile.c \
            cheats.c cuelgue.c cover.c download.c dlutil.c netstack.c ra.c ra_core.c i18n.c namematch.c screenshot.c selftest.c selftest_audio.c selftest_gfx.c states.c cajanegra.c \
-           version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c seda.c seda_calc.c
+           version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c seda.c seda_calc.c cartucho3d.c cartucho_mesh.c thumbs.c thumbs_calc.c
 # Filtros de la presentación (filters/): fragment programs en Cg compilados
 # con cgcomp. Van en fp32: cgcomp pide -fastprecision a Cg, que baja a fp16
 # cuentas en píxeles que no lo aguantan.
@@ -36,12 +36,16 @@ COMMON  := $(RC_FILES) src/platform/ps3/log.c src/platform/ps3/rec_cache.c src/p
            src/platform/ps3/audio_spu.c src/platform/ps3/jpeg_spu.c src/platform/ps3/rsp_spu.c src/platform/ps3/bgjob.c src/platform/ps3/bgio.c src/rdp/rdp.c src/rdp/targets.c src/rdp/vmatch.c src/rdp/gfxdump.c src/rdp/blackbox.c \
            $(patsubst $(R)/%,%,$(wildcard $(R)/src/core/*.c $(R)/src/cpu/*.c $(R)/src/rsp/gfx/*.c $(R)/src/rsp/audio/*.c $(R)/src/rsp/jpeg/*.c \
                                           $(R)/src/rsp/lle/*.c))
-DATA    := vitest_rom gfxtest_rom audiotest_rom cart_icon
+DATA    := vitest_rom gfxtest_rom audiotest_rom cart_icon cart_mesh cart_plastic cart_label
 vitest_rom_FILE := tests/roms/homebrew/salsa64-vitest.z64
 gfxtest_rom_FILE := tests/roms/homebrew/salsa64-gfxtest.z64
 audiotest_rom_FILE := tests/roms/homebrew/salsa64-audiotest.z64
 # Ícono del cartucho de la lista de juegos (render del modelo, docs/THIRD_PARTY.md).
 cart_icon_FILE := assets/menu/cartucho.png
+# El cartucho 3D del menú: malla (tools/cartucho-malla.py) y textura del plástico.
+cart_mesh_FILE := assets/menu/cartucho.mesh
+cart_plastic_FILE := assets/menu/cartucho_plastico.png
+cart_label_FILE := assets/menu/cartucho_etiqueta.png
 RSXKIT  := 1
 SPUKIT  := 1
 # HLE gráfica (SPE 0) y de audio (SPE 1): el mismo código de src/rsp/gfx y

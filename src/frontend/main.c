@@ -216,6 +216,12 @@
 #include "version.h"
 #include "vitest_rom_bin.h"
 #include "cart_icon_bin.h"
+#include "cart_mesh_bin.h"
+#include "cart_plastic_bin.h"
+#include "cart_label_bin.h"
+#include "frontend/cartucho3d.h"
+#include "frontend/thumbs.h"
+#include "frontend/thumbs_calc.h"
 
 SYS_PROCESS_PARAM(1001, 0x100000);
 
@@ -5172,17 +5178,42 @@ static void ui_cart_icon_load(void)
 		salsa64_log("menú: el ícono del cartucho no cargó (%s, %d, %ux%u): queda el plano", cover_result_name(r), rc, w, h);
 }
 
+/* El cartucho 3D de la fila elegida (cartucho3d.h): la malla y la textura del
+ * plástico van embebidas; si algo falla, el menú usa el sprite. */
+static void ui_cart3d_load(void)
+{
+	uint8_t *rgba = malloc(COVER_RGBA_BYTES), *lab = malloc(COVER_RGBA_BYTES);
+	unsigned w = 0, h = 0, lw = 0, lh = 0;
+	enum cover_result r = rgba && lab ? cover_decode_png(cart_plastic_bin, cart_plastic_bin_size, rgba, &w, &h)
+					 : COVER_TOO_BIG;
+	if (r == COVER_OK)
+		r = cover_decode_png(cart_label_bin, cart_label_bin_size, lab, &lw, &lh);
+	bool ok = r == COVER_OK && cartucho3d_init(cart_mesh_bin, cart_mesh_bin_size, rgba, w, h, lab, lw, lh);
+	free(rgba);
+	free(lab);
+	if (!ok)
+		salsa64_log("menú: el cartucho 3D no cargó (%s): queda el sprite", cover_result_name(r));
+}
+
 /* rsxkit_ui: el menú y lo que se dibuja sobre el juego (aviso, contador);
  * se prepara una vez (5 MB mapeados, para siempre). */
 static int ui_init_once(void)
 {
 	static int rc = 1;
 	if (rc == 1) {
+		/* Las carátulas llenan el sticker estiradas; con el archivo caratula-recorte, recortadas. */
+		thumb_set_crop(file_exists(SALSA64_DATA_DIR "/caratula-recorte"));
+		if (thumb_crop())
+			salsa64_log("carátulas: se recortan al sticker (caratula-recorte)");
 		rc = rsxkit_ui_init();
 		if (rc != RSXKIT_OK)
 			salsa64_log("2D del RSX no disponible (%d): sin avisos en pantalla", rc);
 		else
+		{
 			ui_cart_icon_load();
+			ui_cart3d_load();
+			thumbs_init(COVERS_DIR);
+		}
 	}
 	/* La salida puede cambiar sin reiniciar («Aplicar ahora»). */
 	const rsxkit_screen *sc = rsxkit_screen_info();
@@ -6151,10 +6182,46 @@ static uint8_t cover_rgba[COVER_RGBA_BYTES];
 static int cover_tried = -1;
 static uint64_t cover_since;
 
+/* La carátula completa de la fila elegida: con el hilo de thumbs.c, se pide y
+ * se recoge cuando llega (el menú no se detiene); sin él, se decodifica aquí. */
+static int cover_pending = -1;  /* la fila cuya carátula completa está pedida, o −1 */
+
+static void menu_cover_upload(int s, const uint8_t *rgba, unsigned w, unsigned h, const char *what)
+{
+	int rc = rsxkit_ui_image_set(0, rgba, w, h);
+	if (rc != RSXKIT_OK) {
+		salsa64_log("carátula: %s: no se pudo subir (%d)", what, rc);
+		return;
+	}
+	menu.cover_w = w;
+	menu.cover_h = h;
+	menu.cover_rom = s;
+	salsa64_log("carátula: %s (%ux%u)", what, w, h);
+}
+
 static void menu_cover_update(void)
 {
+	if (thumbs_ready()) {
+		int token = thumbs_big_ready(), sel = menu_selected(&menu);
+		bool ok;
+		unsigned w, h;
+		/* Solo la de la fila elegida se copia: cover_rgba sigue siendo la de menu.cover_rom. */
+		if (token >= 0 && thumbs_big_poll(token == sel ? cover_rgba : NULL, &token, &ok, &w, &h)) {
+			if (token == cover_pending)
+				cover_pending = -1;
+			if (!ok)
+				salsa64_log("carátula: ninguna para la fila %d", token);
+			else if (token == sel)  /* si ya cambió de fila, no hace falta subirla */
+				menu_cover_upload(token, cover_rgba, w, h, romlist_name(&roms->e[token]));
+		}
+	}
 	if (!menu_settled(&menu)) {
 		cover_since = 0;
+		/* Se movió otra vez: la carátula completa pedida que no empezó se descarta. */
+		if (cover_pending >= 0 && thumbs_big_cancel()) {
+			cover_tried = -1;
+			cover_pending = -1;
+		}
 		return;
 	}
 	uint64_t now = sysGetSystemTime();
@@ -6165,6 +6232,11 @@ static void menu_cover_update(void)
 		return;
 	cover_tried = s;
 	const struct rom_entry *e = &roms->e[s];
+	if (thumbs_ready()) {
+		cover_pending = s;
+		thumbs_big_request(e, s);
+		return;
+	}
 	char path[256];
 	if (!cover_find(COVERS_DIR, romlist_name(e), romlist_display_title(e), e->code, path, sizeof path)) {
 		salsa64_log("carátula: ninguna para %s (título «%s», código %s)", romlist_name(e), romlist_display_title(e),
@@ -6177,15 +6249,7 @@ static void menu_cover_update(void)
 		salsa64_log("carátula: %s: %s", path, cover_result_name(r));
 		return;
 	}
-	int rc = rsxkit_ui_image_set(0, cover_rgba, w, h);
-	if (rc != RSXKIT_OK) {
-		salsa64_log("carátula: %s: no se pudo subir (%d)", path, rc);
-		return;
-	}
-	menu.cover_w = w;
-	menu.cover_h = h;
-	menu.cover_rom = s;
-	salsa64_log("carátula: %s (%ux%u)", path, w, h);
+	menu_cover_upload(s, cover_rgba, w, h, path);
 }
 
 /* Descargas (download.h): lo que se va viendo en el pie del menú. */
@@ -6248,7 +6312,10 @@ static void download_poll(uint32_t buttons)
 		menu_set_status(&menu, "%s: %u nuevas, %u ya estaban, %u sin coincidencia", tr(st.what ? "Trucos" : "Carátulas"),
 				st.got, st.have, st.missing);
 		if (!st.what && st.got)
+		{
 			menu.cover_rom = cover_tried = -1;  /* a buscar las carátulas de nuevo */
+			thumbs_forget_missing();
+		}
 	}
 }
 
@@ -6262,9 +6329,41 @@ static void menu_show(const char *shot)
 	if (!seda)
 		seda_release();
 	menu.cart_icon = ui_cart_icon;
+	thumbs_frame(!menu_settled(&menu));
+	menu.thumb = thumbs_ready() ? thumbs_get : NULL;
+	/* Cartucho 3D en la fila elegida; su etiqueta lleva la carátula cuando ya cargó. */
+	menu.cart3d = cartucho3d_ready() ? cartucho3d_draw : NULL;
+	if (menu.cart3d) {
+		/* La etiqueta del cartucho: la carátula completa si ya llegó; si no, su miniatura. */
+		int s = menu_selected(&menu);
+		const uint8_t *src = NULL;
+		unsigned w = 0, h = 0;
+		if (s >= 0 && menu.cover_rom == s && menu.cover_w && menu.cover_h) {
+			src = cover_rgba, w = menu.cover_w, h = menu.cover_h;
+		} else if (s >= 0 && thumbs_ready() && (src = thumbs_pixels(&roms->e[s])) != NULL) {
+			w = THUMB_W, h = THUMB_H;
+		}
+		cartucho3d_update(s, src, w, h, menu.t);
+	}
 	rsxkit_ui_begin(mn.lw, mn.lh);
 	menu_frame(&menu, mn.lw, mn.lh, sysGetSystemTime());
 	rsxkit_ui_end();
+	if (menu.cart3d) {
+		/* Costo del cartucho 3D: cada 300 cuadros con él dibujado, el promedio. */
+		static unsigned cart_n;
+		static uint64_t cart_us;
+		double us;
+		unsigned n;
+		cartucho3d_stats(&us, &n);
+		cart_n += n;
+		cart_us += (uint64_t)(us * n);
+		if (cart_n >= 300) {
+			salsa64_log("menú: cartucho 3D, %.0f us por cuadro en el PPE (vértices y envío, %u cuadros)",
+				    (double)cart_us / cart_n, cart_n);
+			cart_n = 0;
+			cart_us = 0;
+		}
+	}
 	if (menu.quit_ask)
 		osd_confirm_draw("¿Salir al XMB?", "×: Sí     ○: No", mn.lw, mn.lh);
 	if (shot) {

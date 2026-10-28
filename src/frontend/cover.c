@@ -44,6 +44,8 @@
 #include <string.h>
 #include <strings.h>
 
+#include <zlib.h>
+
 /* ---- Desinflado ----------------------------------------------------------------- */
 
 #define MAXBITS   15
@@ -307,6 +309,38 @@ static bool inflate_raw(const uint8_t *in, size_t inlen, uint8_t *out, size_t ou
 	return true;
 }
 
+/* El desinflado de los IDAT: zlib (ya se enlaza por la carga de ZIP) y, si se
+ * pide, puff (lo de arriba), que queda para comparar tiempos y como respaldo. */
+static bool g_use_puff;
+
+void cover_use_puff(bool on)
+{
+	g_use_puff = on;
+}
+
+/* zlib sobre datos deflate crudos; mismo contrato que inflate_raw: sale a `out` exactos
+ * `outlen` bytes (ni uno más) y deja en *used lo producido. */
+static bool inflate_zlib(const uint8_t *in, size_t inlen, uint8_t *out, size_t outlen, size_t *used)
+{
+	z_stream zs;
+	memset(&zs, 0, sizeof zs);
+	if (inflateInit2(&zs, -MAX_WBITS) != Z_OK)
+		return false;
+	zs.next_in = (Bytef *)(uintptr_t)in;
+	zs.avail_in = (uInt)(inlen > 0xFFFFFFFFu ? 0xFFFFFFFFu : inlen);
+	zs.next_out = out;
+	zs.avail_out = (uInt)(outlen > 0xFFFFFFFFu ? 0xFFFFFFFFu : outlen);
+	int ret = inflate(&zs, Z_FINISH);
+	*used = (size_t)zs.total_out;
+	inflateEnd(&zs);
+	return ret == Z_STREAM_END;
+}
+
+static bool inflate_idat(const uint8_t *in, size_t inlen, uint8_t *out, size_t outlen, size_t *used)
+{
+	return g_use_puff ? inflate_raw(in, inlen, out, outlen, used) : inflate_zlib(in, inlen, out, outlen, used);
+}
+
 /* ---- PNG ------------------------------------------------------------------------- */
 
 static uint32_t be32(const uint8_t *p)
@@ -559,7 +593,7 @@ enum cover_result cover_decode_png(const uint8_t *data, size_t size, uint8_t *rg
 	/* zlib: CM = 8, sin diccionario, y la suma de control de la cabecera. */
 	if (zn < 6 || (zbuf[0] & 0x0F) != 8 || (zbuf[1] & 0x20) || (((unsigned)zbuf[0] << 8) | zbuf[1]) % 31 != 0)
 		goto done;
-	if (!inflate_raw(zbuf + 2, zn - 2, raw, (size_t)raw_n, &used) || used != raw_n)
+	if (!inflate_idat(zbuf + 2, zn - 2, raw, (size_t)raw_n, &used) || used != raw_n)
 		goto done;
 
 	/* Tamaño final: a lo más el máximo, sin cambiar la proporción. */
@@ -695,8 +729,51 @@ static bool find_png(const char *dir, const char *base, size_t base_len, char *p
 	return found;
 }
 
+/* El índice de la carpeta de carátulas (una sola, la del menú). */
+static struct {
+	struct name_index *idx;
+	char dir[256];
+} g_index;
+
+unsigned cover_index_build(const char *dir, size_t *bytes)
+{
+	struct name_index *x = name_index_build(dir, ".png"), *old = g_index.idx;
+	if (x) {
+		snprintf(g_index.dir, sizeof g_index.dir, "%s", dir);
+		__sync_synchronize();
+		g_index.idx = x;
+	}
+	if (old && x)
+		name_index_free(old);  /* nadie lo usa ya: cover_find solo corre en el hilo que lo hizo */
+	if (bytes)
+		*bytes = name_index_bytes(g_index.idx);
+	return (unsigned)name_index_count(g_index.idx);
+}
+
+void cover_index_free(void)
+{
+	name_index_free(g_index.idx);
+	g_index.idx = NULL;
+}
+
+static bool index_find(const char *dir, const char *rom_name, const char *title, const char *code, char *path, size_t size)
+{
+	const struct name_index *x = g_index.idx;
+	char name[256];
+	const char *dot = strrchr(rom_name, '.');
+	size_t stem = dot && dot > rom_name ? (size_t)(dot - rom_name) : strlen(rom_name);
+	bool ok = (stem && name_index_exact(x, ".png", rom_name, stem, name, sizeof name)) ||
+		  (code && code[0] && strlen(code) <= 8 && name_index_exact(x, ".png", code, strlen(code), name, sizeof name)) ||
+		  name_index_find(x, ".png", rom_name, title, code, 4, name, sizeof name);
+	if (ok)
+		snprintf(path, size, "%s/%s", dir, name);
+	return ok;
+}
+
 bool cover_find(const char *dir, const char *rom_name, const char *title, const char *code, char *path, size_t size)
 {
+	if (g_index.idx && !strcmp(dir, g_index.dir))
+		return index_find(dir, rom_name, title, code, path, size);
 	const char *dot = strrchr(rom_name, '.');
 	size_t stem = dot && dot > rom_name ? (size_t)(dot - rom_name) : strlen(rom_name);
 	if (stem && find_png(dir, rom_name, stem, path, size))
