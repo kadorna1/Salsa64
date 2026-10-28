@@ -12,6 +12,11 @@
 #define PI_F  3.14159265359f
 #define TAU_F 6.28318530718f
 #define FOCAL 1.7f  /* distancia focal de la cámara (la y visible a z = 3 es ±1,76) */
+/* Encuadre de la cinta: más lejos (ZOOM), estirada a lo largo (LARGO) para
+ * que siga cruzando la pantalla, y ALTURA en unidades de la y de recorte. */
+#define ZOOM   0.503f
+#define LARGO  2.0f
+#define ALTURA 0.032f
 
 /* ---- Aritmética -------------------------------------------------------------------- */
 
@@ -96,9 +101,9 @@ struct layer_params {
 };
 
 static const struct layer_params LAYERS[SEDA_LAYERS] = {
-	{ 3.00f, 0.02f, 2.55f, 0.52f, 3.6f, 0.0f, 0, 1.00f },
-	{ 3.55f, -0.38f, 3.00f, 0.40f, 4.4f, 2.1f, 9, 0.70f },
-	{ 4.20f, 0.46f, 3.55f, 0.74f, 2.6f, 4.0f, -6, 0.55f },
+	{ 3.54f, -0.231f, 2.55f, 0.323f, 3.6f, 6.283f, 0, 1.162f },
+	{ 3.55f, -0.38f, 3.00f, 0.472f, 4.4f, 2.1f, 9, 0.757f },
+	{ 4.20f, 0.46f, 3.55f, 0.74f, 2.6f, 4.0f, -6, 0.482f },
 };
 
 float seda_layer_gain(int layer)
@@ -192,8 +197,8 @@ void seda_row(int layer, float aspect, const float pos[SEDA_LAYER_VERTS][4], int
 		float v = -1.0f + 2.0f * (float)j / (float)(SEDA_NV - 1);
 		float e2 = v * v;
 		seda_vertex *o = &out[j];
-		o->pos[0] = p[0] * (FOCAL / aspect);
-		o->pos[1] = p[1] * FOCAL;
+		o->pos[0] = p[0] * (FOCAL * ZOOM * LARGO / aspect);
+		o->pos[1] = p[1] * (FOCAL * ZOOM) + ALTURA * p[2];
 		o->pos[2] = 0.0f;
 		o->pos[3] = p[2];
 		o->t0[0] = f;
@@ -236,10 +241,13 @@ void seda_sparkles(float aspect, float tf, seda_vertex *out)
 		int twinkle = 100 + (int)(r3 * 200.0f);   /* parpadeos por periodo */
 		float y01 = r1 + (float)rise * tf;
 		y01 -= (float)(int)y01;
-		float x = (2.0f * r0 - 1.0f) * 1.05f + 0.03f * sn(ph(7 + (int)(r4 * 9.0f), tf) + r3 * TAU_F);
+		/* Hacia el centro: en x, la suma de dos azares (más en medio que en
+		 * las orillas); en y, el brillo se apaga lejos de la mitad. */
+		float x = (r0 + rnd(i, 5) - 1.0f) * 0.85f + 0.03f * sn(ph(7 + (int)(r4 * 9.0f), tf) + r3 * TAU_F);
 		float y = 2.0f * y01 - 1.0f;
 		float tw = 0.5f + 0.5f * sn(ph(twinkle, tf) + r4 * TAU_F);
-		float b = tw * tw * sn(PI_F * y01);
+		float sy = sn(PI_F * y01);
+		float b = tw * tw * sy * sy;
 		float sz = 0.006f + 0.014f * r4;
 		for (int k = 0; k < 4; k++) {
 			seda_vertex *o = &out[i * 4 + k];

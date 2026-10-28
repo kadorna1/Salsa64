@@ -22,9 +22,9 @@
 #include "../src/frontend/seda_calc.c"
 
 /* Constantes de seda_cinta.fcg. */
-#define BASE 0.16f
-#define FRES 1.7f
-#define SPEC 0.9f
+#define BASE 0.032f
+#define FRES 0.597f
+#define SPEC 0.177f
 
 static int W, H;
 static float *img;  /* RGB en flotante */
@@ -39,7 +39,7 @@ static void make_ramps(const struct seda_colors *c)
 	for (int l = 0; l < 4; l++)
 		for (int i = 0; i < 16; i++) {
 			float t = i / 15.0f;
-			float g = l < SEDA_LAYERS ? seda_layer_gain(l) : 0.9f * c->stars + 0.25f;
+			float g = l < SEDA_LAYERS ? seda_layer_gain(l) : 0.9f * 1.513f * c->stars + 0.25f;
 			for (int k = 0; k < 3; k++) {
 				float v = c->tint_a[k] + (c->tint_b[k] - c->tint_a[k]) * t;
 				if (l == SEDA_LAYERS)
@@ -68,14 +68,14 @@ static void background(const struct seda_colors *c)
 			float dx = (u - 0.60f) * ((float)W / H), dy = v - 0.48f;
 			float g = 1.0f / (1.0f + (dx * dx + dy * dy) * 6.0f);
 			float ex = u - 0.5f, ey = v - 0.5f;
-			float vig = 1.0f - 0.45f * (ex * ex + ey * ey);
+			float vig = 1.0f - 1.0f * (ex * ex + ey * ey);
 			float n0 = 0.06711056f * tx + 0.00583715f * ty;
 			n0 -= floorf(n0);
 			float n = 52.9829189f * n0;
 			n -= floorf(n);
 			for (int k = 0; k < 3; k++) {
 				float base = c->top[k] + (c->bottom[k] - c->top[k]) * v;
-				img[(y * W + x) * 3 + k] = (base + 0.9f * c->glow[k] * g) * vig + (n - 0.5f) / 255.0f;
+				img[(y * W + x) * 3 + k] = (base + 0.433f * c->glow[k] * g) * vig + (n - 0.5f) / 255.0f;
 			}
 		}
 }
@@ -120,8 +120,7 @@ static void tri(const seda_vertex *a, const seda_vertex *b, const seda_vertex *c
 				sp *= sp, sp *= sp, sp *= sp, sp *= sp;
 				sample_ramp(layer, sat(t[3]), tint);
 				for (int k = 0; k < 3; k++) {
-					float sheen = tint[k] + (1.0f - tint[k]) * 0.45f;
-					rgb[k] = (tint[k] * (BASE + FRES * fres) + sheen * (SPEC * sp)) * t[2];
+					rgb[k] = tint[k] * (BASE + FRES * fres + SPEC * sp) * t[2];
 				}
 			} else {
 				float d2 = t[0] * t[0] + t[1] * t[1];
@@ -217,7 +216,7 @@ int main(int argc, char **argv)
 	}
 	W = atoi(argv[1]), H = atoi(argv[2]);
 	double t = atof(argv[3]), hour = atof(argv[4]);
-	float aspect = (float)W / (float)H, tf = seda_phase(t);
+	float aspect = (float)W / (float)H, tf = seda_phase(t * 0.608);
 	img = calloc((size_t)W * H * 3, sizeof *img);
 	struct seda_colors col;
 	seda_colors(hour * 3600.0, &col);

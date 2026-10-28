@@ -32,7 +32,7 @@
 #define SEDA_NV      24    /* y a lo ancho */
 #define SEDA_LAYERS  3
 #define SEDA_LAYER_VERTS (SEDA_NU * SEDA_NV)
-#define SEDA_SPARKS  48    /* destellos (cada uno, un cuadrito de 4 vértices) */
+#define SEDA_SPARKS  96    /* destellos (cada uno, un cuadrito de 4 vértices) */
 #define SEDA_SPARK_VERTS (SEDA_SPARKS * 4)
 /* Todos los vértices de un cuadro: las capas y, después, los destellos. */
 #define SEDA_VERTS   (SEDA_LAYERS * SEDA_LAYER_VERTS + SEDA_SPARK_VERTS)

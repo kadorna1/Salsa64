@@ -16,7 +16,7 @@
  * Presupuesto de local store (256 KB):
  *   posiciones de una capa 3072 × 16 bytes        48 KB
  *   filas de salida 2 × 24 × 32 bytes             1,5 KB
- *   destellos 192 × 32 bytes                      6 KB
+ *   destellos 384 × 32 bytes                      12 KB
  *   código (seda_calc, spukit, sqrtf) y pila      ~25 KB
  */
 #include <spu_intrinsics.h>

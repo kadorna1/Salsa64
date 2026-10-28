@@ -26,8 +26,8 @@ struct ref_layer {
 };
 
 static const struct ref_layer REF[SEDA_LAYERS] = {
-	{ 3.00, 0.02, 2.55, 0.52, 3.6, 0.0, 0 },
-	{ 3.55, -0.38, 3.00, 0.40, 4.4, 2.1, 9 },
+	{ 3.54, -0.231, 2.55, 0.323, 3.6, 6.283, 0 },
+	{ 3.55, -0.38, 3.00, 0.472, 4.4, 2.1, 9 },
 	{ 4.20, 0.46, 3.55, 0.74, 2.6, 4.0, -6 },
 };
 
@@ -164,8 +164,8 @@ static void seda_normals_and_projection(void)
 					CHECK(v->t0[3] >= 0.0f && v->t0[3] <= 1.0f);
 					/* Proyección: w = profundidad, delante de la cámara. */
 					CHECK(v->pos[3] > 1.5f && v->pos[3] == p[2]);
-					CHECK(fabsf(v->pos[0] / v->pos[3] - p[0] * (1.7f / aspect) / p[2]) < 1e-5f);
-					CHECK(fabsf(v->pos[1] / v->pos[3] - p[1] * 1.7f / p[2]) < 1e-5f);
+					CHECK(fabsf(v->pos[0] / v->pos[3] - p[0] * (1.7f * 0.503f * 2.0f / aspect) / p[2]) < 1e-5f);
+					CHECK(fabsf(v->pos[1] / v->pos[3] - (p[1] * 1.7f * 0.503f / p[2] + 0.032f)) < 1e-5f);
 					if (fabsf(v->pos[0] / v->pos[3]) < 1.0f && fabsf(v->pos[1] / v->pos[3]) < 1.0f)
 						inside++;
 				}
@@ -315,7 +315,7 @@ static void seda_palette(void)
 			CHECK(fabsf(c.bottom[k] - d.bottom[k]) < 0.01f);
 	}
 	for (int l = 0; l < SEDA_LAYERS; l++)
-		CHECK(seda_layer_gain(l) > 0.0f && seda_layer_gain(l) <= 1.0f);
+		CHECK(seda_layer_gain(l) > 0.0f && seda_layer_gain(l) <= 1.5f);
 	CHECK(seda_layer_gain(0) > seda_layer_gain(1) && seda_layer_gain(1) > seda_layer_gain(2));
 }
 

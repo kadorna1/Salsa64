@@ -177,7 +177,7 @@ static void write_ramps(int b, const struct seda_colors *c)
 {
 	for (int r = 0; r < RAMPS; r++) {
 		uint8_t *p = sd.mem + OFF_RAMP + (uint32_t)(b * RAMPS + r) * RAMP_BYTES;
-		float g = r < SEDA_LAYERS ? seda_layer_gain(r) : 0.9f * c->stars + 0.25f;
+		float g = r < SEDA_LAYERS ? seda_layer_gain(r) : 0.9f * 1.513f * c->stars + 0.25f;
 		for (uint32_t i = 0; i < RAMP_N; i++) {
 			float t = (float)i / (float)(RAMP_N - 1);
 			for (int k = 0; k < 3; k++) {
@@ -253,7 +253,7 @@ static bool draw_buffer(int b, const struct seda_colors *col)
 	memcpy(p.k[0], col->top, sizeof col->top);
 	memcpy(p.k[1], col->bottom, sizeof col->bottom);
 	for (int k = 0; k < 3; k++)
-		p.k[2][k] = 0.9f * col->glow[k];
+		p.k[2][k] = 0.433f * col->glow[k];
 	p.k[3][0] = 0.60f, p.k[3][1] = 0.48f, p.k[3][2] = (float)sd.w / (float)sd.h, p.k[3][3] = 6.0f;
 	int rc = rsxkit_post_run(&p);
 	if (rc != RSXKIT_OK) {
@@ -302,7 +302,7 @@ bool seda_draw(double t)
 		}
 	}
 	uint64_t c0 = sysGetSystemTime();
-	const float aspect = (float)sd.w / (float)sd.h, tf = seda_phase(t);
+	const float aspect = (float)sd.w / (float)sd.h, tf = seda_phase(t * 0.608);  /* la tela, un poco más lenta */
 	const int nb = (int)(sd.frame % BUFS);
 	/* El RSX ya soltó lo que leyó de este búfer hace tres cuadros. */
 	if (sd.fence[nb])

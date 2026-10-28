@@ -82,7 +82,7 @@ tramado mínimo contra las bandas. La paleta (`seda_colors`) interpola con
 suavidad 8 claves: noche índigo (0 h), amanecer rosa (5,5 h), día azul
 (8 y 13 h), tarde ámbar (17,5 h), anochecer violeta (20 h), noche.
 
-**Destellos**: 48 cuadritos aditivos (`seda_destello.fcg`, 14 instrucciones)
+**Destellos**: 96 cuadritos aditivos (`seda_destello.fcg`, 14 instrucciones)
 que suben a 3–7 vueltas de pantalla por periodo, parpadean (100–300
 parpadeos por periodo) y brillan más de noche. La PS3 no tiene point
 sprites en rsxkit: cada uno es un cuadrito de dos triángulos con un centro
@@ -94,7 +94,7 @@ suave y una cruz de brillo.
 |---|---|---|
 | Posiciones (3 × 3072 vértices) | SPE | 4 senos por vértice, 6 por posición de eje |
 | Normales, proyección, t0 | SPE | por filas de 768 bytes, doble búfer de DMA |
-| Destellos | SPE | 48 × 4 vértices |
+| Destellos | SPE | 96 × 4 vértices |
 | Rampas de color (4 × 16 texeles) | PPE | cada cuadro |
 | Degradado, 3 mallas, destellos | RSX | 5 pasadas |
 
@@ -104,7 +104,7 @@ N − 1 y dibuja ese: un cuadro de latencia que no se nota. Antes de reescribir
 un búfer espera la barrera de su último dibujo.
 
 Local store del SPE: posiciones de una capa 48 KB, filas 1,5 KB, destellos
-6 KB, el resto código y pila (la cabecera de `src/spu/seda/main.c` lo
+12 KB, el resto código y pila (la cabecera de `src/spu/seda/main.c` lo
 detalla).
 
 ## Costo estimado y qué medir
