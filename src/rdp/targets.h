@@ -320,6 +320,12 @@ void rdp_targets_task(struct rdp_targets *s);
  * destino es viejo o se copió a la RDRAM) o de ninguno (no cae en un
  * destino). Cuenta en tex_rsx / tex_rdram / tex_self. */
 enum rdp_texsrc { RDP_TEXSRC_NONE = 0, RDP_TEXSRC_RSX, RDP_TEXSRC_RDRAM, RDP_TEXSRC_SELF };
+
+/* GLideN64's CopyColorFromRDRAM color-buffer uploads force opaque alpha. */
+static inline uint16_t rdp_rgba5551_full_alpha(uint16_t pixel)
+{
+	return (uint16_t)(pixel | 1u);
+}
 enum rdp_texsrc rdp_targets_texture(struct rdp_targets *s, uint32_t addr, uint32_t pitch, uint32_t bpp, int cur,
 				    int *slot, uint32_t *x0, uint32_t *y0);
 /* Like rdp_targets_texture, after CopyColorFromRDRAM synchronized changed
