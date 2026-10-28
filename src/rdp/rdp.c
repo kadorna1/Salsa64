@@ -1672,9 +1672,14 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile)
 	if (any) {
 		rdp.bound_t = -1;
 		rdp.surf_gen[i] = ++rdp.gen_seq;
-		if (commit_profile && !profile_cpu_rows_changed(i))
-			rdp_targets_rdram_uploaded(&rdp.tg, i);
 	}
+	/* A readback marks the target CPU-owned because the game may edit RDRAM.
+	 * Once the stable snapshot has been compared and every changed pixel has
+	 * been uploaded, the live RSX surface is authoritative again—even when
+	 * this pass found no new span. Without this transition, texture sampling
+	 * keeps falling back to RDRAM forever after a synchronous readback. */
+	if (commit_profile && !profile_cpu_rows_changed(i))
+		rdp_targets_rdram_uploaded(&rdp.tg, i);
 	return regions;
 }
 
@@ -2351,8 +2356,13 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 	 * valid RDRAM baseline. A recycled/dropped target cannot pass these checks. */
 	bool profile_surface_synced = false;
 	uint32_t source_age = slot >= 0 ? rdp.tg.task - rdp.tg.t[slot].last_task : UINT32_MAX;
+	/* Match GLideN64's per-game CopyColorFromRDRAM behavior: a readback
+	 * does not make the live RSX surface unusable. Reconcile RDRAM edits
+	 * against the stable per-target baseline first, then let the synced
+	 * surface serve as a texture again. cpu_owned is cleared only after the
+	 * reconciliation succeeds below. */
 	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram &&
-	    !rdp.tg.t[slot].cpu_owned && rdp.profile_shadow_valid[slot]) {
+	    rdp.profile_shadow_valid[slot]) {
 		/* RDRAM is not mutated during one translated RDP task. Reconcile at
 		 * most once per target per task; repeatedly scanning the full 328x246
 		 * image for every texture load starved the RSX queue in v0.2.13d. */
