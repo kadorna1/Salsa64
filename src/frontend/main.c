@@ -1435,6 +1435,8 @@ static void isv_out(void *ctx, const uint8_t *text, uint32_t len)
  * resto, y la ROM de 64 MB siguiente ya no cabe aunque sobre memoria. Las
  * páginas del sistema no dependen de eso (docs/memory-budget.md). */
 static void *rom_pages;  /* la ROM en curso, si salió de las páginas del sistema */
+static void heap_report(const char *when);
+static bool menu_release_memory(void);
 
 static void *rom_alloc(size_t len)
 {
@@ -1443,6 +1445,15 @@ static void *rom_alloc(size_t len)
 	if (!rom_pages && sysMemoryAllocate(bytes, SYS_MEMORY_PAGE_SIZE_1M, &addr) == 0) {
 		rom_pages = (void *)(uintptr_t)addr;
 		return rom_pages;
+	}
+	if (!rom_pages) {
+		/* No cabe: se dice cuánto había y se reintenta una vez tras soltar lo que aún tenga el menú. */
+		heap_report("sin páginas para la ROM");
+		if (menu_release_memory() && sysMemoryAllocate(bytes, SYS_MEMORY_PAGE_SIZE_1M, &addr) == 0) {
+			rom_pages = (void *)(uintptr_t)addr;
+			salsa64_log("ROM de %zu MB: cupo en páginas de 1 MB al soltar lo del menú", bytes >> 20);
+			return rom_pages;
+		}
 	}
 	salsa64_log("ROM de %zu MB: sin páginas de 1 MB del sistema, va en el heap", bytes >> 20);
 	return memalign(128, len);
@@ -6554,6 +6565,20 @@ static void menu_test_load(void)
 	salsa64_log("menú, prueba automática: %u ROMs que abrir (%s)", mn.ntest, MENU_TEST_PATH);
 }
 
+/* Suelta lo que el menú aún guarda y no necesita un juego: el hilo de miniaturas quieto y sin búfer y el
+ * índice de las carátulas. true la primera vez que suelta algo (una segunda no libera más). */
+static bool mem_released;  /* ya se soltó para el juego que se está abriendo */
+
+static bool menu_release_memory(void)
+{
+	if (mem_released)
+		return false;
+	mem_released = true;
+	if (thumbs_pause())  /* con el hilo ocupado, su índice se queda */
+		cover_index_free();
+	return true;
+}
+
 /* Abre la ROM `path` (de la lista del menú o del arranque directo) y vuelve
  * cuando el juego termina. */
 static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
@@ -6565,6 +6590,7 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	snprintf(opened_code, sizeof opened_code, "%s", e->code);
 	opened_crc1 = e->crc1;
 	opened_crc2 = e->crc2;
+	mem_released = false;
 	salsa64_log("menú: abro %s (\"%s\")", path, title);
 	font_stats_log("al abrir el juego");
 	heap_report("al abrir");
@@ -6572,6 +6598,9 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	menu_show(NULL);
 	menu.loading = NULL;
 	seda_release();  /* la memoria del fondo «Seda» y su SPE, para el juego */
+	/* El hilo de miniaturas, quieto y sin sus búferes, antes de medir y de pedir la ROM. */
+	thumbs_pause();
+	heap_report("con el menú quieto");
 	romlist_free(roms);
 	roms = NULL;
 	romlist_cache_release();
@@ -6581,6 +6610,13 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	beat.pres_at = "menú: leyendo la ROM";
 	uint8_t *rom = read_rom_file(path, NULL, 0, &size);
 	beat.pres_at = "arranque del juego";
+	if (!rom) {
+		/* Una vez más, con todo lo del menú suelto. */
+		salsa64_log("menú: no se pudo leer %s: reintento tras soltar lo del menú", path);
+		heap_report("antes del reintento");
+		menu_release_memory();
+		rom = read_rom_file(path, NULL, 0, &size);
+	}
 	if (!rom) {
 		salsa64_log("menú: no se pudo leer %s", path);
 		heap_report("tras fallar la lectura");

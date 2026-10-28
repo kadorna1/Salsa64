@@ -43,6 +43,11 @@ bool thumbs_ready(void);
  * que buscar y decodificar espera a que lleve quieta ~180 ms (y si se vuelve a
  * mover, lo que no empezó se descarta). */
 void thumbs_frame(bool moving);
+/* Antes de abrir un juego: el hilo no toma trabajo nuevo, se espera (hasta 5 s) a que termine
+ * el que lleva y se suelta su búfer de decodificación (560 KB; el archivo, los IDAT y el
+ * desinflado del decodificador ya los suelta cada carátula al terminar). Se reanuda solo,
+ * con el siguiente thumbs_frame, al volver al menú. */
+bool thumbs_pause(void);  /* true si quedó quieto (false: no terminó a tiempo y sigue usando sus búferes) */
 /* Descarta la carátula completa pedida si el hilo aún no la empezó (la selección
  * volvió a moverse); true si la descartó. */
 bool thumbs_big_cancel(void);
