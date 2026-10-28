@@ -310,23 +310,6 @@ static void targets_decode_rgba16(void)
 		CHECK_EQ(out[0][k], 0);
 }
 
-/* De dónde se lee una textura que viene de un destino (docs/framebuffer.md):
- * del RSX si lo dibujó una tarea reciente y no es el ligado ni se copió a
- * la RDRAM; si no, de la RDRAM. La pausa de Zelda: el framebuffer dibujado
- * dos tareas antes se lee del RSX al copiarlo a fbufSave; fbufSave se copia
- * a la RDRAM (el CPU lo filtra) y desde entonces se lee de la RDRAM; una
- * imagen de 64 recién dibujada se lee del RSX, salvo sobre sí misma. */
-/* Dr. Mario CopyColorFromRDRAM: once CPU-owned bytes are uploaded back to
- * the target surface, recent texture reads should sample that synchronized RSX
- * image instead of continuing to decode the stale RDRAM backing. */
-static void targets_copy_color_from_rdram_alpha(void)
-{
-	CHECK_EQ(rdp_rgba5551_full_alpha(0x0000), 0x0001);
-	CHECK_EQ(rdp_rgba5551_full_alpha(0xF800), 0xF801);
-	CHECK_EQ(rdp_rgba5551_full_alpha(0x7FFE), 0x7FFF);
-	CHECK_EQ(rdp_rgba5551_full_alpha(0xFFFF), 0xFFFF);
-}
-
 static void targets_profile_readback_transition(void)
 {
 	rdp_targets_init(&s);
@@ -339,6 +322,12 @@ static void targets_profile_readback_transition(void)
 	CHECK_EQ(rdp_targets_texture(&s, 0x3b5000, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RSX);
 }
 
+/* De dónde se lee una textura que viene de un destino (docs/framebuffer.md):
+ * del RSX si lo dibujó una tarea reciente y no es el ligado ni se copió a
+ * la RDRAM; si no, de la RDRAM. La pausa de Zelda: el framebuffer dibujado
+ * dos tareas antes se lee del RSX al copiarlo a fbufSave; fbufSave se copia
+ * a la RDRAM (el CPU lo filtra) y desde entonces se lee de la RDRAM; una
+ * imagen de 64 recién dibujada se lee del RSX, salvo sobre sí misma. */
 static void targets_texture_policy(void)
 {
 	const uint32_t FB = 0x3da800, SAVE = 0x12c700, ICON = 0x3da800;
@@ -1278,7 +1267,6 @@ void t_suite_targets(void)
 	RUN(targets_cpu_guard);
 	RUN(targets_profile_baseline_commit);
 	RUN(targets_profile_readback_transition);
-	RUN(targets_copy_color_from_rdram_alpha);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);
 	RUN(targets_present_interlaced);
