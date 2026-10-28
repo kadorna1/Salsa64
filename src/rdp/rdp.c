@@ -1633,8 +1633,9 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
 	uint32_t regions = 0;
 	bool any = false;
-	/* One maximum-width RGBA5551 span. Keep its original bytes for the
-	 * per-target shadow while forcing alpha only in the RSX staging copy. */
+	/* Preserve the N64 RGBA5551 coverage bit. The RSX blitter composites
+	 * changed source pixels using SRC_ALPHA / ONE_MINUS_SRC_ALPHA, matching
+	 * GLideN64's RDRAMtoColorBuffer path. */
 	uint8_t raw_span[RB_MAX_W * 2u];
 
 	for (uint32_t y = 0; y < t->lh; y++) {
@@ -1667,13 +1668,6 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 			}
 			memcpy(raw_span, ram_row + x0 * 2u, w * 2u);
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
-			/* GLideN64's RDRAM-to-color-buffer path uses full alpha for
-			 * copied color pixels. Dr. Mario's falling pills can have bit 0
-			 * clear in RDRAM; preserving it makes those uploaded pixels
-			 * transparent on our alpha-capable RSX target. */
-			uint16_t *stage_pixels = (uint16_t *)(void *)(rdp.rb + boff);
-			for (uint32_t px = 0; px < w; px++)
-				stage_pixels[px] = rdp_rgba5551_full_alpha(stage_pixels[px]);
 			uint32_t dx = x0 * scale, dy = y * scale;
 			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
@@ -1776,10 +1770,6 @@ static uint32_t prime_profile_pending_spans(int i)
 			}
 			memcpy(raw_span, ram_row + x0 * 2u, w * 2u);
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
-			uint16_t *stage_pixels = (uint16_t *)(void *)(rdp.rb + boff);
-			for (uint32_t px = 0; px < w; px++)
-				stage_pixels[px] = rdp_rgba5551_full_alpha(stage_pixels[px]);
-
 			uint32_t dx = x0 * scale, dy = y * scale;
 			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
