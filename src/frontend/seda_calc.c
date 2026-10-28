@@ -211,7 +211,11 @@ void seda_row(int layer, float aspect, const float pos[SEDA_LAYER_VERTS][4], int
 		o->pos[3] = p[2];
 		o->t0[0] = f;
 		o->t0[1] = sp;
-		o->t0[2] = 1.0f - 0.35f * e2 * e2;
+		/* La orilla se desvanece en las dos últimas filas: sin borde duro no
+		 * hay escalera (es el antialiasing de la cinta, sin costo en el RSX). */
+		float edge = (1.0f - fabsf(v)) * (1.0f / 0.18f);
+		edge = edge > 1.0f ? 1.0f : edge;
+		o->t0[2] = (1.0f - 0.35f * e2 * e2) * edge * (2.0f - edge);
 		o->t0[3] = clamp01(0.5f + 0.5f * sn(1.9f * s + 1.1f * v + 2.0f * (float)layer));
 	}
 }
@@ -264,7 +268,7 @@ void seda_sparkles(float aspect, float tf, seda_vertex *out)
 		int twinkle = 100 + (int)(r3 * 200.0f);   /* parpadeos por periodo */
 		float tw = 0.5f + 0.5f * sn(ph(twinkle, tf) + r4 * TAU_F);
 		float b = tw * tw * sn(PI_F * u);         /* se apaga en las puntas del tramo */
-		float sz = (0.006f + 0.014f * r4) * (3.5f / p[2]);
+		float sz = (0.0022f + 0.0028f * r4) * (3.5f / p[2]);  /* de 1 a 3 píxeles de radio a 1080p */
 		for (int k = 0; k < 4; k++) {
 			seda_vertex *o = &out[i * 4 + k];
 			o->pos[0] = x + cx[k] * sz / aspect;

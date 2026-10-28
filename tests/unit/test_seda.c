@@ -160,7 +160,7 @@ static void seda_normals_and_projection(void)
 					CHECK(fabs(f - v->t0[0]) < 2e-4);
 					CHECK(v->t0[0] >= 0.0f && v->t0[0] <= 1.0001f);
 					CHECK(v->t0[1] >= -1.0001f && v->t0[1] <= 1.0001f);
-					CHECK(v->t0[2] > 0.6f && v->t0[2] <= 1.0f);
+					CHECK(v->t0[2] >= 0.0f && v->t0[2] <= 1.0f);
 					CHECK(v->t0[3] >= 0.0f && v->t0[3] <= 1.0f);
 					/* Proyección: w = profundidad, delante de la cámara. */
 					CHECK(v->pos[3] > 1.5f && v->pos[3] == p[2]);

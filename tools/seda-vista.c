@@ -125,11 +125,10 @@ static void tri(const seda_vertex *a, const seda_vertex *b, const seda_vertex *c
 			} else {
 				float d2 = t[0] * t[0] + t[1] * t[1];
 				float a2 = sat(1.0f - d2);
-				float core = a2 * a2 * a2;
-				float glint = sat(1.0f - 8.0f * fabsf(t[0] * t[1])) * a2;
+				float core = a2 * a2;
 				sample_ramp(SEDA_LAYERS, sat(t[3]), tint);
 				for (int k = 0; k < 3; k++)
-					rgb[k] = tint[k] * ((core + 0.6f * glint) * t[2]);
+					rgb[k] = tint[k] * (core * 1.6f * t[2]);
 			}
 			for (int k = 0; k < 3; k++)
 				img[(y * W + x) * 3 + k] += rgb[k];
