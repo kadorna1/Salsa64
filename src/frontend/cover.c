@@ -312,6 +312,13 @@ static bool inflate_raw(const uint8_t *in, size_t inlen, uint8_t *out, size_t ou
 /* El desinflado de los IDAT: zlib (ya se enlaza por la carga de ZIP) y, si se
  * pide, puff (lo de arriba), que queda para comparar tiempos y como respaldo. */
 static bool g_use_puff;
+static size_t g_peak;
+#define ZLIB_STATE_BYTES (44u << 10)  /* inflateInit2: ~7 KB de estado y la ventana de 32 KB */
+
+size_t cover_decode_peak(void)
+{
+	return g_peak;
+}
 
 void cover_use_puff(bool on)
 {
@@ -593,8 +600,13 @@ enum cover_result cover_decode_png(const uint8_t *data, size_t size, uint8_t *rg
 	/* zlib: CM = 8, sin diccionario, y la suma de control de la cabecera. */
 	if (zn < 6 || (zbuf[0] & 0x0F) != 8 || (zbuf[1] & 0x20) || (((unsigned)zbuf[0] << 8) | zbuf[1]) % 31 != 0)
 		goto done;
-	if (!inflate_idat(zbuf + 2, zn - 2, raw, (size_t)raw_n, &used) || used != raw_n)
+	size_t peak = idat_total + (size_t)raw_n + ZLIB_STATE_BYTES;  /* los IDAT juntos, lo desinflado y el estado de zlib */
+	if (!inflate_idat(zbuf + 2, zn - 2, raw, (size_t)raw_n, &used) || used != raw_n) {
+		g_peak = peak;
 		goto done;
+	}
+	free(zbuf);  /* ya no hacen falta: el pico de las sumas no los suma */
+	zbuf = NULL;
 
 	/* Tamaño final: a lo más el máximo, sin cambiar la proporción. */
 	uint32_t dw = p.w, dh = p.h;
@@ -611,6 +623,10 @@ enum cover_result cover_decode_png(const uint8_t *data, size_t size, uint8_t *rg
 		if (!dh)
 			dh = 1;
 	}
+	size_t sums = (size_t)dw * dh * 16 + (size_t)dw * dh * 4 + p.w * 2u;
+	if ((size_t)raw_n + sums > peak)
+		peak = (size_t)raw_n + sums;
+	g_peak = peak;
 	sum = calloc((size_t)dw * dh * 4, sizeof *sum);
 	cnt = calloc((size_t)dw * dh, sizeof *cnt);
 	xmap = malloc(p.w * sizeof *xmap);

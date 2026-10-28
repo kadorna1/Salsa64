@@ -36,7 +36,7 @@ struct request {
 };
 
 static struct {
-	bool ready;
+	bool ready, paused;
 	volatile int stop;
 	const char *dir;
 	struct thumb_cache cache;
@@ -66,7 +66,7 @@ static struct {
 	uint8_t thumb[THUMB_BYTES];      /* la miniatura lista */
 	uint8_t fbuf[THUMB_FILE_HEADER + THUMB_BYTES];  /* la caché en disco */
 	uint64_t us_find, us_read, us_dec, us_scale, us_disk;
-	size_t png_bytes;
+	size_t png_bytes, peak;          /* el archivo y lo que pidió el decodificador (pico, bytes) */
 	unsigned w, h;
 	uint32_t uploaded, failed, disk_hits, decoded, rows_found, rows_missing;
 	bool mkdir_done;
@@ -242,6 +242,7 @@ static void run_job(void)
 	}
 	uint64_t t3b = now_us();
 	enum cover_result r = n ? cover_decode_png(buf, n, th.srcbuf, &th.w, &th.h) : COVER_NO_FILE;
+	th.peak = n + cover_decode_peak();
 	free(buf);
 	uint64_t t4 = now_us();
 	t3 = t3b;
@@ -434,10 +435,44 @@ bool thumbs_big_cancel(void)
 	return true;
 }
 
+bool thumbs_pause(void)
+{
+	if (!th.ready)
+		return true;
+	if (th.paused)
+		return th.srcbuf == NULL;
+	th.paused = true;
+	th.want.set = th.big_want.set = false;
+	uint64_t t0 = now_us();
+	while (th.job == JOB_RUNNING && now_us() - t0 < 5000000u)
+		sysUsleep(1000);
+	bool idle = th.job != JOB_RUNNING;
+	th.job = idle ? JOB_IDLE : th.job;
+	if (idle) {  /* el hilo no usa ya su búfer de decodificación: se suelta mientras dura el juego */
+		free(th.srcbuf);
+		th.srcbuf = NULL;
+	}
+	salsa64_log("miniaturas: en pausa para abrir el juego (esperé %.1f ms al hilo%s, soltados %u KB)", (double)(now_us() - t0) / 1000.0,
+		    idle ? "" : "; sigue ocupado", idle ? (unsigned)(COVER_RGBA_BYTES >> 10) : 0u);
+	return idle;
+}
+
 void thumbs_frame(bool moving)
 {
 	if (!th.ready)
 		return;
+	if (th.paused) {  /* de vuelta en el menú */
+		if (!th.srcbuf)
+			th.srcbuf = malloc(COVER_RGBA_BYTES);
+		if (!th.srcbuf) {
+			salsa64_log("miniaturas: sin memoria para reanudar: se apagan");
+			th.ready = false;
+			return;
+		}
+		th.paused = false;
+		th.reindex = true;  /* el índice de la carpeta pudo soltarse */
+		salsa64_log("miniaturas: reanudadas");
+	}
 	th.frame++;
 	uint64_t now = now_us();
 	if (moving) {
@@ -488,10 +523,10 @@ void thumbs_frame(bool moving)
 			} else {
 				th.decoded++;
 				salsa64_log("miniaturas: %s%s: caché %.1f ms, buscar %.1f ms, leer %.1f ms (%u bytes), decodificar %ux%u "
-					    "%.1f ms, reducir %.1f ms; %u de disco, %u decodificadas, filas con/sin miniatura %u/%u, %u pospuestas",
+					    "%.1f ms, reducir %.1f ms, pico de memoria %u KB; %u de disco, %u decodificadas, filas con/sin miniatura %u/%u, %u pospuestas",
 					    th.req.name, big ? " (completa)" : "", (double)th.us_disk / 1000.0, (double)th.us_find / 1000.0,
 					    (double)th.us_read / 1000.0, (unsigned)th.png_bytes, th.w, th.h, (double)th.us_dec / 1000.0,
-					    (double)th.us_scale / 1000.0, th.disk_hits, th.decoded, th.rows_found, th.rows_missing, th.skipped);
+					    (double)th.us_scale / 1000.0, (unsigned)(th.peak >> 10), th.disk_hits, th.decoded, th.rows_found, th.rows_missing, th.skipped);
 			}
 			th.rows_found = th.rows_missing = 0;
 		} else if (j == JOB_DONE_NONE) {

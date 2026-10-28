@@ -37,6 +37,11 @@ enum cover_result {
 	COVER_UNSUPPORTED,  /* un modo de PNG que no existe (profundidad que no va con el tipo) */
 };
 
+/* Lo más que pidió con malloc el último cover_decode_png, aparte del archivo en memoria
+ * (los IDAT juntos y lo desinflado, o lo desinflado y las sumas de la reducción, y el
+ * estado de zlib), en bytes: sale del tamaño real de esa imagen, no de los topes. */
+size_t cover_decode_peak(void);
+
 /* Con true, los IDAT se desinflan con puff en vez de zlib (por omisión, zlib). */
 void cover_use_puff(bool on);
 
