@@ -2249,14 +2249,14 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		return false;
 	uint32_t x0 = 0, y0 = 0;
 	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
-	/* Reconcile CPU writes before source selection. Dr. Mario's Glide profile
-	 * uses the old framebuffer as a texture (read_back_to_screen=1). A live
-	 * RSX-owned surface can remain authoritative after the normal freshness
-	 * window because RDRAM lacks RSX-only pixels; upload any changed CPU spans
-	 * first. CPU-owned surfaces are never safe for this shortcut. */
+	/* Reconcile CPU writes only for a live RSX-owned target. A target older
+	 * than the normal source window is read from RDRAM: its surface may be
+	 * stale, and forcing an old RSX image here caused Dr. Mario's RSX queue
+	 * to stall while sampling 214e00/328 repeatedly. */
 	bool profile_surface_synced = false;
 	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram &&
-	    !rdp.tg.t[slot].cpu_owned) {
+	    !rdp.tg.t[slot].cpu_owned &&
+	    rdp.tg.task - rdp.tg.t[slot].last_task <= RDP_TARGETS_FRESH) {
 		if (profile_cpu_rows_changed(slot)) {
 			uint32_t regions = prime_profile_cpu_spans(slot, true);
 			if (regions) {
@@ -2284,7 +2284,7 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		profile_surface_synced = true;
 	}
 	enum rdp_texsrc src = profile_surface_synced
-		? rdp_targets_texture_synced(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, true, &slot, &x0, &y0)
+		? rdp_targets_texture_synced(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0)
 		: rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
 	if (profile_surface_synced) {
 		const char *source = src == RDP_TEXSRC_SELF ? "SELF" :
