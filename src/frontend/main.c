@@ -179,6 +179,7 @@
 #include "download.h"
 #include "gfxtest_rom_bin.h"
 #include "i18n.h"
+#include "intro.h"
 #include "menu.h"
 #include "osd.h"
 #include "pacer.h"
@@ -5304,7 +5305,13 @@ static void font_stats_log(const char *when)
 		    st.resets, (unsigned)(fi.lib_bytes >> 10), (unsigned)(fi.lib_peak >> 10));
 }
 
-static void font_init_once(void)
+/* Abre la fuente del sistema (módulos, libfont, FreeType: ~0,9 s en la PS3)
+ * sin tocar el 2D del RSX: puede correr en el hilo de la carga previa
+ * (preload_thread) mientras la secuencia de arranque anima la pantalla.
+ * font_init_once la pone en el 2D, ya en el hilo principal. */
+static int font_attached;
+
+static void font_open_raw(void)
 {
 	if (font_state)
 		return;
@@ -5314,7 +5321,6 @@ static void font_init_once(void)
 		return;
 	if (file_exists(FONT_OWN_PATH)) {
 		salsa64_log("fuente: %s presente, uso la 8x13", FONT_OWN_PATH);
-		font_log();
 		return;
 	}
 	int rc = rsxkit_sysfont_open(RSXKIT_SYSFONT_JAPANESE, 0);
@@ -5324,7 +5330,6 @@ static void font_init_once(void)
 		font_trace_log(fi.trace);
 		salsa64_log("fuente: la del sistema no abre (%d, paso %d, código 0x%08x): uso la 8x13", rc, fi.step,
 			    (unsigned)fi.error);
-		font_log();
 		return;
 	}
 	font_state = 1;
@@ -5333,7 +5338,16 @@ static void font_init_once(void)
 	int cjk = rsxkit_sysfont_has(0x3042) && rsxkit_sysfont_has(0xD55C) && rsxkit_sysfont_has(0x9AD4) &&
 		  rsxkit_sysfont_has(0x7B80);
 	i18n_set_cjk(cjk);
-	rsxkit_ui_font(rsxkit_sysfont_source());
+}
+
+static void font_init_once(void)
+{
+	font_open_raw();
+	if (font_attached)
+		return;
+	font_attached = 1;
+	if (font_state == 1)
+		rsxkit_ui_font(rsxkit_sysfont_source());
 	font_log();
 }
 
@@ -6042,13 +6056,15 @@ static void test_flags_from_name(const char *name)
 /* Arma la lista (con la fila de `keep` elegida, si sigue ahí). */
 static unsigned scan_flags;  /* ROMLIST_SCAN_REUSE solo al volver de un juego */
 
-static void menu_scan(const char *keep)
+/* Lee las carpetas y arma la lista: no toca el 2D ni el menú, así que puede
+ * correr en el hilo de la carga previa. */
+static void menu_scan_read(void)
 {
 	uint64_t scan_start = sysGetSystemTime();
 	if (!roms)
 		roms = romlist_create();
 	if (!roms) {
-		menu_set_status(&menu, "No hay memoria para la lista de ROMs");
+		salsa64_log("menú: no hay memoria para la lista de ROMs");
 		app_quit = 1;
 		return;
 	}
@@ -6075,6 +6091,13 @@ static void menu_scan(const char *keep)
 	if (roms->skipped)
 		salsa64_log("menú: %u archivos con extensión de ROM que no se pudieron leer, muy chicos o sin lugar",
 			    roms->skipped);
+}
+
+/* El menú sobre la lista ya leída. */
+static void menu_scan_finish(const char *keep)
+{
+	if (!roms)
+		return;
 	menu_init(&menu, roms, keep ? romlist_find(roms, keep, rom_dirs, ROMLIST_SOURCES_MAX) : -1, &mn.settings);
 	menu.global_controls = padmap;
 	if (roms->directory[0] && menu.sel == 0 && roms->count > 1 && roms->e[0].kind == ROMLIST_PARENT)
@@ -6093,6 +6116,12 @@ static void menu_scan(const char *keep)
 	menu.dirs[menu.ndirs++] = "/dev_usb000/salsa64 … /dev_usb007/salsa64";
 	menu.version = version_text;
 	menu.build = build_text[0] ? build_text : NULL;
+}
+
+static void menu_scan(const char *keep)
+{
+	menu_scan_read();
+	menu_scan_finish(keep);
 }
 
 static bool rom_root_for_path(const char *path, char *root, size_t size)
@@ -6366,6 +6395,9 @@ static void menu_show(const char *shot)
 	}
 	rsxkit_ui_begin(mn.lw, mn.lh);
 	menu_frame(&menu, mn.lw, mn.lh, sysGetSystemTime());
+	uint8_t intro_fade = intro_menu_fade();  /* del negro de la secuencia de arranque al menú */
+	if (intro_fade)
+		rsxkit_ui_rect(0.0f, 0.0f, mn.lw, mn.lh, intro_fade);
 	rsxkit_ui_end();
 	if (menu.cart3d) {
 		/* Costo del cartucho 3D: cada 300 cuadros con él dibujado, el promedio. */
@@ -6437,12 +6469,6 @@ static void language_apply(void)
 	salsa64_log("idioma: la consola dice %d (%s), ajuste «%s», en uso «%s»%s", sys, i18n_system_code(sys),
 		    i18n_code(mn.settings.lang), i18n_code(i18n_lang()),
 		    !i18n_cjk() && (i18n_is_cjk(want) || i18n_is_cjk(mn.settings.lang)) ? " (sin fuente CJK: inglés)" : "");
-}
-
-static void menu_settings_load(void)
-{
-	settings_read(&mn.settings);
-	language_apply();
 }
 
 static void menu_settings_save(void)
@@ -6688,6 +6714,213 @@ static bool direct_launch(void)
 	return end == GAME_QUIT || app_quit;
 }
 
+/* ---- Carga previa y secuencia de arranque ----------------------------------
+ * Lo lento del arranque que no necesita el RSX (los ajustes, abrir la fuente
+ * del sistema, ~0,9 s, y leer la lista de ROMs) va en un hilo mientras el
+ * principal anima la secuencia de arranque (intro.h). Elegido sobre
+ * intercalar cuadros entre los pasos porque la fuente es una sola llamada
+ * larga a libfont que no se puede partir: sin hilo, la animación se
+ * congelaría casi un segundo. El hilo no toca el RSX ni el 2D (los módulos
+ * del sistema y los archivos van bien desde cualquier hilo); lo que sí los
+ * toca (poner la fuente en el 2D, el menú) sigue en el principal, después
+ * de que el hilo termine (preload_finish). Sin secuencia (sin-intro, prueba
+ * automática, un cuadro de embedded), la misma carga corre en el principal,
+ * en el mismo orden de siempre. */
+#define INTRO_OFF_PATH  SALSA64_DATA_DIR "/sin-intro"
+#define INTRO_TEST_PATH SALSA64_DATA_DIR "/intro-prueba"
+#define INTRO_WAIT_PATH SALSA64_DATA_DIR "/intro-espera"  /* ms de negro tras videoConfigure antes del encendido */
+#define INTRO_WAIT_DEFAULT_MS 0  /* con videoConfigure con los valores del XMB, el ProArt ve la intro entera sin espera; intro-espera sirve a una tele lenta */
+#define PRELOAD_PRIO   1500
+#define PRELOAD_STACK  0x100000
+
+static struct {
+	sys_ppu_thread_t tid;
+	bool threaded;        /* hay hilo (y falta unirlo) */
+	bool ran;             /* ya se cargó */
+	volatile int done;    /* el hilo terminó */
+	uint64_t t_start, t_done;
+	bool have_last;
+	char last[ROMLIST_PATH_MAX];
+} pre;
+
+static void preload_run(void)
+{
+	if (pre.ran)
+		return;
+	pre.ran = true;
+	pre.t_start = sysGetSystemTime();
+	settings_read(&mn.settings);
+	font_open_raw();
+	pre.have_last = romlist_load_last(LAST_ROM_PATH, pre.last, sizeof pre.last);
+	if (pre.have_last) {
+		char root[ROMLIST_PATH_MAX];
+		if (rom_root_for_path(pre.last, root, sizeof root)) {
+			const char *rel = pre.last + strlen(root);
+			if (*rel == '/')
+				rel++;
+			snprintf(rom_dir, sizeof rom_dir, "%s", rel);
+			rom_parent_directory(rom_dir, rom_dir, sizeof rom_dir);
+		}
+	}
+	menu_scan_read();
+	heap_report("al abrir el menú");
+	pre.t_done = sysGetSystemTime();
+}
+
+static void preload_thread(void *arg)
+{
+	(void)arg;
+	preload_run();
+	__sync_synchronize();
+	pre.done = 1;
+	sysThreadExit(0);
+}
+
+/* Arranca la carga en su hilo (con el 2D listo: la fuente lo comprueba). */
+static void preload_start(void)
+{
+	if (pre.ran || pre.threaded)
+		return;
+	if (sysThreadCreate(&pre.tid, preload_thread, NULL, PRELOAD_PRIO, PRELOAD_STACK, THREAD_JOINABLE,
+			    (char *)"salsa64_carga") == 0) {
+		pre.threaded = true;
+		return;
+	}
+	salsa64_log("intro: no se pudo crear el hilo de la carga: sin secuencia de arranque");
+}
+
+/* Deja la carga hecha (esperando al hilo o haciéndola aquí). */
+static void preload_finish(void)
+{
+	if (pre.threaded) {
+		u64 rv;
+		sysThreadJoin(pre.tid, &rv);
+		pre.threaded = false;
+	}
+	preload_run();
+}
+
+/* La secuencia de arranque, si toca: hasta que acabe y la carga también.
+ * X u O la saltan (los botones que ya estaban apretados al abrir la
+ * aplicación desde el XMB no cuentan). */
+static bool intro_was_shown;
+
+/* Cuatro píxeles del búfer trasero (antes del flip) para el log: lo que
+ * se presenta de verdad, en un momento de la secuencia. */
+static void intro_probe(const char *what)
+{
+	const rsxkit_screen *sc = rsxkit_screen_info();
+	uint32_t pitch;
+	rsxkit_finish();
+	const volatile uint32_t *px = rsxkit_back_buffer(&pitch);
+	uint32_t w = pitch / 4, sum = 0, n = 0;
+	for (uint32_t y = sc->height / 8; y < sc->height; y += sc->height / 8)
+		for (uint32_t x = sc->width / 4; x < sc->width - sc->width / 4; x += sc->width / 8, n++)
+			sum += (px[y * w + x] >> 8 & 0xFF) + (px[y * w + x] >> 16 & 0xFF) + (px[y * w + x] & 0xFF);
+	salsa64_log("intro: píxeles de «%s»: centro %08x, (%u,%u) %08x, luz media de la rejilla %u/255", what,
+		    px[sc->height / 2 * w + sc->width / 2], sc->width / 2, sc->height / 8, px[sc->height / 8 * w + sc->width / 2],
+		    n ? sum / (3 * n) : 0);
+}
+
+/* Negro hasta `ms` después del videoConfigure de rsxkit_init: el monitor
+ * puede quedarse sin imagen unos segundos al renegociar el HDMI. Sale al
+ * saltarla (true) o al cerrar la aplicación. */
+static bool intro_wait_black(void)
+{
+	const rsxkit_video_boot *vb = rsxkit_video_boot_info();
+	int ms = INTRO_WAIT_DEFAULT_MS;
+	FILE *f = fopen(INTRO_WAIT_PATH, "r");
+	if (f) {
+		int v;
+		if (fscanf(f, "%d", &v) == 1 && v >= 0 && v <= 20000)
+			ms = v;
+		fclose(f);
+	}
+	uint64_t until = (vb->configured_us ? vb->configured_us : (uint64_t)sysGetSystemTime()) + (uint64_t)ms * 1000u;
+	uint64_t t0 = sysGetSystemTime();
+	uint32_t held = 0xFFFFFFFFu;
+	bool first = true, skip = false;
+	while (!app_quit && (uint64_t)sysGetSystemTime() < until && !skip) {
+		beat.pres++;
+		beat.pres_at = "intro: espera";
+		sysutil_check();
+		uint32_t buttons = 0;
+		update_pads(&buttons);
+		if (first)
+			held = buttons;
+		first = false;
+		if (buttons & ~held & ((1u << SALSA64_DS3_CROSS) | (1u << SALSA64_DS3_CIRCLE)))
+			skip = true;
+		held = buttons;
+		if (pausectl_overlay(&pause_ctl) && !rsxkit_frame_ready()) {
+			sysUsleep(OVERLAY_US);
+			continue;
+		}
+		frame_begin("intro: espera, flip anterior");
+		frame_end("intro: espera, flip");
+	}
+	salsa64_log("intro: espera en negro de %d ms tras el video (videoConfigure con %s): esperó %llu ms%s", ms,
+		    vb->used_current ? "los valores del XMB" : "los de siempre", (unsigned long long)((sysGetSystemTime() - t0) / 1000),
+		    skip ? ", saltada" : "");
+	return skip;
+}
+
+static void intro_run(void)
+{
+	if (!pre.threaded || !ui_ok)
+		return;
+	if (!intro_begin(cover_rgba, sizeof cover_rgba)) {
+		salsa64_log("intro: no se pudo preparar, sin secuencia de arranque");
+		return;
+	}
+	intro_was_shown = true;
+	bool skip = intro_wait_black();
+	uint32_t held = 0xFFFFFFFFu;
+	bool first = true;
+	unsigned shown = 0;
+	bool probed_static = false, probed_logo = false;
+	while (!app_quit) {
+		beat.pres++;
+		beat.pres_at = "intro: sysutil";
+		sysutil_check();
+		uint32_t buttons = 0;
+		update_pads(&buttons);
+		if (first)
+			held = buttons;
+		uint32_t pressed = buttons & ~held;
+		held = buttons;
+		if (pressed & ((1u << SALSA64_DS3_CROSS) | (1u << SALSA64_DS3_CIRCLE)))
+			skip = true;
+		if (pausectl_overlay(&pause_ctl) && !rsxkit_frame_ready()) {
+			sysUsleep(OVERLAY_US);
+			continue;
+		}
+		enum intro_phase cur = intro_update(pre.done != 0, skip);
+		if (cur == INTRO_DONE)
+			break;
+		frame_begin("intro: flip anterior");
+		bool ok = intro_draw();
+		/* Sondeo de lo que va a la pantalla: encendido, estática y logo. */
+		if (++shown == 20 && cur == INTRO_POWER)
+			intro_probe("encendido");
+		if (cur == INTRO_STATIC && !probed_static && (probed_static = true))
+			intro_probe("estática");
+		if (cur == INTRO_LOGO && !probed_logo && (probed_logo = true))
+			intro_probe("logo");
+		frame_end("intro: flip");
+		first = false;
+		if (!ok)
+			break;
+	}
+	if (skip || app_quit) {
+		/* Un cuadro negro y a esperar lo que falte de la carga. */
+		frame_begin("intro: negro");
+		frame_end("intro: negro, flip");
+	}
+	preload_finish();
+	intro_end((uint32_t)((pre.t_done - pre.t_start) / 1000));
+}
+
 /* El menú: lista, elige, abre y vuelve, hasta «Salir al XMB» o «Salir del
  * juego» del sistema. Devuelve 0, o 1 si la prueba automática falló. */
 static int menu_loop(void)
@@ -6700,7 +6933,9 @@ static int menu_loop(void)
 		return 1;
 	}
 	menu_layout();
-	menu_settings_load();
+	intro_run();
+	preload_finish();
+	language_apply();  /* los ajustes y la fuente ya los dejó la carga previa */
 	ra_apply(mn.settings.ra, mn.settings.ra_hardcore);
 	load_overscan();
 	mn.settings.overscan = overscan_preset();
@@ -6714,23 +6949,16 @@ static int menu_loop(void)
 		    mn.lh, sc->width, sc->height, ROM_MAX >> 20,
 		    !mn.settings.waves ? "fijo" : mn.settings.seda ? "seda" : "ondas");
 
-	char last[ROMLIST_PATH_MAX];
-	bool have_last = romlist_load_last(LAST_ROM_PATH, last, sizeof last);
-	if (have_last) {
-		char root[ROMLIST_PATH_MAX];
-		if (rom_root_for_path(last, root, sizeof root)) {
-			const char *rel = last + strlen(root);
-			if (*rel == '/') rel++;
-			snprintf(rom_dir, sizeof rom_dir, "%s", rel);
-			rom_parent_directory(rom_dir, rom_dir, sizeof rom_dir);
-		}
-	}
-	menu_scan(have_last ? last : NULL);
+	const char *last = pre.last;
+	bool have_last = pre.have_last;
+	menu_scan_finish(have_last ? last : NULL);
 	if (!roms)
 		return 1;
+	salsa64_log("menú: listo a los %llu ms de empezar la carga previa (carga en %llu ms, %s)",
+		    (unsigned long long)((sysGetSystemTime() - pre.t_start) / 1000),
+		    (unsigned long long)((pre.t_done - pre.t_start) / 1000), intro_was_shown ? "con la secuencia de arranque" : "sin ella");
 	if (have_last)
 		salsa64_log("menú: última ROM %s (%s)", last, romlist_find(roms, last, rom_dirs, ROMLIST_SOURCES_MAX) >= 0 ? "elegida" : "ya no está");
-	heap_report("al abrir el menú");
 	if (pres.autotest)
 		menu_test_load();
 
@@ -7103,6 +7331,20 @@ int main(int argc, char **argv)
 	const rsxkit_screen *sc = rsxkit_screen_info();
 	salsa64_log("RSX listo: %ux%u, tele %s%s", sc->width, sc->height, sc->aspect > 1.5f ? "16:9" : "4:3",
 		    vc ? " (video.cfg: 1080)" : "");
+	{
+		const rsxkit_video_boot *vb = rsxkit_video_boot_info();
+		salsa64_log("video: antes de configurar, estado %d (%s) modo %d, espacio de color %d, escaneo %d, conversión %d, "
+			    "aspecto %d, frecuencias 0x%x; configuración vigente %s: resolución %d, formato %d, aspecto %d, pitch %u",
+			    vb->state, vb->state == 1 ? "activo" : vb->state == 0 ? "desactivado" : "ocupado", vb->prev_mode,
+			    vb->color_space, vb->scan_mode, vb->conversion, vb->aspect, (unsigned)vb->refresh,
+			    vb->cfg_ok ? "leída" : "ILEGIBLE", vb->cfg_resolution, vb->cfg_format, vb->cfg_aspect,
+			    (unsigned)vb->cfg_pitch);
+		salsa64_log("video: se eligió el modo %d, pitch de nuestros búferes %u (el nuestro sería %u); %s; regiones de "
+			    "mosaico del sistema: %d%s%s", vb->mode, (unsigned)vb->pitch, (unsigned)sc->width * 4,
+			    vb->used_current ? "videoConfigure con los valores vigentes del XMB"
+					     : "videoConfigure normal (otro modo que el vigente)",
+			    vb->tiles_active, vb->tiles_active ? ": " : "", vb->tiles);
+	}
 	if (file_exists(SALSA64_DATA_DIR "/filtros-autoprueba")) {
 		bool ok = salsa64_filters_selftest();
 		salsa64_log("RESULTADO filtros: %s", ok ? "OK" : "FALLO");
@@ -7210,6 +7452,12 @@ int main(int argc, char **argv)
 	} else {
 		in_menu = 1;
 		res_tag = "prueba del juego";
+		/* La carga del menú en su hilo mientras corre la secuencia de arranque
+		 * (intro_run, en menu_loop); sin ella, todo en el principal. */
+		/* En la prueba automática no hay secuencia, salvo con el archivo intro-prueba. */
+		if ((!pres.autotest || file_exists(INTRO_TEST_PATH)) && !file_exists(INTRO_OFF_PATH) &&
+		    ui_init_once() == RSXKIT_OK)
+			preload_start();
 		direct_request(argc, argv);
 		salsa64_log("sin %s: menú", EMBED_PATH);
 		status = menu_loop();

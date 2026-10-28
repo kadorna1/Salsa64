@@ -365,3 +365,29 @@ programa está en uso. Para un color que cambia con la hora, el fondo «Seda»
 lo lleva en una rampa de 16 texeles RGBA8 en memoria principal (una por
 capa, triple búfer) que la malla lee con el tono interpolado; más barato
 que parchear y sin esperas. Detalles en `docs/fondo-seda.md`.
+
+## Video: lo que deja el XMB y las renegociaciones del monitor (2026-10-27)
+
+Medido en una PS3 con un monitor ASUS ProArt por HDMI (a 1080p), con el
+registro de `rsxkit_init` («video: antes de configurar…»):
+
+- **La salida llega «desactivada»** (`videoGetState`: estado 0) al arrancar la
+  aplicación, aunque el XMB ya esté en el mismo modo. Sin `videoConfigure` no
+  se activa: la imagen salió con bloques revueltos (probado sin llamarlo).
+- **`videoGetConfiguration` da la configuración del XMB**: resolución 1080,
+  formato XRGB y **pitch 8192**, no ancho × 4 (7680). Con `videoConfigure` y
+  nuestro pitch de 7680 el monitor renegociaba el HDMI una segunda vez.
+- **Una sola renegociación** si `videoConfigure` lleva exactamente los
+  valores vigentes (formato, aspecto, pitch) y los búferes de pantalla usan
+  ese pitch (`rsxkit_init` lo hace solo cuando la resolución vigente es la
+  elegida). Queda la que hace el sistema al salir del XMB, que no se puede
+  evitar. En el ProArt la intro se ve entera sin esperar (se probó con
+  `intro-espera` de 750, 400 y 0 ms); la secuencia de arranque
+  (`src/frontend/intro.c`) no espera por omisión, y `intro-espera` (ms desde el
+  `videoConfigure`) sirve a una tele más lenta.
+- Con otra resolución que la vigente, `videoConfigure` va como siempre
+  (pitch = ancho × 4). «Aplicar ahora» (`rsxkit_video_reconfigure`) también:
+  los búferes vuelven a ancho × 4. Todo lo demás lee el pitch de la API
+  (`rsxkit_back_buffer`, `rsxkit_screen_texture`, `rsxkit_bind_frame`).
+- Regiones de mosaico (tiles) del sistema: el registro las lista; no se
+  quitan.

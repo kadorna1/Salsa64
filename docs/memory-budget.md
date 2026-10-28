@@ -157,3 +157,21 @@ sitio en compilación y su relleno. No se reserva memoria por bloque ni por
 invalidación. La tabla de detalles tiene sondeo limitado a 64 entradas y
 cuenta los desbordamientos; los totales por causa no se pierden. Véase
 `docs/roadrash-invalidaciones.md`.
+
+## Secuencia de arranque (`src/frontend/intro.c`)
+
+Reservas de la secuencia que imita una tele CRT. Todo se pide en
+`intro_begin` y se suelta en `intro_end`, al entrar al menú; nada se asigna
+dentro del bucle por cuadro (la nieve se rehace sobre el mismo búfer).
+
+| Recurso | Dónde | Tamaño |
+|---|---|---|
+| Nieve (320 × 240 RGBA) | heap | 300 KB |
+| Logo decodificado (ICON0, 320 × 176 RGBA) | heap | 220 KB |
+| Destino de dibujo 640 × 480 (X8R8G8B8) | RSX | 1,2 MB |
+| Tablas y superficies del filtro Trinitron a 320 × 240 | RSX | las del filtro, se sueltan con `salsa64_filters_release` |
+| Pila del hilo de la carga previa | XDR | 1 MB, mientras corre (se libera al unirlo) |
+
+El 2D de `rsxkit/ui.h` (ranura de imagen 0, para la nieve y el logo) es el
+del menú: no suma. El PNG del logo va embebido (`icon_logo_bin`, 71 KB
+en el binario) y se decodifica en el búfer de carátulas.
