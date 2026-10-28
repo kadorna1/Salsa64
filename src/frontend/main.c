@@ -216,6 +216,9 @@
 #include "version.h"
 #include "vitest_rom_bin.h"
 #include "cart_icon_bin.h"
+#include "cart_mesh_bin.h"
+#include "cart_plastic_bin.h"
+#include "frontend/cartucho3d.h"
 
 SYS_PROCESS_PARAM(1001, 0x100000);
 
@@ -5172,6 +5175,19 @@ static void ui_cart_icon_load(void)
 		salsa64_log("menú: el ícono del cartucho no cargó (%s, %d, %ux%u): queda el plano", cover_result_name(r), rc, w, h);
 }
 
+/* El cartucho 3D de la fila elegida (cartucho3d.h): la malla y la textura del
+ * plástico van embebidas; si algo falla, el menú usa el sprite. */
+static void ui_cart3d_load(void)
+{
+	uint8_t *rgba = malloc(COVER_RGBA_BYTES);
+	unsigned w = 0, h = 0;
+	enum cover_result r = rgba ? cover_decode_png(cart_plastic_bin, cart_plastic_bin_size, rgba, &w, &h) : COVER_TOO_BIG;
+	bool ok = r == COVER_OK && cartucho3d_init(cart_mesh_bin, cart_mesh_bin_size, rgba, w, h);
+	free(rgba);
+	if (!ok)
+		salsa64_log("menú: el cartucho 3D no cargó (%s): queda el sprite", cover_result_name(r));
+}
+
 /* rsxkit_ui: el menú y lo que se dibuja sobre el juego (aviso, contador);
  * se prepara una vez (5 MB mapeados, para siempre). */
 static int ui_init_once(void)
@@ -5182,7 +5198,10 @@ static int ui_init_once(void)
 		if (rc != RSXKIT_OK)
 			salsa64_log("2D del RSX no disponible (%d): sin avisos en pantalla", rc);
 		else
+		{
 			ui_cart_icon_load();
+			ui_cart3d_load();
+		}
 	}
 	/* La salida puede cambiar sin reiniciar («Aplicar ahora»). */
 	const rsxkit_screen *sc = rsxkit_screen_info();
@@ -6262,9 +6281,32 @@ static void menu_show(const char *shot)
 	if (!seda)
 		seda_release();
 	menu.cart_icon = ui_cart_icon;
+	/* Cartucho 3D en la fila elegida; su etiqueta lleva la carátula cuando ya cargó. */
+	menu.cart3d = cartucho3d_ready() ? cartucho3d_draw : NULL;
+	if (menu.cart3d) {
+		int s = menu_selected(&menu);
+		bool cov = s >= 0 && menu.cover_rom == s && menu.cover_w && menu.cover_h;
+		cartucho3d_update(s, cov ? cover_rgba : NULL, menu.cover_w, menu.cover_h, menu.t);
+	}
 	rsxkit_ui_begin(mn.lw, mn.lh);
 	menu_frame(&menu, mn.lw, mn.lh, sysGetSystemTime());
 	rsxkit_ui_end();
+	if (menu.cart3d) {
+		/* Costo del cartucho 3D: cada 300 cuadros con él dibujado, el promedio. */
+		static unsigned cart_n;
+		static uint64_t cart_us;
+		double us;
+		unsigned n;
+		cartucho3d_stats(&us, &n);
+		cart_n += n;
+		cart_us += (uint64_t)(us * n);
+		if (cart_n >= 300) {
+			salsa64_log("menú: cartucho 3D, %.0f us por cuadro en el PPE (vértices y envío, %u cuadros)",
+				    (double)cart_us / cart_n, cart_n);
+			cart_n = 0;
+			cart_us = 0;
+		}
+	}
 	if (menu.quit_ask)
 		osd_confirm_draw("¿Salir al XMB?", "×: Sí     ○: No", mn.lw, mn.lh);
 	if (shot) {

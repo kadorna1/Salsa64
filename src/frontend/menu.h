@@ -187,6 +187,8 @@ enum { MENU_OPT_WAVES, MENU_OPT_OVERSCAN, MENU_OPT_ASPECT, MENU_OPT_FILTER, MENU
 /* «Aplicar ahora» solo existe mientras lo elegido difiere de lo que corre;
  * «Densidad», solo con el CRT de máscara de sombra. */
 
+typedef void (*menu_cart3d_fn)(void *user, float cx, float cy, float size, float alpha);
+
 struct menu {
 	const struct romlist *list;
 	struct menu_settings set;
@@ -239,6 +241,10 @@ struct menu {
 	unsigned ndirs;
 	const char *loading;   /* título que se está cargando, o NULL */
 	bool bg_drawn;         /* main.c ya dibujó el fondo «Seda» en este cuadro */
+	/* El cartucho 3D de la fila elegida (main.c: cartucho3d.h): se llama desde
+	 * un gancho del 2D con el centro, el alto y la opacidad; NULL, el sprite. */
+	menu_cart3d_fn cart3d;
+	void *cart3d_user;
 	bool cart_icon;        /* el ícono del cartucho está en la ranura MENU_CART_SLOT del 2D */
 	/* Arriba a la derecha, chico, bajo el contador (los pone main.c): la
 	 * versión corta (version.h) y, en un paquete de prueba, «título ·

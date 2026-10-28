@@ -1,0 +1,220 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Pruebas del cartucho 3D del menú (src/frontend/cartucho_mesh.c): el lector
+ * de assets/menu/cartucho.mesh (conteos, rangos de índices, normales
+ * unitarias), el dibujo (caras traseras fuera, orden de pintor, luz) y la
+ * textura de la etiqueta con la carátula.
+ */
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <rsxkit/ui.h>
+
+#include "frontend/cartucho_mesh.h"
+#include "test.h"
+
+static uint8_t *load(size_t *n)
+{
+	static const char *const paths[] = { "../../assets/menu/cartucho.mesh", "assets/menu/cartucho.mesh",
+					     "../assets/menu/cartucho.mesh" };
+	for (unsigned i = 0; i < sizeof paths / sizeof paths[0]; i++) {
+		FILE *f = fopen(paths[i], "rb");
+		if (!f)
+			continue;
+		fseek(f, 0, SEEK_END);
+		long sz = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		uint8_t *b = malloc((size_t)sz);
+		if (b && fread(b, 1, (size_t)sz, f) == (size_t)sz) {
+			fclose(f);
+			*n = (size_t)sz;
+			return b;
+		}
+		fclose(f);
+		free(b);
+	}
+	return NULL;
+}
+
+static struct cartucho_mesh mesh;
+static struct cartucho_out out;
+
+static void parse(void)
+{
+	size_t n = 0;
+	uint8_t *d = load(&n);
+	CHECK(d != NULL);
+	if (!d)
+		return;
+	CHECK_EQ(cartucho_mesh_parse(&mesh, d, n), 0);
+	CHECK_EQ(mesh.nv, 473);
+	CHECK_EQ(mesh.np, 482);
+	CHECK_EQ(mesh.nl, 16);
+	for (uint32_t i = 0; i < (mesh.np + mesh.nl) * 3; i++)
+		CHECK(mesh.idx[i] < mesh.nv);
+	float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
+	for (uint32_t i = 0; i < mesh.nv; i++) {
+		float len = sqrtf(mesh.v[i][3] * mesh.v[i][3] + mesh.v[i][4] * mesh.v[i][4] + mesh.v[i][5] * mesh.v[i][5]);
+		CHECK(fabsf(len - 1.0f) < 1e-3f);
+		for (int k = 0; k < 3; k++) {
+			if (mesh.v[i][k] < lo[k]) lo[k] = mesh.v[i][k];
+			if (mesh.v[i][k] > hi[k]) hi[k] = mesh.v[i][k];
+		}
+	}
+	/* Alto 1 y centrado. */
+	CHECK(fabsf((hi[1] - lo[1]) - 1.0f) < 1e-3f);
+	CHECK(fabsf(hi[1] + lo[1]) < 1e-3f);
+	/* Los vértices de la etiqueta van de 0 a 1 en u y v. */
+	for (uint32_t t = mesh.np; t < mesh.np + mesh.nl; t++)
+		for (int j = 0; j < 3; j++) {
+			float u = mesh.v[mesh.idx[3 * t + j]][6], v = mesh.v[mesh.idx[3 * t + j]][7];
+			CHECK(u >= -1e-4f && u <= 1.0001f && v >= -1e-4f && v <= 1.0001f);
+		}
+	free(d);
+}
+
+static void bad_input(void)
+{
+	size_t n = 0;
+	uint8_t *d = load(&n);
+	if (!d)
+		return;
+	struct cartucho_mesh m;
+	CHECK(cartucho_mesh_parse(&m, d, n - 1) < 0);          /* tamaño */
+	CHECK(cartucho_mesh_parse(&m, d, 8) < 0);
+	d[0] = 'X';
+	CHECK(cartucho_mesh_parse(&m, d, n) < 0);              /* magia */
+	d[0] = 'C';
+	d[n - 1] = 0xFF, d[n - 2] = 0xFF;                      /* índice fuera de rango */
+	CHECK(cartucho_mesh_parse(&m, d, n) < 0);
+	free(d);
+}
+
+static void draw(void)
+{
+	CHECK(mesh.nv != 0);
+	if (!mesh.nv)
+		return;
+	/* De frente: se ve la mitad de los triángulos (o menos) y la etiqueta entera. */
+	cartucho_mesh_draw(&mesh, 0.0f, 0.0f, 100.0f, 200.0f, 80.0f, 256.0f, 256.0f, 256.0f, 256.0f, &out);
+	CHECK(out.nplastic > 0 && out.nplastic % 3 == 0);
+	CHECK(out.nplastic / 3 < mesh.np);
+	CHECK(out.nlabel > 0 && out.nlabel <= 16 * 3);
+	/* Todos los triángulos que quedan miran al espectador (antihorarios con la
+	 * y hacia arriba: horarios en pantalla, con la y hacia abajo) y caen en la caja del cartucho. */
+	for (uint32_t i = 0; i < out.nplastic; i += 3) {
+		const rsxkit_vertex *a = &out.plastic[i], *b = a + 1, *c = a + 2;
+		float cr = (b->pos[0] - a->pos[0]) * (c->pos[1] - a->pos[1]) - (b->pos[1] - a->pos[1]) * (c->pos[0] - a->pos[0]);
+		CHECK(cr < 1e-2f);  /* horario en pantalla (los de canto, ~0) */
+		for (int j = 0; j < 3; j++) {
+			CHECK(a[j].pos[0] > 100.0f - 80.0f && a[j].pos[0] < 100.0f + 80.0f);
+			CHECK(a[j].pos[1] > 200.0f - 41.0f && a[j].pos[1] < 200.0f + 41.0f);
+		}
+	}
+	/* La mitad del giro: se ve la espalda; ningún triángulo de la etiqueta. */
+	cartucho_mesh_draw(&mesh, 3.14159265f, 0.0f, 0.0f, 0.0f, 80.0f, 256.0f, 256.0f, 256.0f, 256.0f, &out);
+	CHECK_EQ(out.nlabel, 0);
+	CHECK(out.nplastic > 0);
+	/* De frente se ve toda la etiqueta; de lado (90°) solo lo que se curva hacia ese lado. */
+	cartucho_mesh_draw(&mesh, 0.0f, 0.0f, 0.0f, 0.0f, 80.0f, 256.0f, 256.0f, 256.0f, 256.0f, &out);
+	uint32_t front = out.nlabel;
+	cartucho_mesh_draw(&mesh, 1.5707963f, 0.0f, 0.0f, 0.0f, 80.0f, 256.0f, 256.0f, 256.0f, 256.0f, &out);
+	CHECK(out.nlabel < front);
+}
+
+static void painter(void)
+{
+	/* De atrás hacia adelante: la z del centro de cada triángulo no baja (con un
+	 * pequeño margen: la profundidad del triángulo es la suma de sus vértices). */
+	cartucho_mesh_draw(&mesh, 0.7f, 0.1f, 0.0f, 0.0f, 100.0f, 256.0f, 256.0f, 256.0f, 256.0f, &out);
+	CHECK(out.nplastic > 0 && out.nlabel > 0);
+	/* La luz va en rgb gris y el brillo en el alfa. */
+	for (uint32_t i = 0; i < out.nplastic; i++) {
+		const uint8_t *c = out.plastic[i].rgba;
+		CHECK(c[0] == c[1] && c[1] == c[2]);
+		CHECK(c[0] >= 120);
+		CHECK_EQ(out.plastic[i].pos[3] == 1.0f, 1);
+	}
+	/* Del lado de la luz (arriba a la izquierda) más claro que del otro: la cara delantera es más clara que la trasera. */
+	cartucho_mesh_draw(&mesh, 0.0f, 0.0f, 0.0f, 0.0f, 100.0f, 256.0f, 256.0f, 256.0f, 256.0f, &out);
+	unsigned maxl = 0;
+	for (uint32_t i = 0; i < out.nlabel; i++)
+		if (out.label[i].rgba[0] > maxl)
+			maxl = out.label[i].rgba[0];
+	CHECK(maxl > 200);
+}
+
+static void label(void)
+{
+	enum { N = CARTUCHO_LABEL_TEX };
+	static uint8_t tex[N * N * 4];
+	cartucho_label_compose(tex, N * 4, NULL, 0, 0);
+	CHECK_EQ(tex[0], 0xB4);
+	CHECK_EQ(tex[1], 0xB8);
+	CHECK_EQ(tex[2], 0xBE);
+	CHECK_EQ(tex[3], 0xFF);
+	CHECK(!memcmp(tex, tex + (size_t)(N / 2) * N * 4 + 4 * (N / 2), 4));
+	/* Con una carátula roja: el centro es rojo y el borde sigue gris. */
+	static uint8_t red[40 * 60 * 4];
+	for (unsigned i = 0; i < 40 * 60; i++)
+		red[4 * i] = 0xFF, red[4 * i + 3] = 0xFF;
+	cartucho_label_compose(tex, N * 4, red, 40, 60);
+	const uint8_t *c = tex + ((size_t)(N / 2) * N + N / 2) * 4;
+	CHECK_EQ(c[0], 0xFF);
+	CHECK_EQ(c[1], 0x00);
+	CHECK_EQ(c[2], 0x00);
+	CHECK_EQ(tex[0], 0xB4);                                      /* esquina: borde de plástico */
+	const uint8_t *e = tex + ((size_t)(N / 2) * N + 3) * 4;      /* a la izquierda del arte (u < 0,063) */
+	CHECK_EQ(e[0], 0xB4);
+	const uint8_t *bt = tex + ((size_t)(N - 3) * N + N / 2) * 4; /* debajo del arte (v > 0,949) */
+	CHECK_EQ(bt[0], 0xB4);
+}
+
+static int hook_calls;
+static void hook(void *u)
+{
+	hook_calls += *(int *)u;
+}
+
+/* El gancho del 2D queda entre dos rectángulos, como un grupo propio. */
+static void ui_hook(void)
+{
+	static rsxkit_vertex vb[64];
+	int one = 1;
+	rsxkit_ui_batch(vb, 64, 100.0f, 100.0f);
+	rsxkit_ui_rect(0, 0, 10, 10, 0xFFFFFFFFu);
+	rsxkit_ui_hook(hook, &one);
+	rsxkit_ui_rect(5, 5, 10, 10, 0xFF0000FFu);
+	const uint32_t *first;
+	uint32_t n = rsxkit_ui_groups(&first), hooks = 0, at = 0;
+	CHECK_EQ(n, 3);
+	for (uint32_t g = 0; g < n; g++)
+		if (rsxkit_ui_group_image(g) == RSXKIT_UI_HOOK_GROUP) {
+			hooks++;
+			at = g;
+			rsxkit_ui_hook_fn fn;
+			void *user;
+			rsxkit_ui_group_hook(g, &fn, &user);
+			CHECK(fn == hook && user == &one);
+			fn(user);
+		}
+	CHECK_EQ(hooks, 1);
+	CHECK_EQ(at, 1);
+	CHECK_EQ(hook_calls, 1);
+	CHECK_EQ(rsxkit_ui_count(), 12);       /* los dos rectángulos; el gancho no suma vértices */
+	CHECK_EQ(first[1], 6);
+	CHECK_EQ(first[2], 6);
+	rsxkit_ui_batch(NULL, 0, 0.0f, 0.0f);
+}
+
+void t_suite_cartucho(void)
+{
+	RUN(parse);
+	RUN(bad_input);
+	RUN(draw);
+	RUN(painter);
+	RUN(label);
+	RUN(ui_hook);
+}

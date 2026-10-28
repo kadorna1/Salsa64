@@ -21,6 +21,7 @@
 
 #include "core/rom.h"
 #include "core/save.h"
+#include "frontend/cartucho_mesh.h"
 #include "padmap.h"
 
 #define BIT(b) (1u << (b))
@@ -1228,22 +1229,51 @@ static void icon_body(float x, float y, float s, float a)
 }
 
 /* El cartucho: el render del modelo (ranura MENU_CART_SLOT, 256 × 128: el
- * plástico y la etiqueta en blanco, que aquí se tiñe con el color del
- * juego), un poco más grande que los otros íconos; sin él, el plano. */
-static void icon_cart(const struct menu *m, float x, float y, float s, uint32_t label, float a)
+ * plástico y la etiqueta en blanco, que aquí va en gris claro), un poco más
+ * grande que los otros íconos; sin él, el plano. */
+static void icon_cart(const struct menu *m, float x, float y, float s, float a)
 {
 	if (m->cart_icon) {
 		float c = s * 1.3f, cx = x + (s - c) * 0.5f, cy = y + (s - c) * 0.5f;
 		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 0.0f, 0.0f, 128.0f, 128.0f, rgba(0xFFFFFFu, a));
-		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 128.0f, 0.0f, 128.0f, 128.0f, rgba(label, a));
+		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 128.0f, 0.0f, 128.0f, 128.0f,
+				     rgba(CARTUCHO_LABEL_GRAY, a));
 		return;
 	}
 	icon_body(x, y, s, a);
 	float g = s * 0.14f;
-	rsxkit_ui_gradient(x + g, y + g, s - 2 * g, s * 0.5f, rgba(mix(label, 0xFFFFFFu, 0.25f), a), rgba(label, a),
-			   rgba(label, a), rgba(mix(label, 0x000000u, 0.3f), a));
+	rsxkit_ui_gradient(x + g, y + g, s - 2 * g, s * 0.5f, rgba(mix(CARTUCHO_LABEL_GRAY, 0xFFFFFFu, 0.25f), a),
+			   rgba(CARTUCHO_LABEL_GRAY, a), rgba(CARTUCHO_LABEL_GRAY, a),
+			   rgba(mix(CARTUCHO_LABEL_GRAY, 0x000000u, 0.3f), a));
 	for (int i = 0; i < 4; i++)
 		rsxkit_ui_rect(x + s * (0.24f + 0.14f * i), y + s * 0.78f, s * 0.08f, s * 0.1f, rgba(0x0E1116u, a));
+}
+
+/* El cartucho 3D de la fila elegida: el gancho se llama al enviar el lote
+ * del 2D (rsxkit_ui_end), después de la franja de la fila y antes de lo que
+ * se dibujó luego. Solo hay una fila elegida por cuadro. */
+static struct {
+	menu_cart3d_fn fn;
+	void *user;
+	float x, y, s, a;
+} cart3d_call;
+
+static void cart3d_hook(void *p)
+{
+	(void)p;
+	cart3d_call.fn(cart3d_call.user, cart3d_call.x, cart3d_call.y, cart3d_call.s, cart3d_call.a);
+}
+
+static void icon_cart3d(const struct menu *m, float x, float y, float s, float a)
+{
+	float c = s * 1.05f;
+	cart3d_call.fn = m->cart3d;
+	cart3d_call.user = m->cart3d_user;
+	cart3d_call.x = x + s * 0.5f;
+	cart3d_call.y = y + s * 0.5f;
+	cart3d_call.s = c;
+	cart3d_call.a = a;
+	rsxkit_ui_hook(cart3d_hook, NULL);
 }
 
 static void icon_options(float x, float y, float s, float a)
@@ -1341,8 +1371,10 @@ static void draw_row(const struct menu *m, const struct row *r, float d, float x
 		rsxkit_ui_gradient(x - 26.0f, y - 42.0f, W * 0.53f - x + 26.0f, 84.0f, rgba(0xFFFFFFu, 0.13f * k * alpha),
 				   rgba(0xFFFFFFu, 0.0f), rgba(0xFFFFFFu, 0.07f * k * alpha), rgba(0xFFFFFFu, 0.0f));
 	float s = 42.0f + 26.0f * k;
-	if (r->icon == 0)
-		icon_cart(m, x, y - s * 0.5f, s, r->label, alpha);
+	if (r->icon == 0 && m->cart3d && k > 0.5f)
+		icon_cart3d(m, x, y - s * 0.5f, s, alpha);
+	else if (r->icon == 0)
+		icon_cart(m, x, y - s * 0.5f, s, alpha);
 	else if (r->icon == 1)
 		icon_options(x, y - s * 0.5f, s, alpha);
 	else if (r->icon == 3)
