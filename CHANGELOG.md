@@ -44,6 +44,14 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   frame and the RSX draws it with additive blending: 3.4–3.7 ms of RSX and
   5.4 ms of one SPE at 1080p on a real PS3, nothing on the PPE. Own code, no
   firmware data. See `docs/fondo-seda.md`.
+- **Cartridges in the game list:** each game is shown as an N64-style
+  cartridge (a render of "Stylized N64" by AlessandroFortuna, CC BY 4.0,
+  without any Nintendo artwork) with its box art on the sticker. The selected
+  game is a real 3D model drawn by the RSX that slowly turns (about 0.2 ms of
+  PPE per frame). Box art thumbnails are cached on disk in `covers/.mini`
+  (about 2 ms to load after the first time), the covers folder is indexed in
+  memory, PNGs are inflated with zlib, and nothing new is decoded while you
+  scroll fast. Without box art the sticker stays blank.
 - **CRT-style startup sequence:** instead of ~2 s of black screen, the app
   opens with a CRT power-on (dot, line, flash), TV snow with a green
   "VIDEO1" / "No Signal" on-screen display and a VCR-style date and clock,
@@ -57,6 +65,10 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   pitch), so monitors that blank on every mode change blank only once.
 
 ### Fixed
+- Opening a 64 MB ROM right after selecting it could fail once and return to
+  the menu while a box art was being decoded; the cover thread now pauses and
+  frees its memory before a game opens, and the ROM allocation is retried
+  once after releasing the menu's memory.
 - Audio HLE no longer reports one multi-megabyte write span when its fixed
   range list fills, avoiding needless code invalidation and recompilation in
   games with scattered audio buffers such as B3313. `audio-rangos-viejos`
