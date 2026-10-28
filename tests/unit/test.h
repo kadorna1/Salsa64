@@ -144,6 +144,7 @@ void t_suite_rec_trace(void);
 void t_suite_perfilado(void);
 void t_suite_cheats(void);
 void t_suite_cover(void);
+void t_suite_intro(void);
 void t_suite_dlutil(void);
 void t_suite_i18n(void);
 void t_suite_cuelgue(void);

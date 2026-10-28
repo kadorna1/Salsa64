@@ -17,7 +17,7 @@ TITLE   := Salsa64 perfil
 APPID   := SLSA00120
 endif
 SRCS    := main.c audio_out.c audio_sync.c menu.c osd.c osd_fps.c pacer.c padmap.c pausectl.c scale_auto.c replay.c romlist.c savefile.c mempakfile.c transferpakfile.c \
-           cheats.c cuelgue.c cover.c download.c dlutil.c i18n.c namematch.c screenshot.c selftest.c selftest_audio.c selftest_gfx.c states.c cajanegra.c \
+           cheats.c cuelgue.c intro.c intro_logic.c cover.c download.c dlutil.c i18n.c namematch.c screenshot.c selftest.c selftest_audio.c selftest_gfx.c states.c cajanegra.c \
            version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c
 # Filtros de la presentación (filters/): fragment programs en Cg compilados
 # con cgcomp. Van en fp32: cgcomp pide -fastprecision a Cg, que baja a fp16
@@ -33,7 +33,8 @@ COMMON  := src/platform/ps3/log.c src/platform/ps3/rec_cache.c src/platform/ps3/
            src/platform/ps3/audio_spu.c src/platform/ps3/jpeg_spu.c src/platform/ps3/rsp_spu.c src/platform/ps3/bgjob.c src/platform/ps3/bgio.c src/rdp/rdp.c src/rdp/targets.c src/rdp/vmatch.c src/rdp/gfxdump.c src/rdp/blackbox.c \
            $(patsubst $(R)/%,%,$(wildcard $(R)/src/core/*.c $(R)/src/cpu/*.c $(R)/src/rsp/gfx/*.c $(R)/src/rsp/audio/*.c $(R)/src/rsp/jpeg/*.c \
                                           $(R)/src/rsp/lle/*.c))
-DATA    := vitest_rom gfxtest_rom audiotest_rom
+DATA    := vitest_rom gfxtest_rom audiotest_rom icon_logo
+icon_logo_FILE := assets/ps3/ICON0.PNG
 vitest_rom_FILE := tests/roms/homebrew/salsa64-vitest.z64
 gfxtest_rom_FILE := tests/roms/homebrew/salsa64-gfxtest.z64
 audiotest_rom_FILE := tests/roms/homebrew/salsa64-audiotest.z64

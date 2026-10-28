@@ -6,6 +6,15 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+### Added
+- **CRT-style startup sequence:** instead of ~2 s of black screen, the app
+  opens with a CRT power-on (dot, line, flash), TV snow with a green
+  "VIDEO1" / "No Signal" on-screen display and a VCR-style date and clock,
+  then the Salsa64 logo and a fade into the menu, all through the Trinitron
+  filter. It runs while the font, settings and ROM list load (it does not
+  add time) and lasts about 3 s; X or O skips it. The file
+  `/dev_hdd0/salsa64/sin-intro` turns it off.
+
 ## [0.2.13] — 2026-10-26
 
 ### Added
