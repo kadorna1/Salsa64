@@ -21,7 +21,12 @@
 
 /* RUNNING lo hace el hilo; DONE_* lo recoge thumbs_frame; BIGWAIT: la carátula
  * completa está en `src` esperando a thumbs_big_poll. */
-enum { JOB_IDLE, JOB_RUNNING, JOB_DONE_OK, JOB_DONE_NONE, JOB_DONE_ERR, JOB_BIGWAIT, JOB_DONE_INDEX };
+enum { JOB_IDLE, JOB_RUNNING, JOB_DONE_OK, JOB_DONE_NONE, JOB_DONE_ERR, JOB_BIGWAIT, JOB_DONE_INDEX, JOB_DONE_SKIP };
+
+/* Con la selección en movimiento solo se atienden las miniaturas que ya están en
+ * disco; las que hay que decodificar esperan a que lleve quieta este tiempo. */
+#define DEBOUNCE_US 180000u
+#define TRIED_MAX   32
 enum { SRC_NONE, SRC_DISK, SRC_PNG };
 
 struct request {
@@ -45,8 +50,12 @@ static struct {
 	int big_token;
 	/* El trabajo en el hilo. */
 	volatile int job;
-	bool job_big, job_index;
+	bool job_big, job_index, job_full;  /* full: puede buscar y decodificar si no está en disco */
 	bool reindex;                    /* hay que leer la carpeta de carátulas otra vez */
+	uint64_t quiet_since;            /* desde cuándo está quieta la selección (0: en movimiento) */
+	uint32_t tried[TRIED_MAX];       /* ya vistas en disco sin éxito durante este movimiento */
+	unsigned ntried, tried_next;
+	uint32_t skipped;
 	uint64_t index_us;
 	unsigned index_count;
 	size_t index_bytes;
@@ -176,6 +185,12 @@ static void run_job(void)
 				return;
 			}
 		}
+	}
+	/* No está en disco: en pleno movimiento no se busca ni se decodifica nada. */
+	if (!th.job_full && !th.job_big) {
+		th.src = SRC_NONE;
+		th.job = JOB_DONE_SKIP;
+		return;
 	}
 	/* Buscar el PNG (la carátula completa con la ruta de la caché no necesita buscar). */
 	bool found = known_path;
@@ -403,11 +418,36 @@ static const char *src_name(int s)
 	return s == SRC_DISK ? "de la caché en disco" : "del PNG";
 }
 
-void thumbs_frame(void)
+static bool was_tried(uint32_t key)
+{
+	for (unsigned i = 0; i < th.ntried; i++)
+		if (th.tried[i] == key)
+			return true;
+	return false;
+}
+
+bool thumbs_big_cancel(void)
+{
+	if (!th.ready || !th.big_want.set)
+		return false;
+	th.big_want.set = false;  /* no empezó: se descarta */
+	return true;
+}
+
+void thumbs_frame(bool moving)
 {
 	if (!th.ready)
 		return;
 	th.frame++;
+	uint64_t now = now_us();
+	if (moving) {
+		th.quiet_since = 0;
+	} else if (!th.quiet_since) {
+		th.quiet_since = now;
+	}
+	bool full = th.quiet_since && now - th.quiet_since >= DEBOUNCE_US;
+	if (full)
+		th.ntried = th.tried_next = 0;
 	lwsync();
 	int j = th.job;
 	if (j == JOB_DONE_INDEX) {
@@ -415,6 +455,17 @@ void thumbs_frame(void)
 			    (double)th.index_us / 1000.0, (unsigned)(th.index_bytes >> 10));
 		th.job = j = JOB_IDLE;
 		th.job_index = false;
+	}
+	if (j == JOB_DONE_SKIP) {
+		/* En disco no estaba: se vuelve a intentar cuando la selección se quede quieta. */
+		if (th.ntried < TRIED_MAX) {
+			th.tried[th.ntried++] = th.req.key;
+		} else {
+			th.tried[th.tried_next] = th.req.key;
+			th.tried_next = (th.tried_next + 1) % TRIED_MAX;
+		}
+		th.skipped++;
+		th.job = j = JOB_IDLE;
 	}
 	if (j == JOB_DONE_OK || j == JOB_DONE_NONE || j == JOB_DONE_ERR) {
 		bool big = th.job_big;
@@ -431,16 +482,16 @@ void thumbs_frame(void)
 			th.uploaded++;
 			if (th.src == SRC_DISK) {
 				th.disk_hits++;
-				salsa64_log("miniaturas: %s: %s en %.1f ms; %u de disco, %u decodificadas, filas con/sin miniatura %u/%u",
+				salsa64_log("miniaturas: %s: %s en %.1f ms; %u de disco, %u decodificadas, filas con/sin miniatura %u/%u, %u pospuestas por el movimiento",
 					    th.req.name, src_name(th.src), (double)th.us_disk / 1000.0, th.disk_hits, th.decoded,
-					    th.rows_found, th.rows_missing);
+					    th.rows_found, th.rows_missing, th.skipped);
 			} else {
 				th.decoded++;
 				salsa64_log("miniaturas: %s%s: caché %.1f ms, buscar %.1f ms, leer %.1f ms (%u bytes), decodificar %ux%u "
-					    "%.1f ms, reducir %.1f ms; %u de disco, %u decodificadas, filas con/sin miniatura %u/%u",
+					    "%.1f ms, reducir %.1f ms; %u de disco, %u decodificadas, filas con/sin miniatura %u/%u, %u pospuestas",
 					    th.req.name, big ? " (completa)" : "", (double)th.us_disk / 1000.0, (double)th.us_find / 1000.0,
 					    (double)th.us_read / 1000.0, (unsigned)th.png_bytes, th.w, th.h, (double)th.us_dec / 1000.0,
-					    (double)th.us_scale / 1000.0, th.disk_hits, th.decoded, th.rows_found, th.rows_missing);
+					    (double)th.us_scale / 1000.0, th.disk_hits, th.decoded, th.rows_found, th.rows_missing, th.skipped);
 			}
 			th.rows_found = th.rows_missing = 0;
 		} else if (j == JOB_DONE_NONE) {
@@ -473,8 +524,12 @@ void thumbs_frame(void)
 		sysSemPost(th.sem, 1);
 		j = JOB_RUNNING;
 	}
+	/* Con la selección en movimiento, lo que ya se vio que no está en disco espera. */
+	if (th.want.set && !full && was_tried(th.want.key))
+		th.want.set = false;
 	if (j == JOB_IDLE && (th.big_want.set || th.want.set)) {
 		bool big = th.big_want.set;
+		th.job_full = full;
 		th.req = big ? th.big_want : th.want;
 		th.job_big = big;
 		th.job_token = big ? th.big_token : 0;

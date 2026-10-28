@@ -6213,6 +6213,11 @@ static void menu_cover_update(void)
 	}
 	if (!menu_settled(&menu)) {
 		cover_since = 0;
+		/* Se movió otra vez: la carátula completa pedida que no empezó se descarta. */
+		if (cover_pending >= 0 && thumbs_big_cancel()) {
+			cover_tried = -1;
+			cover_pending = -1;
+		}
 		return;
 	}
 	uint64_t now = sysGetSystemTime();
@@ -6320,7 +6325,7 @@ static void menu_show(const char *shot)
 	if (!seda)
 		seda_release();
 	menu.cart_icon = ui_cart_icon;
-	thumbs_frame();
+	thumbs_frame(!menu_settled(&menu));
 	menu.thumb = thumbs_ready() ? thumbs_get : NULL;
 	/* Cartucho 3D en la fila elegida; su etiqueta lleva la carátula cuando ya cargó. */
 	menu.cart3d = cartucho3d_ready() ? cartucho3d_draw : NULL;

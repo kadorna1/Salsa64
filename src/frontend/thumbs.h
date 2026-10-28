@@ -13,6 +13,7 @@
  *      fecha de la carpeta; si vale, no busca ni decodifica;
  *   2. si no, busca el PNG (cover_find), lo lee, lo decodifica, lo reduce y
  *      escribe la caché.
+ * Con la selección en movimiento (debounce) solo atiende las que están en disco.
  * Primero atiende la carátula completa de la fila elegida (que de paso deja
  * lista su miniatura: se decodifica una sola vez) y luego las filas por
  * cercanía a la elegida, las visibles y las que van a entrar al hacer scroll.
@@ -37,8 +38,14 @@
 bool thumbs_init(const char *covers_dir);
 bool thumbs_ready(void);
 /* Una vez por cuadro del menú, antes de dibujarlo: copia al atlas lo que el
- * hilo terminó y le pide lo siguiente. */
-void thumbs_frame(void);
+ * hilo terminó y le pide lo siguiente. `moving`: la selección o el scroll están
+ * en movimiento: solo se cargan las miniaturas que ya estén en disco; lo que hay
+ * que buscar y decodificar espera a que lleve quieta ~180 ms (y si se vuelve a
+ * mover, lo que no empezó se descarta). */
+void thumbs_frame(bool moving);
+/* Descarta la carátula completa pedida si el hilo aún no la empezó (la selección
+ * volvió a moverse); true si la descartó. */
+bool thumbs_big_cancel(void);
 /* El gancho `thumb` del menú (menu.h): la casilla de la carátula de `e` en el
  * atlas (rect = x, y, w, h en píxeles) o false si no está (la pide). `dist`
  * es la distancia de la fila a la elegida: se atiende primero la más cercana. */
