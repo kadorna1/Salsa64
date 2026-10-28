@@ -2345,13 +2345,14 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
 	/* Dr. Mario's RDRAM copy omits RSX-only pixels, so a live RSX-owned
 	 * surface remains authoritative after the normal three-task freshness
-	 * window. Bound the exception by the target-stale limit: older surfaces may
-	 * have been recycled and must fall back to RDRAM. */
+	 * window, including for static textures sampled much later. Do not use age
+	 * as a proxy for recycling: locate() has already matched the address/pitch/
+	 * bpp to a live target, and this slot must still own both its surface and
+	 * valid RDRAM baseline. A recycled/dropped target cannot pass these checks. */
 	bool profile_surface_synced = false;
 	uint32_t source_age = slot >= 0 ? rdp.tg.task - rdp.tg.t[slot].last_task : UINT32_MAX;
 	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram &&
-	    !rdp.tg.t[slot].cpu_owned && rdp.profile_shadow_valid[slot] &&
-	    source_age <= RDP_TARGETS_STALE) {
+	    !rdp.tg.t[slot].cpu_owned && rdp.profile_shadow_valid[slot]) {
 		/* RDRAM is not mutated during one translated RDP task. Reconcile at
 		 * most once per target per task; repeatedly scanning the full 328x246
 		 * image for every texture load starved the RSX queue in v0.2.13d. */
