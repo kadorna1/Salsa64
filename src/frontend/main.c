@@ -221,6 +221,7 @@
 #include "cart_label_bin.h"
 #include "frontend/cartucho3d.h"
 #include "frontend/thumbs.h"
+#include "frontend/thumbs_calc.h"
 
 SYS_PROCESS_PARAM(1001, 0x100000);
 
@@ -6177,8 +6178,39 @@ static uint8_t cover_rgba[COVER_RGBA_BYTES];
 static int cover_tried = -1;
 static uint64_t cover_since;
 
+/* La carátula completa de la fila elegida: con el hilo de thumbs.c, se pide y
+ * se recoge cuando llega (el menú no se detiene); sin él, se decodifica aquí. */
+static int cover_pending = -1;  /* la fila cuya carátula completa está pedida, o −1 */
+
+static void menu_cover_upload(int s, const uint8_t *rgba, unsigned w, unsigned h, const char *what)
+{
+	int rc = rsxkit_ui_image_set(0, rgba, w, h);
+	if (rc != RSXKIT_OK) {
+		salsa64_log("carátula: %s: no se pudo subir (%d)", what, rc);
+		return;
+	}
+	menu.cover_w = w;
+	menu.cover_h = h;
+	menu.cover_rom = s;
+	salsa64_log("carátula: %s (%ux%u)", what, w, h);
+}
+
 static void menu_cover_update(void)
 {
+	if (thumbs_ready()) {
+		int token = thumbs_big_ready(), sel = menu_selected(&menu);
+		bool ok;
+		unsigned w, h;
+		/* Solo la de la fila elegida se copia: cover_rgba sigue siendo la de menu.cover_rom. */
+		if (token >= 0 && thumbs_big_poll(token == sel ? cover_rgba : NULL, &token, &ok, &w, &h)) {
+			if (token == cover_pending)
+				cover_pending = -1;
+			if (!ok)
+				salsa64_log("carátula: ninguna para la fila %d", token);
+			else if (token == sel)  /* si ya cambió de fila, no hace falta subirla */
+				menu_cover_upload(token, cover_rgba, w, h, romlist_name(&roms->e[token]));
+		}
+	}
 	if (!menu_settled(&menu)) {
 		cover_since = 0;
 		return;
@@ -6191,6 +6223,11 @@ static void menu_cover_update(void)
 		return;
 	cover_tried = s;
 	const struct rom_entry *e = &roms->e[s];
+	if (thumbs_ready()) {
+		cover_pending = s;
+		thumbs_big_request(e, s);
+		return;
+	}
 	char path[256];
 	if (!cover_find(COVERS_DIR, romlist_name(e), romlist_display_title(e), e->code, path, sizeof path)) {
 		salsa64_log("carátula: ninguna para %s (título «%s», código %s)", romlist_name(e), romlist_display_title(e),
@@ -6203,15 +6240,7 @@ static void menu_cover_update(void)
 		salsa64_log("carátula: %s: %s", path, cover_result_name(r));
 		return;
 	}
-	int rc = rsxkit_ui_image_set(0, cover_rgba, w, h);
-	if (rc != RSXKIT_OK) {
-		salsa64_log("carátula: %s: no se pudo subir (%d)", path, rc);
-		return;
-	}
-	menu.cover_w = w;
-	menu.cover_h = h;
-	menu.cover_rom = s;
-	salsa64_log("carátula: %s (%ux%u)", path, w, h);
+	menu_cover_upload(s, cover_rgba, w, h, path);
 }
 
 /* Descargas (download.h): lo que se va viendo en el pie del menú. */
@@ -6296,9 +6325,16 @@ static void menu_show(const char *shot)
 	/* Cartucho 3D en la fila elegida; su etiqueta lleva la carátula cuando ya cargó. */
 	menu.cart3d = cartucho3d_ready() ? cartucho3d_draw : NULL;
 	if (menu.cart3d) {
+		/* La etiqueta del cartucho: la carátula completa si ya llegó; si no, su miniatura. */
 		int s = menu_selected(&menu);
-		bool cov = s >= 0 && menu.cover_rom == s && menu.cover_w && menu.cover_h;
-		cartucho3d_update(s, cov ? cover_rgba : NULL, menu.cover_w, menu.cover_h, menu.t);
+		const uint8_t *src = NULL;
+		unsigned w = 0, h = 0;
+		if (s >= 0 && menu.cover_rom == s && menu.cover_w && menu.cover_h) {
+			src = cover_rgba, w = menu.cover_w, h = menu.cover_h;
+		} else if (s >= 0 && thumbs_ready() && (src = thumbs_pixels(&roms->e[s])) != NULL) {
+			w = THUMB_W, h = THUMB_H;
+		}
+		cartucho3d_update(s, src, w, h, menu.t);
 	}
 	rsxkit_ui_begin(mn.lw, mn.lh);
 	menu_frame(&menu, mn.lw, mn.lh, sysGetSystemTime());

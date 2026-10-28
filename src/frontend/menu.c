@@ -1244,7 +1244,7 @@ static void icon_cart(const struct menu *m, const struct rom_entry *rom, float d
 		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 0.0f, 0.0f, 128.0f, 128.0f, rgba(0xFFFFFFu, a));
 		float t[4];
 		/* La carátula, en el sticker (con las esquinas redondeadas de la miniatura). */
-		if (m->thumb && rom && a > 0.3f && m->thumb(m->thumb_user, rom, dist, t))
+		if (m->thumb && rom && m->thumb(m->thumb_user, rom, dist, t))
 			rsxkit_ui_image_part(MENU_THUMBS_SLOT, cx + STICKER_X0 * c, cy + STICKER_Y0 * c,
 					     (STICKER_X1 - STICKER_X0) * c, (STICKER_Y1 - STICKER_Y0) * c, t[0], t[1], t[2], t[3],
 					     rgba(0xFFFFFFu, a));

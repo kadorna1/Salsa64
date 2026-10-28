@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* Ver cartucho_mesh.h. */
 #include "frontend/cartucho_mesh.h"
+#include "frontend/thumbs_calc.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -167,18 +168,25 @@ void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *base, c
 	const float fx0 = CARTUCHO_STICKER_U0 * (float)N, fx1 = CARTUCHO_STICKER_U1 * (float)N;
 	const float fy0 = CARTUCHO_STICKER_V0 * (float)N, fy1 = (float)N;
 	const float rad = 0.05f * (fx1 - fx0);
+	if (base) {
+		for (int y = 0; y < N; y++)
+			memcpy(dst + (size_t)y * pitch, base + (size_t)y * pitch, (size_t)N * 4);
+	} else {
+		for (int y = 0; y < N; y++)
+			for (int x = 0; x < N; x++) {
+				uint8_t *px = dst + (size_t)y * pitch + 4 * x;
+				px[0] = g[0], px[1] = g[1], px[2] = g[2], px[3] = 255;
+			}
+	}
+	if (!cover || !w || !h)  /* sin carátula, la etiqueta tal cual */
+		return;
+	/* La carátula llena el sticker sin deformarse: se recorta centrada a su proporción. */
+	unsigned kx, ky, kw, kh;
+	cover_fit_crop(w, h, (unsigned)(fx1 - fx0), (unsigned)(fy1 - fy0), &kx, &ky, &kw, &kh);
 	for (int y = 0; y < N; y++) {
 		uint8_t *row = dst + (size_t)y * pitch;
 		for (int x = 0; x < N; x++) {
 			uint8_t *px = row + 4 * x;
-			if (base) {
-				memcpy(px, base + (size_t)y * pitch + 4 * x, 4);
-				px[3] = 255;
-			} else {
-				px[0] = g[0], px[1] = g[1], px[2] = g[2], px[3] = 255;
-			}
-			if (!cover || !w || !h)
-				continue;
 			float cx = (float)x + 0.5f, cy = (float)y + 0.5f;
 			if (cx < fx0 || cx >= fx1 || cy < fy0 || cy >= fy1)
 				continue;
@@ -192,13 +200,11 @@ void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *base, c
 			if (cov <= 0.0f)
 				continue;
 			float acc[3] = { 0, 0, 0 };
-			/* 2 × 2 muestras por píxel: la carátula suele ser más grande que la textura. */
-			for (int j = 0; j < 2; j++)
-				for (int i = 0; i < 2; i++)
-					sample(cover, w, h, ((float)x - fx0 + 0.25f + 0.5f * (float)i) / (fx1 - fx0) * (float)w,
-					       ((float)y - fy0 + 0.25f + 0.5f * (float)j) / (fy1 - fy0) * (float)h, acc);
+			/* Una muestra bilineal por píxel: el recorte mide casi lo mismo que el sticker. */
+			sample(cover, w, h, (float)kx + ((float)x - fx0 + 0.5f) / (fx1 - fx0) * (float)kw,
+			       (float)ky + ((float)y - fy0 + 0.5f) / (fy1 - fy0) * (float)kh, acc);
 			for (int c = 0; c < 3; c++)
-				px[c] = (uint8_t)(acc[c] * 0.25f * cov + (float)px[c] * (1.0f - cov) + 0.5f);
+				px[c] = (uint8_t)(acc[c] * cov + (float)px[c] * (1.0f - cov) + 0.5f);
 		}
 	}
 }

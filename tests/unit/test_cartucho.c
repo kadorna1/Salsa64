@@ -219,7 +219,7 @@ static void ui_hook(void)
 
 static void thumb_scaling(void)
 {
-	/* Mitad izquierda negra, derecha blanca, 200 × 300: la reducción conserva la raya. */
+	/* Vertical (200 × 300), mitad izquierda negra y derecha blanca: la raya queda al centro. */
 	static uint8_t src[200 * 300 * 4], dst[THUMB_BYTES];
 	for (unsigned y = 0; y < 300; y++)
 		for (unsigned x = 0; x < 200; x++) {
@@ -228,22 +228,83 @@ static void thumb_scaling(void)
 			p[3] = 255;
 		}
 	thumb_scale(src, 200, 300, dst);
-	const uint8_t *mid = dst + ((size_t)64 * THUMB_W + 20) * 4, *right = dst + ((size_t)64 * THUMB_W + 70) * 4;
+	const uint8_t *mid = dst + ((size_t)(THUMB_H / 2) * THUMB_W + THUMB_W / 4) * 4;
+	const uint8_t *right = dst + ((size_t)(THUMB_H / 2) * THUMB_W + THUMB_W * 3 / 4) * 4;
 	CHECK_EQ(mid[0], 0);
 	CHECK_EQ(mid[3], 255);
 	CHECK_EQ(right[0], 255);
-	/* Las esquinas son transparentes y el borde del medio de cada lado, opaco. */
+	/* Las esquinas son transparentes y el medio de cada lado, opaco. */
 	CHECK_EQ(dst[3], 0);
 	CHECK_EQ(dst[((size_t)(THUMB_W - 1)) * 4 + 3], 0);
 	CHECK_EQ(dst[((size_t)(THUMB_H - 1) * THUMB_W) * 4 + 3], 0);
 	CHECK_EQ(dst[((size_t)(THUMB_H - 1) * THUMB_W + THUMB_W - 1) * 4 + 3], 0);
-	CHECK_EQ(dst[((size_t)64 * THUMB_W) * 4 + 3], 255);
+	CHECK_EQ(dst[((size_t)(THUMB_H / 2) * THUMB_W) * 4 + 3], 255);
 	CHECK_EQ(dst[((size_t)(THUMB_W / 2)) * 4 + 3], 255);
 	/* Una fuente más chica que la casilla también sirve. */
 	static uint8_t tiny[4 * 4 * 4];
 	memset(tiny, 200, sizeof tiny);
 	thumb_scale(tiny, 4, 4, dst);
-	CHECK_EQ(dst[((size_t)64 * THUMB_W + 48) * 4], 200);
+	CHECK_EQ(dst[((size_t)(THUMB_H / 2) * THUMB_W + THUMB_W / 2) * 4], 200);
+	/* Apaisada (320 × 233, como las de N64): se recorta centrada, no se estira. */
+	unsigned x, y, cw, ch;
+	cover_fit_crop(320, 233, THUMB_W, THUMB_H, &x, &y, &cw, &ch);
+	CHECK_EQ(ch, 233);
+	CHECK_EQ(y, 0);
+	CHECK(cw >= 202 && cw <= 204 && x == (320 - cw) / 2);
+	cover_fit_crop(100, 400, THUMB_W, THUMB_H, &x, &y, &cw, &ch);  /* más alta: arriba y abajo */
+	CHECK_EQ(cw, 100);
+	CHECK_EQ(x, 0);
+	CHECK(ch == 100 * THUMB_H / THUMB_W && y == (400 - ch) / 2);
+	/* Franja central azul y lados rojos: la miniatura muestra azul en el centro y rojo en los bordes. */
+	static uint8_t wide[320 * 233 * 4];
+	for (unsigned j = 0; j < 233; j++)
+		for (unsigned i = 0; i < 320; i++) {
+			uint8_t *p = wide + ((size_t)j * 320 + i) * 4;
+			bool blue = i >= 100 && i < 220;
+			p[0] = blue ? 0 : 255, p[1] = 0, p[2] = blue ? 255 : 0, p[3] = 255;
+		}
+	thumb_scale(wide, 320, 233, dst);
+	const uint8_t *c = dst + ((size_t)(THUMB_H / 2) * THUMB_W + THUMB_W / 2) * 4;
+	const uint8_t *e = dst + ((size_t)(THUMB_H / 2) * THUMB_W + 1) * 4;
+	CHECK_EQ(c[2], 255);
+	CHECK_EQ(e[0], 255);  /* el recorte llega a x = 58 < 100 */
+}
+
+static void thumb_file(void)
+{
+	static uint8_t px[THUMB_BYTES], buf[THUMB_FILE_HEADER + THUMB_BYTES];
+	for (unsigned i = 0; i < THUMB_BYTES; i++)
+		px[i] = (uint8_t)(i * 7);
+	struct thumb_file f = { .kind = THUMB_FILE_OK, .png_size = 123456, .png_time = 0x5F000001u };
+	snprintf(f.path, sizeof f.path, "/dev_hdd0/salsa64/covers/Juego (U).png");
+	CHECK_EQ(thumb_file_pack(buf, &f, px), THUMB_FILE_HEADER + THUMB_BYTES);
+	struct thumb_file g;
+	const uint8_t *q = NULL;
+	CHECK_EQ(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q), 0);
+	CHECK_EQ(g.kind, THUMB_FILE_OK);
+	CHECK_EQ(g.png_size, 123456);
+	CHECK_EQ(g.png_time, 0x5F000001u);
+	CHECK(!strcmp(g.path, f.path));
+	CHECK(q != NULL && !memcmp(q, px, THUMB_BYTES));
+	/* Truncado, otra versión o otra casilla: no vale. */
+	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES - 1, &g, &q) < 0);
+	buf[5] = 2;
+	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q) < 0);
+	buf[5] = 1;
+	buf[9] ^= 1;
+	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q) < 0);
+	buf[9] ^= 1;
+	buf[0] = 'X';
+	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q) < 0);
+	/* «Sin carátula»: solo la cabecera, con la fecha de la carpeta. */
+	struct thumb_file n = { .kind = THUMB_FILE_NONE, .png_size = 0, .png_time = 99 };
+	CHECK_EQ(thumb_file_pack(buf, &n, NULL), THUMB_FILE_HEADER);
+	CHECK_EQ(thumb_file_unpack(buf, THUMB_FILE_HEADER, &g, &q), 0);
+	CHECK(g.kind == THUMB_FILE_NONE && g.png_time == 99 && q == NULL);
+	/* Una ruta que no cabe no se escribe. */
+	memset(f.path, 'a', THUMB_PATH_MAX);
+	f.path[THUMB_PATH_MAX] = 0;
+	CHECK_EQ(thumb_file_pack(buf, &f, px), THUMB_FILE_HEADER + THUMB_BYTES);
 }
 
 static void thumb_lru(void)
@@ -293,5 +354,6 @@ void t_suite_cartucho(void)
 	RUN(label);
 	RUN(ui_hook);
 	RUN(thumb_scaling);
+	RUN(thumb_file);
 	RUN(thumb_lru);
 }

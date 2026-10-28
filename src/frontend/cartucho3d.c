@@ -50,6 +50,7 @@ static struct {
 	int half;
 	int sel;
 	bool label_cover;  /* la textura de la etiqueta lleva carátula */
+	unsigned label_w;  /* de qué ancho: la miniatura y la carátula completa */
 	int label_sel;
 	double t, t0;
 	/* Medición. */
@@ -117,12 +118,13 @@ void cartucho3d_update(int sel, const uint8_t *cover, unsigned w, unsigned h, do
 		c3.t0 = t;  /* el giro arranca de frente */
 	}
 	bool has = cover && w && h;
-	if (sel != c3.label_sel || has != c3.label_cover) {
+	if (sel != c3.label_sel || has != c3.label_cover || (has && w != c3.label_w)) {
 		fence_all();  /* el RSX puede estar leyendo la textura anterior */
 		cartucho_label_compose(c3.mem + OFF_LABEL, TEX_PITCH, c3.mem + OFF_BASE, has ? cover : NULL, w, h);
 		__sync_synchronize();
 		c3.label_sel = sel;
 		c3.label_cover = has;
+		c3.label_w = w;
 	}
 }
 
