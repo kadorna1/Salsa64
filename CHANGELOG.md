@@ -6,6 +6,13 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+### Changed
+- **RetroAchievements Hardcore:** saving a state is now allowed in Hardcore
+  (loading stays blocked everywhere); turning Hardcore on with a game open no
+  longer switches the running game's mode: it applies from the next game.
+  Hardcore is not yet approved by RetroAchievements (approval will be requested
+  in April 2027, after 6 public months); regular achievements work meanwhile.
+
 ### Fixed
 - **Donkey Kong 64 (USA): black screen with music halfway through the new-game
   intro** (#51). When the intro switches scene, the emulated CPU (faster than

@@ -201,6 +201,7 @@
 #include "rdp/rdp.h"
 #include "rsp/gfx/hle.h"
 #include "replay.h"
+#include "ra_rules.h"
 #include "cuelgue.h"
 #include "romlist.h"
 #include "ziprom.h"
@@ -1082,8 +1083,8 @@ static void state_command(int what)
 	uint64_t now = sysGetSystemTime();
 	if (state_req || state_parked)
 		return;  /* ya hay una en curso, o emulación todavía sale de la anterior */
-	if (ra_hardcore_active()) {
-		osd_notice(now, "RA Hardcore: sin estados");
+	if (!ra_rules_allowed(ra_hardcore_active(), what == STATE_LOAD ? RA_RULE_STATE_LOAD : RA_RULE_STATE_SAVE)) {
+		osd_notice(now, "RA Hardcore: sin cargar estados");
 		return;
 	}
 	if (lle_mode != SALSA64_LLE_OFF) {
@@ -1326,7 +1327,7 @@ static int update_pads(uint32_t *buttons)
 		stick[i] = info.status[i] ? stick_dirs(stick[i], last[i].lx - 128, last[i].ly - 128) : 0;
 		pad_stick_dirs |= stick[i];
 	}
-	bool no_cheats = ra_hardcore_active();  /* Hardcore: los trucos no valen */
+	bool no_cheats = !ra_rules_allowed(ra_hardcore_active(), RA_RULE_CHEATS);  /* Hardcore: los trucos no valen */
 	pause_ctl.panel_avail = game_cheats.n > 0 && !no_cheats;
 	pause_ctl.panel_rows = no_cheats ? 0 : game_cheats.n;
 	enum pausectl_action act = pausectl_pads(&pause_ctl, raw, intercepted, combos_on != 0, game);
@@ -2418,7 +2419,7 @@ static void emu_thread(void *arg)
 		ovl_note(tb1 - tb0, ovl, busy_at(&h1.load_clock, tb1) - l0,
 			 (n64.cpu.cycles - c0) - (n64.cpu.idle_cycles - i0), gfx_spu.sleep_us + jpeg_spu.sleep_us - s0,
 			 h1.load && h1.load_phase == ph0 ? (int)ph0 : -1);
-		if (!ra_hardcore_active())
+		if (ra_rules_allowed(ra_hardcore_active(), RA_RULE_CHEATS))
 			cheats_apply(&game_cheats, &n64.bus);  /* los activos del juego (vacío si no hay) */
 		ra_frame();  /* RetroAchievements: una vez por campo emulado (no hace nada sin juego con logros) */
 		if (use_rec) {
