@@ -6,6 +6,16 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+### Fixed
+- **Donkey Kong 64 (USA): black screen with music halfway through the new-game
+  intro** (#51). When the intro switches scene, the emulated CPU (faster than
+  the real one) fit two game frames in the same video retrace; the game
+  measured 0 retraces, divided 0 by 0 with floating-point exceptions enabled
+  and its main thread stopped. The emulator now rewrites, in RAM and only when
+  the original code is there, the cutscene path of that measurement so it
+  keeps a minimum of 1, as the game already does during gameplay. Only the
+  USA retail ROM is affected; the log says "arreglo de juego" when it applies.
+
 ## [0.2.14] — 2026-10-28
 
 ### Added

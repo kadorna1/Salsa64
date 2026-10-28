@@ -25,6 +25,7 @@
 #include <string.h>
 
 #include "core/bus.h"
+#include "core/gamefix.h"
 #include "core/sched.h"
 #include "cpu/vr4300.h"
 
@@ -111,6 +112,7 @@ static void field_event(void *ctx, uint64_t when)
 	struct salsa64_bus *bus = ctx;
 	struct salsa64_vi *vi = &bus->vi;
 	vi->fields++;
+	salsa64_gamefix_field(bus);
 	vi->field = (vi->regs[SALSA64_VI_CONTROL] & SALSA64_VI_CONTROL_SERRATE) ? vi->field ^ 1 : 0;
 	begin_field(bus, when);
 }

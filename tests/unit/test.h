@@ -104,6 +104,7 @@ void t_suite_cop0(void);
 void t_suite_cop1(void);
 void t_suite_boot(void);
 void t_suite_vi(void);
+void t_suite_gamefix(void);
 void t_suite_ai(void);
 void t_suite_pif(void);
 void t_suite_rompg(void);

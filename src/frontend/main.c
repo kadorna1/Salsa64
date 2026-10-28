@@ -170,6 +170,7 @@
 #include "core/rompg.h"
 #include "core/boot.h"
 #include "core/endian.h"
+#include "core/gamefix.h"
 #include "core/faultlog.h"
 #include "cpu/rec.h"
 #include "audio_out.h"
@@ -5100,6 +5101,8 @@ static void game_close(void)
 	salsa64_filters_release();
 	salsa64_log("cierre: emulación detenida tras %u campos (%u emulados, %u descartados por la cola, %u sin ranura)",
 		    n64.bus.vi.fields, emu_stats.fields, emu_stats.dropped, emu_stats.no_slot);
+	if (salsa64_gamefix_name(&n64.bus))
+		salsa64_log("cierre: arreglo de juego aplicado %u veces", n64.bus.gamefix_applied);
 	savefile_close(&save_file);
 	mempakfile_close(&mempak_file);
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
@@ -5670,6 +5673,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		    scale_policy.current, scale_policy.maximum, scale_auto_ceiling(&scale_policy));
 	rdp_scale_set(scale_wanted(), scale_capped() ? "al abrir el juego, tope de 3× con un CRT" : "al abrir el juego");
 	load_cheats(source);
+	if (salsa64_gamefix_name(&n64.bus))
+		salsa64_log("arreglo de juego: %s (se aplica cuando el juego carga ese código)", salsa64_gamefix_name(&n64.bus));
 	ra_game_open(rom, rom_size, rdram, SALSA64_RDRAM_MAX);  /* RetroAchievements, si está activado y hay sesión */
 	if (selftest_on)
 		selftest_start();

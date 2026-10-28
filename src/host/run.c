@@ -117,6 +117,7 @@
 #include "ares.h"
 #include "core/boot.h"
 #include "core/endian.h"
+#include "core/gamefix.h"
 #include "core/rompg.h"
 #include "core/state.h"
 #include "rdp/blackbox.h"
@@ -4193,6 +4194,9 @@ int main(int argc, char **argv)
 		reason_names[reason], (unsigned long long)cycles, cycles / 93.75e6, us / 1e6,
 		us ? (cycles - idle_cycles) / (double)us : 0.0,
 		cycles ? 100.0 * idle_cycles / cycles : 0.0, (unsigned long long)n64.cpu.pc);
+	if (salsa64_gamefix_name(&n64.bus))
+		fprintf(stderr, "salsa64-run: arreglo de juego: %s; aplicado %u veces\n", salsa64_gamefix_name(&n64.bus),
+			n64.bus.gamefix_applied);
 	if (use_rec) {
 		salsa64_rec_diag_report(&rec, us ? (salsa64_rec_trace_now() - tb_start) * 1000000 / us : 0, true, save_log);
 		const struct salsa64_rec_stats *st = &rec.stats;
