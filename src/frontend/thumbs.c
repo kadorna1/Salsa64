@@ -37,7 +37,8 @@ static struct {
 	char name[ROMLIST_NAME_MAX + 1], title[ROMLIST_TITLE_MAX + 1], code[8];
 	uint8_t *src;                    /* COVER_RGBA_BYTES, del hilo */
 	uint8_t thumb[THUMB_BYTES];      /* la miniatura lista */
-	uint64_t us;                     /* lo que tardó (buscar, decodificar, reducir) */
+	uint64_t us_find, us_read, us_dec, us_scale;  /* buscar, leer el archivo, decodificar y reducir */
+	size_t png_bytes;
 	unsigned w, h;
 	uint32_t uploaded, failed;
 	sys_ppu_thread_t tid;
@@ -56,21 +57,44 @@ static void thumb_thread(void *unused)
 		if (th.job != JOB_RUNNING)
 			continue;
 		lwsync();
-		uint64_t t0 = sysGetSystemTime();
 		char path[256];
 		int res;
-		if (!cover_find(th.dir, th.name, th.title, th.code, path, sizeof path)) {
+		th.us_find = th.us_read = th.us_dec = th.us_scale = 0;
+		th.png_bytes = 0;
+		uint64_t t0 = sysGetSystemTime();
+		bool found = cover_find(th.dir, th.name, th.title, th.code, path, sizeof path);
+		th.us_find = sysGetSystemTime() - t0;
+		if (!found) {
 			res = JOB_DONE_NONE;
 		} else {
-			enum cover_result r = cover_load_png(path, th.src, &th.w, &th.h);
+			/* Lo que cover_load_png hace junto, por partes para medirlas. */
+			size_t n = 0;
+			uint8_t *buf = NULL;
+			uint64_t t1 = sysGetSystemTime();
+			FILE *f = fopen(path, "rb");
+			if (f) {
+				long size = fseek(f, 0, SEEK_END) == 0 ? ftell(f) : -1;
+				rewind(f);
+				if (size > 0 && (unsigned long)size <= COVER_MAX_FILE_BYTES && (buf = malloc((size_t)size))) {
+					n = fread(buf, 1, (size_t)size, f);
+				}
+				fclose(f);
+			}
+			uint64_t t2 = sysGetSystemTime();
+			th.us_read = t2 - t1;
+			th.png_bytes = n;
+			enum cover_result r = n ? cover_decode_png(buf, n, th.src, &th.w, &th.h) : COVER_NO_FILE;
+			free(buf);
+			uint64_t t3 = sysGetSystemTime();
+			th.us_dec = t3 - t2;
 			if (r == COVER_OK) {
 				thumb_scale(th.src, th.w, th.h, th.thumb);
+				th.us_scale = sysGetSystemTime() - t3;
 				res = JOB_DONE_OK;
 			} else {
 				res = JOB_DONE_ERR;
 			}
 		}
-		th.us = sysGetSystemTime() - t0;
 		lwsync();
 		th.job = res;
 	}
@@ -164,10 +188,12 @@ void thumbs_frame(void)
 				salsa64_log("miniaturas: no se pudo subir la casilla (%d)", rc);
 			}
 			th.uploaded++;
-			salsa64_log("miniaturas: %s: %.1f ms en el hilo (buscar, decodificar %ux%u y reducir); %u subidas, %u aciertos, "
-				    "%u fallos de caché",
-				    th.name, (double)th.us / 1000.0, th.w, th.h, th.uploaded, th.cache.hits, th.cache.misses);
+			salsa64_log("miniaturas: %s: buscar %.1f ms, leer %.1f ms (%zu bytes), decodificar %ux%u %.1f ms, reducir %.1f ms; "
+				    "%u subidas, %u aciertos, %u fallos de caché",
+				    th.name, (double)th.us_find / 1000.0, (double)th.us_read / 1000.0, th.png_bytes, th.w, th.h,
+				    (double)th.us_dec / 1000.0, (double)th.us_scale / 1000.0, th.uploaded, th.cache.hits, th.cache.misses);
 		} else if (j == JOB_DONE_NONE) {
+			salsa64_log("miniaturas: %s: sin carátula (buscar %.1f ms)", th.name, (double)th.us_find / 1000.0);
 			thumb_cache_mark_missing(&th.cache, th.job_key);
 		} else {
 			th.failed++;
