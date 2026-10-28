@@ -415,7 +415,10 @@ static void targets_texture_synced_surface(void)
 	CHECK_EQ(s.tex_rsx, 1);
 	CHECK_EQ(s.tex_self, 0);
 	/* The opt-in profile may sample stale data after reconciling RDRAM,
-	 * but must still reject CPU-owned targets. */
+	 * including a static source kept alive beyond the normal stale horizon.
+	 * It must still reject CPU-owned targets. */
+	for (int k = 0; k < RDP_TARGETS_STALE + 5; k++)
+		rdp_targets_task(&s);
 	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, true, &slot, &x0, &y0), RDP_TEXSRC_RSX);
 	CHECK_EQ(slot, fb);
 	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, true, &slot, &x0, &y0), RDP_TEXSRC_SELF);
