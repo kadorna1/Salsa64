@@ -158,28 +158,47 @@ static void sample(const uint8_t *img, unsigned w, unsigned h, float fx, float f
 	}
 }
 
-void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *cover, unsigned w, unsigned h)
+void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *base, const uint8_t *cover, unsigned w,
+			    unsigned h)
 {
 	const int N = CARTUCHO_LABEL_TEX;
-	const uint8_t g[3] = { (CARTUCHO_LABEL_GRAY >> 16) & 255u, (CARTUCHO_LABEL_GRAY >> 8) & 255u, CARTUCHO_LABEL_GRAY & 255u };
-	const int x0 = (int)(0.063f * N + 0.5f), x1 = (int)(0.912f * N + 0.5f), y0 = 0, y1 = (int)(0.949f * N + 0.5f);
+	const uint8_t g[3] = { (CARTUCHO_LABEL_GRAY >> 16) & 255u, (CARTUCHO_LABEL_GRAY >> 8) & 255u,
+			       CARTUCHO_LABEL_GRAY & 255u };
+	const float fx0 = CARTUCHO_STICKER_U0 * (float)N, fx1 = CARTUCHO_STICKER_U1 * (float)N;
+	const float fy0 = CARTUCHO_STICKER_V0 * (float)N, fy1 = (float)N;
+	const float rad = 0.05f * (fx1 - fx0);
 	for (int y = 0; y < N; y++) {
 		uint8_t *row = dst + (size_t)y * pitch;
 		for (int x = 0; x < N; x++) {
 			uint8_t *px = row + 4 * x;
-			if (cover && w && h && x >= x0 && x < x1 && y >= y0 && y < y1) {
-				float acc[3] = { 0, 0, 0 };
-				/* 2 × 2 muestras por píxel: la carátula suele ser más grande que la textura. */
-				for (int j = 0; j < 2; j++)
-					for (int i = 0; i < 2; i++)
-						sample(cover, w, h, ((float)(x - x0) + 0.25f + 0.5f * (float)i) / (float)(x1 - x0) * (float)w,
-						       ((float)(y - y0) + 0.25f + 0.5f * (float)j) / (float)(y1 - y0) * (float)h, acc);
-				for (int c = 0; c < 3; c++)
-					px[c] = (uint8_t)(acc[c] * 0.25f + 0.5f);
+			if (base) {
+				memcpy(px, base + (size_t)y * pitch + 4 * x, 4);
+				px[3] = 255;
 			} else {
-				px[0] = g[0], px[1] = g[1], px[2] = g[2];
+				px[0] = g[0], px[1] = g[1], px[2] = g[2], px[3] = 255;
 			}
-			px[3] = 255;
+			if (!cover || !w || !h)
+				continue;
+			float cx = (float)x + 0.5f, cy = (float)y + 0.5f;
+			if (cx < fx0 || cx >= fx1 || cy < fy0 || cy >= fy1)
+				continue;
+			/* Esquinas de arriba redondeadas (abajo el sticker sigue fuera de las caras). */
+			float cov = 1.0f;
+			float dx = fminf(cx - fx0, fx1 - cx), dy = cy - fy0;
+			if (dx < rad && dy < rad) {
+				float ex = rad - dx, ey = rad - dy;
+				cov = fminf(1.0f, fmaxf(0.0f, rad - sqrtf(ex * ex + ey * ey) + 0.5f));
+			}
+			if (cov <= 0.0f)
+				continue;
+			float acc[3] = { 0, 0, 0 };
+			/* 2 × 2 muestras por píxel: la carátula suele ser más grande que la textura. */
+			for (int j = 0; j < 2; j++)
+				for (int i = 0; i < 2; i++)
+					sample(cover, w, h, ((float)x - fx0 + 0.25f + 0.5f * (float)i) / (fx1 - fx0) * (float)w,
+					       ((float)y - fy0 + 0.25f + 0.5f * (float)j) / (fy1 - fy0) * (float)h, acc);
+			for (int c = 0; c < 3; c++)
+				px[c] = (uint8_t)(acc[c] * 0.25f * cov + (float)px[c] * (1.0f - cov) + 0.5f);
 		}
 	}
 }

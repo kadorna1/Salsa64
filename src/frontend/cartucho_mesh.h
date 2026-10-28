@@ -46,15 +46,24 @@ struct cartucho_out {
 void cartucho_mesh_draw(const struct cartucho_mesh *m, float yaw, float pitch, float cx, float cy, float size,
 			float ptw, float pth, float ltw, float lth, struct cartucho_out *out);
 
-/* Color de la etiqueta sin carátula (0xRRGGBB): el blanco de una etiqueta
- * sobre el plástico gris. */
+/* Gris de respaldo de la etiqueta (sin la textura del recurso) y de los
+ * íconos planos. */
 #define CARTUCHO_LABEL_GRAY 0xB4B8BEu
 #define CARTUCHO_LABEL_TEX  256
+/* El interior del sticker en la textura de la etiqueta (fracciones de ancho
+ * y alto de la imagen, v hacia abajo): llega hasta abajo, donde el sticker
+ * sigue fuera de las caras de la etiqueta. */
+#define CARTUCHO_STICKER_U0 0.0646f
+#define CARTUCHO_STICKER_U1 0.8711f
+#define CARTUCHO_STICKER_V0 0.11f
 
 /* Textura de la etiqueta: RGBA8888 (bytes R, G, B, A) de CARTUCHO_LABEL_TEX
- * por CARTUCHO_LABEL_TEX, `pitch` bytes por fila: gris con la carátula
- * (RGBA8888, w × h; NULL, ninguna) estirada sobre el arte (u 0,063 .. 0,912,
- * v 0 .. 0,949; el borde queda gris). */
-void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *cover_rgba, unsigned w, unsigned h);
+ * por CARTUCHO_LABEL_TEX, `pitch` bytes por fila (también el de `base`).
+ * Parte de `base` (la etiqueta del recurso, o gris liso si es NULL) y, con
+ * carátula (RGBA8888, w × h; NULL, ninguna), la estira dentro del sticker
+ * con las esquinas de arriba redondeadas (5 % del ancho); el resto queda
+ * como `base`. */
+void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *base, const uint8_t *cover_rgba,
+			    unsigned w, unsigned h);
 
 #endif

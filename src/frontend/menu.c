@@ -1229,15 +1229,13 @@ static void icon_body(float x, float y, float s, float a)
 }
 
 /* El cartucho: el render del modelo (ranura MENU_CART_SLOT, 256 × 128: el
- * plástico y la etiqueta en blanco, que aquí va en gris claro), un poco más
- * grande que los otros íconos; sin él, el plano. */
+ * cartucho entero con su sticker a la izquierda), un poco más grande que los
+ * otros íconos; sin él, el plano. */
 static void icon_cart(const struct menu *m, float x, float y, float s, float a)
 {
 	if (m->cart_icon) {
 		float c = s * 1.3f, cx = x + (s - c) * 0.5f, cy = y + (s - c) * 0.5f;
 		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 0.0f, 0.0f, 128.0f, 128.0f, rgba(0xFFFFFFu, a));
-		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 128.0f, 0.0f, 128.0f, 128.0f,
-				     rgba(CARTUCHO_LABEL_GRAY, a));
 		return;
 	}
 	icon_body(x, y, s, a);

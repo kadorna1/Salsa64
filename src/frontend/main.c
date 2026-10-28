@@ -218,6 +218,7 @@
 #include "cart_icon_bin.h"
 #include "cart_mesh_bin.h"
 #include "cart_plastic_bin.h"
+#include "cart_label_bin.h"
 #include "frontend/cartucho3d.h"
 
 SYS_PROCESS_PARAM(1001, 0x100000);
@@ -5179,11 +5180,15 @@ static void ui_cart_icon_load(void)
  * plástico van embebidas; si algo falla, el menú usa el sprite. */
 static void ui_cart3d_load(void)
 {
-	uint8_t *rgba = malloc(COVER_RGBA_BYTES);
-	unsigned w = 0, h = 0;
-	enum cover_result r = rgba ? cover_decode_png(cart_plastic_bin, cart_plastic_bin_size, rgba, &w, &h) : COVER_TOO_BIG;
-	bool ok = r == COVER_OK && cartucho3d_init(cart_mesh_bin, cart_mesh_bin_size, rgba, w, h);
+	uint8_t *rgba = malloc(COVER_RGBA_BYTES), *lab = malloc(COVER_RGBA_BYTES);
+	unsigned w = 0, h = 0, lw = 0, lh = 0;
+	enum cover_result r = rgba && lab ? cover_decode_png(cart_plastic_bin, cart_plastic_bin_size, rgba, &w, &h)
+					 : COVER_TOO_BIG;
+	if (r == COVER_OK)
+		r = cover_decode_png(cart_label_bin, cart_label_bin_size, lab, &lw, &lh);
+	bool ok = r == COVER_OK && cartucho3d_init(cart_mesh_bin, cart_mesh_bin_size, rgba, w, h, lab, lw, lh);
 	free(rgba);
+	free(lab);
 	if (!ok)
 		salsa64_log("menú: el cartucho 3D no cargó (%s): queda el sprite", cover_result_name(r));
 }

@@ -50,8 +50,8 @@ static void parse(void)
 		return;
 	CHECK_EQ(cartucho_mesh_parse(&mesh, d, n), 0);
 	CHECK_EQ(mesh.nv, 473);
-	CHECK_EQ(mesh.np, 482);
-	CHECK_EQ(mesh.nl, 16);
+	CHECK_EQ(mesh.np, 480);
+	CHECK_EQ(mesh.nl, 18);
 	for (uint32_t i = 0; i < (mesh.np + mesh.nl) * 3; i++)
 		CHECK(mesh.idx[i] < mesh.nv);
 	float lo[3] = { 1e9f, 1e9f, 1e9f }, hi[3] = { -1e9f, -1e9f, -1e9f };
@@ -149,27 +149,34 @@ static void painter(void)
 static void label(void)
 {
 	enum { N = CARTUCHO_LABEL_TEX };
-	static uint8_t tex[N * N * 4];
-	cartucho_label_compose(tex, N * 4, NULL, 0, 0);
+	static uint8_t base[N * N * 4], tex[N * N * 4];
+	for (unsigned i = 0; i < N * N; i++)
+		base[4 * i] = 0x10, base[4 * i + 1] = 0x20, base[4 * i + 2] = 0x30, base[4 * i + 3] = 0xFF;
+	/* Sin carátula: la base tal cual; sin base, el gris. */
+	cartucho_label_compose(tex, N * 4, base, NULL, 0, 0);
+	CHECK(!memcmp(tex, base, sizeof base));
+	cartucho_label_compose(tex, N * 4, NULL, NULL, 0, 0);
 	CHECK_EQ(tex[0], 0xB4);
 	CHECK_EQ(tex[1], 0xB8);
 	CHECK_EQ(tex[2], 0xBE);
 	CHECK_EQ(tex[3], 0xFF);
-	CHECK(!memcmp(tex, tex + (size_t)(N / 2) * N * 4 + 4 * (N / 2), 4));
-	/* Con una carátula roja: el centro es rojo y el borde sigue gris. */
+	/* Con una carátula roja: el centro es rojo y fuera del sticker sigue la base. */
 	static uint8_t red[40 * 60 * 4];
 	for (unsigned i = 0; i < 40 * 60; i++)
 		red[4 * i] = 0xFF, red[4 * i + 3] = 0xFF;
-	cartucho_label_compose(tex, N * 4, red, 40, 60);
+	cartucho_label_compose(tex, N * 4, base, red, 40, 60);
 	const uint8_t *c = tex + ((size_t)(N / 2) * N + N / 2) * 4;
 	CHECK_EQ(c[0], 0xFF);
 	CHECK_EQ(c[1], 0x00);
 	CHECK_EQ(c[2], 0x00);
-	CHECK_EQ(tex[0], 0xB4);                                      /* esquina: borde de plástico */
-	const uint8_t *e = tex + ((size_t)(N / 2) * N + 3) * 4;      /* a la izquierda del arte (u < 0,063) */
-	CHECK_EQ(e[0], 0xB4);
-	const uint8_t *bt = tex + ((size_t)(N - 3) * N + N / 2) * 4; /* debajo del arte (v > 0,949) */
-	CHECK_EQ(bt[0], 0xB4);
+	CHECK_EQ(tex[0], 0x10);                                      /* esquina: fuera */
+	CHECK_EQ(tex[((size_t)(N / 2) * N + 3) * 4], 0x10);          /* a la izquierda del sticker (u < 0,0646) */
+	CHECK_EQ(tex[((size_t)(N / 2) * N + N - 3) * 4], 0x10);      /* a la derecha (u > 0,8711) */
+	CHECK_EQ(tex[((size_t)3 * N + N / 2) * 4], 0x10);            /* arriba (v < 0,11 de la imagen) */
+	/* Abajo el sticker llega al borde de la imagen. */
+	CHECK_EQ(tex[((size_t)(N - 1) * N + N / 2) * 4], 0xFF);
+	/* La esquina de arriba a la izquierda del sticker está redondeada: su primer píxel es de la base. */
+	CHECK_EQ(tex[((size_t)(int)(CARTUCHO_STICKER_V0 * N + 0.5f) * N + (int)(CARTUCHO_STICKER_U0 * N + 0.5f)) * 4], 0x10);
 }
 
 static int hook_calls;

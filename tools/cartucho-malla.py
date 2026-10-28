@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
 """Convierte el cartucho del modelo «Stylized N64» (glTF binario) en el
-recurso compacto del menú: assets/menu/cartucho.mesh y la textura del
-plástico, reducida y oscurecida (assets/menu/cartucho_plastico.png).
+recurso compacto del menú: assets/menu/cartucho.mesh, la textura del
+plástico reducida a 256 × 256 (assets/menu/cartucho_plastico.png) y la de la
+etiqueta, también a 256 × 256 (assets/menu/cartucho_etiqueta.png).
 
 Solo la biblioteca estándar de Python. Uso:
 
-    tools/cartucho-malla.py CARTUCHO.glb [TEXTURA_BASE.png] [--out assets/menu]
+    tools/cartucho-malla.py CARTUCHO.glb [PLASTICO_BASE.png [ETIQUETA_BASE.png]] [--out assets/menu]
 
 Formato de cartucho.mesh (todo big-endian):
 
@@ -28,7 +29,6 @@ import struct
 import sys
 import zlib
 
-DARKEN = 0.52   # el plástico se oscurece para que quede en el gris de la N64
 TEX = 256
 
 
@@ -170,7 +170,26 @@ def plastic(src, dst):
                     row = rows[y * f + yy]
                     for xx in range(f):
                         acc += row[(x * f + xx) * bpp + c]
-                r[x * 3 + c] = min(255, int(acc / (f * f) * DARKEN + 0.5))
+                r[x * 3 + c] = min(255, int(acc / (f * f) + 0.5))
+        out.append(r)
+    write_png(dst, TEX, TEX, out)
+
+
+def resize(src, dst):
+    """Cualquier tamaño a TEX × TEX (bilineal; al reducir, con un promedio previo de bloques)."""
+    w, h, bpp, rows = read_png(src)
+    out = []
+    for y in range(TEX):
+        fy = (y + 0.5) * h / TEX - 0.5
+        y0 = min(h - 1, max(0, int(math.floor(fy)))); y1 = min(h - 1, y0 + 1); ty = min(1.0, max(0.0, fy - y0))
+        r = bytearray(TEX * 3)
+        for x in range(TEX):
+            fx = (x + 0.5) * w / TEX - 0.5
+            x0 = min(w - 1, max(0, int(math.floor(fx)))); x1 = min(w - 1, x0 + 1); tx = min(1.0, max(0.0, fx - x0))
+            for c in range(3):
+                a = rows[y0][x0 * bpp + c] * (1 - tx) + rows[y0][x1 * bpp + c] * tx
+                b = rows[y1][x0 * bpp + c] * (1 - tx) + rows[y1][x1 * bpp + c] * tx
+                r[x * 3 + c] = int(a * (1 - ty) + b * ty + 0.5)
         out.append(r)
     write_png(dst, TEX, TEX, out)
 
@@ -194,6 +213,9 @@ def main(argv):
     if len(args) > 1:
         plastic(args[1], outdir + '/cartucho_plastico.png')
         print('cartucho_plastico.png: %dx%d' % (TEX, TEX))
+    if len(args) > 2:
+        resize(args[2], outdir + '/cartucho_etiqueta.png')
+        print('cartucho_etiqueta.png: %dx%d' % (TEX, TEX))
 
 
 if __name__ == '__main__':

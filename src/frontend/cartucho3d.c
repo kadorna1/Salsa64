@@ -31,15 +31,14 @@
 #define OFF_VB(i) ((uint32_t)(i) * VB_BYTES)
 #define OFF_PLASTIC (2u * VB_BYTES)
 #define OFF_LABEL   (OFF_PLASTIC + TEX_BYTES)
+#define OFF_BASE    (OFF_LABEL + TEX_BYTES) /* la etiqueta sin carátula, para rehacer la de arriba */
 #define MEM_BYTES   (1u << 20)
 
 _Static_assert(sizeof(struct cartucho_out) <= VB_BYTES, "los vértices caben en su mitad");
-_Static_assert(OFF_LABEL + TEX_BYTES <= MEM_BYTES, "el cartucho cabe en 1 MB");
+_Static_assert(OFF_BASE + TEX_BYTES <= MEM_BYTES, "el cartucho cabe en 1 MB");
 _Static_assert(offsetof(struct cartucho_out, label) % 128 == 0, "los vértices de la etiqueta alineados");
 
 #define SECONDS_PER_TURN 6.0
-#define PITCH_AMP 0.10   /* radianes */
-#define PITCH_PERIOD 9.0 /* segundos */
 
 static struct {
 	bool ok;
@@ -70,12 +69,13 @@ static void fence_all(void)
 			rsxkit_fence_wait(c3.fence[i]);
 }
 
-bool cartucho3d_init(const uint8_t *mesh, size_t mesh_size, const uint8_t *plastic, unsigned w, unsigned h)
+bool cartucho3d_init(const uint8_t *mesh, size_t mesh_size, const uint8_t *plastic, unsigned w, unsigned h,
+		     const uint8_t *label, unsigned lw, unsigned lh)
 {
 	if (c3.ok)
 		return true;
-	if (!plastic || !w || !h || w > TEX_N || h > TEX_N) {
-		salsa64_log("cartucho 3D: textura del plástico inválida (%ux%u)", w, h);
+	if (!plastic || !w || !h || w > TEX_N || h > TEX_N || !label || lw != TEX_N || lh != TEX_N) {
+		salsa64_log("cartucho 3D: texturas inválidas (plástico %ux%u, etiqueta %ux%u)", w, h, lw, lh);
 		return false;
 	}
 	int rc = cartucho_mesh_parse(&c3.mesh, mesh, mesh_size);
@@ -96,7 +96,8 @@ bool cartucho3d_init(const uint8_t *mesh, size_t mesh_size, const uint8_t *plast
 	}
 	for (unsigned y = 0; y < h; y++)
 		memcpy(c3.mem + OFF_PLASTIC + (size_t)y * TEX_PITCH, plastic + (size_t)y * w * 4, (size_t)w * 4);
-	cartucho_label_compose(c3.mem + OFF_LABEL, TEX_PITCH, NULL, 0, 0);
+	memcpy(c3.mem + OFF_BASE, label, (size_t)TEX_BYTES);
+	cartucho_label_compose(c3.mem + OFF_LABEL, TEX_PITCH, c3.mem + OFF_BASE, NULL, 0, 0);
 	__sync_synchronize();
 	c3.pw = w;
 	c3.ph = h;
@@ -118,7 +119,7 @@ void cartucho3d_update(int sel, const uint8_t *cover, unsigned w, unsigned h, do
 	bool has = cover && w && h;
 	if (sel != c3.label_sel || has != c3.label_cover) {
 		fence_all();  /* el RSX puede estar leyendo la textura anterior */
-		cartucho_label_compose(c3.mem + OFF_LABEL, TEX_PITCH, has ? cover : NULL, w, h);
+		cartucho_label_compose(c3.mem + OFF_LABEL, TEX_PITCH, c3.mem + OFF_BASE, has ? cover : NULL, w, h);
 		__sync_synchronize();
 		c3.label_sel = sel;
 		c3.label_cover = has;
@@ -169,8 +170,7 @@ void cartucho3d_draw(void *user, float cx, float cy, float size, float alpha)
 	struct cartucho_out *out = (struct cartucho_out *)(c3.mem + OFF_VB(hf));
 	double e = c3.t - c3.t0;
 	float yaw = (float)(6.283185307179586 * e / SECONDS_PER_TURN);
-	float pitch = (float)(PITCH_AMP * sin(6.283185307179586 * e / PITCH_PERIOD));
-	cartucho_mesh_draw(&c3.mesh, yaw, pitch, cx, cy, size, (float)c3.pw, (float)c3.ph, (float)TEX_N, (float)TEX_N, out);
+	cartucho_mesh_draw(&c3.mesh, yaw, 0.0f, cx, cy, size, (float)c3.pw, (float)c3.ph, (float)TEX_N, (float)TEX_N, out);
 	__sync_synchronize();
 	rsxkit_vertices(c3.off + OFF_VB(hf), RSXKIT_MEM_MAIN);
 	float a = alpha > 1.0f ? 1.0f : alpha;
