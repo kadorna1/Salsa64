@@ -16,7 +16,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: dr-mario64-v214-${{ github.ref }}
+  group: dr-mario64-v214-cached-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
