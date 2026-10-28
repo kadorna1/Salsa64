@@ -59,7 +59,7 @@ void seda_row(int layer, float aspect, const float pos[SEDA_LAYER_VERTS][4], int
 /* Toda la capa, con `scratch` de memoria de trabajo (el camino del PPE). */
 void seda_layer(int layer, float aspect, float tf, float scratch[SEDA_LAYER_VERTS][4], seda_vertex *out);
 /* Los SEDA_SPARK_VERTS vértices de los destellos (cuadritos que brillan y
- * suben); t0 = (x, y de −1 a 1 en el cuadrito, brillo, tono). */
+ * corren a lo largo de las cintas); t0 = (x, y de −1 a 1 en el cuadrito, brillo, tono). */
 void seda_sparkles(float aspect, float tf, seda_vertex *out);
 /* Índices de una capa (SEDA_INDICES) y de los destellos (SEDA_SPARK_INDICES);
  * los de una capa sirven con el desplazamiento de vértices de cada una. */

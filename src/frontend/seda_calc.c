@@ -132,30 +132,38 @@ static float pleats(const struct layer_params *L, float s, float v, float tf)
 	return h * (0.45f + 0.55f * v * v);  /* la orilla ondula más que el centro */
 }
 
+/* El marco de la cinta en s: el eje c, la dirección del ancho d (ya girada
+ * por la torsión), la normal m de la tela y el semiancho. */
+static float frame(const struct layer_params *L, float aspect, float s, float tf, float *c, float *d, float *m)
+{
+	float cp[3], cm[3], t[3];
+	axis(L, aspect, s, tf, c);
+	axis(L, aspect, s + 0.004f, tf, cp);
+	axis(L, aspect, s - 0.004f, tf, cm);
+	t[0] = cp[0] - cm[0], t[1] = cp[1] - cm[1], t[2] = cp[2] - cm[2];
+	norm3(t, 1.0f, 0.0f, 0.0f);
+	/* Marco: B = t × arriba, N2 = B × t; el ancho gira en φ entre ellos. */
+	static const float up[3] = { 0.0f, 1.0f, 0.0f };
+	float b[3], n2[3];
+	cross3(t, up, b);
+	norm3(b, 0.0f, 0.0f, 1.0f);
+	cross3(b, t, n2);
+	float phi = L->twk * s + 1.2f * sn(2.2f * s + ph(40 + L->dm, tf) + L->ph0) + ph(20 + L->dm, tf);
+	float cp_ = cs(phi), sp_ = sn(phi);
+	d[0] = cp_ * n2[0] + sp_ * b[0];
+	d[1] = cp_ * n2[1] + sp_ * b[1];
+	d[2] = cp_ * n2[2] + sp_ * b[2];
+	cross3(t, d, m);
+	return L->hw * (1.0f + 0.28f * sn(2.7f * s + ph(35 + L->dm, tf) + L->ph0));
+}
+
 void seda_positions(int layer, float aspect, float tf, float pos[SEDA_LAYER_VERTS][4])
 {
 	const struct layer_params *L = &LAYERS[layer];
 	for (int i = 0; i < SEDA_NU; i++) {
 		float s = -1.0f + 2.0f * (float)i / (float)(SEDA_NU - 1);
-		float c[3], cp[3], cm[3], t[3];
-		axis(L, aspect, s, tf, c);
-		axis(L, aspect, s + 0.004f, tf, cp);
-		axis(L, aspect, s - 0.004f, tf, cm);
-		t[0] = cp[0] - cm[0], t[1] = cp[1] - cm[1], t[2] = cp[2] - cm[2];
-		norm3(t, 1.0f, 0.0f, 0.0f);
-		/* Marco: B = t × arriba, N2 = B × t; el ancho gira en φ entre ellos. */
-		static const float up[3] = { 0.0f, 1.0f, 0.0f };
-		float b[3], n2[3], d[3], m[3];
-		cross3(t, up, b);
-		norm3(b, 0.0f, 0.0f, 1.0f);
-		cross3(b, t, n2);
-		float phi = L->twk * s + 1.2f * sn(2.2f * s + ph(40 + L->dm, tf) + L->ph0) + ph(20 + L->dm, tf);
-		float cp_ = cs(phi), sp_ = sn(phi);
-		d[0] = cp_ * n2[0] + sp_ * b[0];
-		d[1] = cp_ * n2[1] + sp_ * b[1];
-		d[2] = cp_ * n2[2] + sp_ * b[2];
-		cross3(t, d, m);
-		float hw = L->hw * (1.0f + 0.28f * sn(2.7f * s + ph(35 + L->dm, tf) + L->ph0));
+		float c[3], d[3], m[3];
+		float hw = frame(L, aspect, s, tf, c, d, m);
 		for (int j = 0; j < SEDA_NV; j++) {
 			float v = -1.0f + 2.0f * (float)j / (float)(SEDA_NV - 1);
 			float h = pleats(L, s, v, tf), w = v * hw;
@@ -236,19 +244,27 @@ void seda_sparkles(float aspect, float tf, seda_vertex *out)
 {
 	static const float cx[4] = { -1.0f, 1.0f, 1.0f, -1.0f }, cy[4] = { -1.0f, -1.0f, 1.0f, 1.0f };
 	for (uint32_t i = 0; i < SEDA_SPARKS; i++) {
-		float r0 = rnd(i, 0), r1 = rnd(i, 1), r2 = rnd(i, 2), r3 = rnd(i, 3), r4 = rnd(i, 4);
-		int rise = 3 + (int)(r2 * 5.0f);          /* vueltas a la pantalla por periodo */
+		float r0 = rnd(i, 0), r1 = rnd(i, 1), r2 = rnd(i, 2), r3 = rnd(i, 3), r4 = rnd(i, 4), r5 = rnd(i, 5);
+		/* Pegado a una de las cintas: avanza a lo largo de ella (de un lado o
+		 * del otro, de 2 a 5 vueltas por periodo) en la parte que se ve, sobre
+		 * la tela o apenas fuera de la orilla, y flota un poco sobre los pliegues. */
+		const struct layer_params *L = &LAYERS[i % SEDA_LAYERS];
+		int run = 2 + (int)(r2 * 4.0f);
+		float u = r0 + (float)(r3 < 0.5f ? run : -run) * tf;
+		u -= (float)(int)u;
+		if (u < 0.0f)
+			u += 1.0f;
+		float s = 0.8f * (2.0f * u - 1.0f);
+		float c[3], d[3], m[3];
+		float hw = frame(L, aspect, s, tf, c, d, m);
+		float w = (2.0f * r1 - 1.0f) * 1.15f * hw, h = (r5 - 0.5f) * 0.12f + 0.03f * sn(ph(7 + (int)(r4 * 9.0f), tf) + r3 * TAU_F);
+		float p[3] = { c[0] + w * d[0] + h * m[0], c[1] + w * d[1] + h * m[1], c[2] + w * d[2] + h * m[2] };
+		float x = p[0] * (FOCAL * ZOOM * LARGO / aspect) / p[2];
+		float y = p[1] * (FOCAL * ZOOM) / p[2] + ALTURA;
 		int twinkle = 100 + (int)(r3 * 200.0f);   /* parpadeos por periodo */
-		float y01 = r1 + (float)rise * tf;
-		y01 -= (float)(int)y01;
-		/* Hacia el centro: en x, la suma de dos azares (más en medio que en
-		 * las orillas); en y, el brillo se apaga lejos de la mitad. */
-		float x = (r0 + rnd(i, 5) - 1.0f) * 0.85f + 0.03f * sn(ph(7 + (int)(r4 * 9.0f), tf) + r3 * TAU_F);
-		float y = 2.0f * y01 - 1.0f;
 		float tw = 0.5f + 0.5f * sn(ph(twinkle, tf) + r4 * TAU_F);
-		float sy = sn(PI_F * y01);
-		float b = tw * tw * sy * sy;
-		float sz = 0.006f + 0.014f * r4;
+		float b = tw * tw * sn(PI_F * u);         /* se apaga en las puntas del tramo */
+		float sz = (0.006f + 0.014f * r4) * (3.5f / p[2]);
 		for (int k = 0; k < 4; k++) {
 			seda_vertex *o = &out[i * 4 + k];
 			o->pos[0] = x + cx[k] * sz / aspect;

@@ -82,8 +82,8 @@ tramado mínimo contra las bandas. La paleta (`seda_colors`) interpola con
 suavidad 8 claves: noche índigo (0 h), amanecer rosa (5,5 h), día azul
 (8 y 13 h), tarde ámbar (17,5 h), anochecer violeta (20 h), noche.
 
-**Destellos**: 96 cuadritos aditivos (`seda_destello.fcg`, 14 instrucciones)
-que suben a 3–7 vueltas de pantalla por periodo, parpadean (100–300
+**Destellos**: 96 cuadritos que corren por las cintas, aditivos (`seda_destello.fcg`, 14 instrucciones)
+que avanzan por su tramo visible 2–5 veces por periodo, parpadean (100–300
 parpadeos por periodo) y brillan más de noche. La PS3 no tiene point
 sprites en rsxkit: cada uno es un cuadrito de dos triángulos con un centro
 suave y una cruz de brillo.

@@ -271,7 +271,7 @@ static void seda_sparkles_ok(void)
 			CHECK(q[0].t0[2] >= 0.0f && q[0].t0[2] <= 1.0001f);
 			CHECK(q[0].t0[2] == q[2].t0[2] && q[1].t0[3] == q[3].t0[3]);
 			CHECK(q[0].pos[3] == 1.0f);
-			CHECK(fabsf(q[0].pos[1]) < 1.1f && fabsf(q[0].pos[0]) < 1.2f);
+			CHECK(fabsf(q[0].pos[1]) < 1.5f && fabsf(q[0].pos[0]) < 1.5f);
 			CHECK(q[1].pos[0] > q[0].pos[0] && q[2].pos[1] > q[0].pos[1]);
 			if (q[0].t0[2] > 0.3f)
 				lit++;
