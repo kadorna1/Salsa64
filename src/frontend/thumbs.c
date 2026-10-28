@@ -199,9 +199,26 @@ static void run_job(void)
 	uint64_t t3 = now_us();
 	th.us_read = t3 - t2;
 	th.png_bytes = n;
+	/* La primera carátula de cada arranque se decodifica con puff y con zlib, para medir la diferencia. */
+	static bool compared;
+	if (n && !compared) {
+		compared = true;
+		unsigned pw, ph;
+		uint64_t tp = now_us();
+		cover_use_puff(true);
+		enum cover_result rp = cover_decode_png(buf, n, th.srcbuf, &pw, &ph);
+		uint64_t tpe = now_us();
+		cover_use_puff(false);
+		enum cover_result rz = cover_decode_png(buf, n, th.srcbuf, &pw, &ph);
+		uint64_t tze = now_us();
+		salsa64_log("miniaturas: decodificar %s (%ux%u): puff %.1f ms (%s), zlib %.1f ms (%s)", th.req.name, pw, ph,
+			    (double)(tpe - tp) / 1000.0, cover_result_name(rp), (double)(tze - tpe) / 1000.0, cover_result_name(rz));
+	}
+	uint64_t t3b = now_us();
 	enum cover_result r = n ? cover_decode_png(buf, n, th.srcbuf, &th.w, &th.h) : COVER_NO_FILE;
 	free(buf);
 	uint64_t t4 = now_us();
+	t3 = t3b;
 	th.us_dec = t4 - t3;
 	if (r == COVER_OK) {
 		if (!thumb_ready) {

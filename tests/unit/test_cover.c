@@ -396,4 +396,12 @@ void t_suite_cover(void)
 	RUN(downscale);
 	RUN(errors);
 	RUN(files);
+	/* Lo mismo con puff (el respaldo): mismos píxeles y mismos errores. */
+	cover_use_puff(true);
+	RUN(color_types);
+	RUN(filters);
+	RUN(interlaced);
+	RUN(downscale);
+	RUN(errors);
+	cover_use_puff(false);
 }
