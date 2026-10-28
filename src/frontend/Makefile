@@ -36,10 +36,12 @@ COMMON  := $(RC_FILES) src/platform/ps3/log.c src/platform/ps3/rec_cache.c src/p
            src/platform/ps3/audio_spu.c src/platform/ps3/jpeg_spu.c src/platform/ps3/rsp_spu.c src/platform/ps3/bgjob.c src/platform/ps3/bgio.c src/rdp/rdp.c src/rdp/targets.c src/rdp/vmatch.c src/rdp/gfxdump.c src/rdp/blackbox.c \
            $(patsubst $(R)/%,%,$(wildcard $(R)/src/core/*.c $(R)/src/cpu/*.c $(R)/src/rsp/gfx/*.c $(R)/src/rsp/audio/*.c $(R)/src/rsp/jpeg/*.c \
                                           $(R)/src/rsp/lle/*.c))
-DATA    := vitest_rom gfxtest_rom audiotest_rom
+DATA    := vitest_rom gfxtest_rom audiotest_rom cart_icon
 vitest_rom_FILE := tests/roms/homebrew/salsa64-vitest.z64
 gfxtest_rom_FILE := tests/roms/homebrew/salsa64-gfxtest.z64
 audiotest_rom_FILE := tests/roms/homebrew/salsa64-audiotest.z64
+# Ícono del cartucho de la lista de juegos (render del modelo, docs/THIRD_PARTY.md).
+cart_icon_FILE := assets/menu/cartucho.png
 RSXKIT  := 1
 SPUKIT  := 1
 # HLE gráfica (SPE 0) y de audio (SPE 1): el mismo código de src/rsp/gfx y

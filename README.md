@@ -172,6 +172,9 @@ Salsa64 is an AI-assisted project. The emulator itself is tested on real PS3 har
 - **VIDEOGAMES SCZ** contributed the pause menu, cheats, box art, the 16:9
   aspect option, the simple image filters (Smooth, Sharp, Scanlines),
   per-game settings, the first six menu languages and the experimental downloader.
+- The cartridge icon in the game list is a render of **"Stylized N64" by
+  AlessandroFortuna** (Sketchfab), licensed under CC BY 4.0, modified to remove
+  Nintendo artwork.
 
 ## License
 

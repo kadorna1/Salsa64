@@ -215,6 +215,7 @@
 #include "rdp/blackbox.h"
 #include "version.h"
 #include "vitest_rom_bin.h"
+#include "cart_icon_bin.h"
 
 SYS_PROCESS_PARAM(1001, 0x100000);
 
@@ -5154,8 +5155,25 @@ static void game_close(void)
 	}
 }
 
+/* El ícono del cartucho de la lista (assets/menu/cartucho.png, 256 × 128:
+ * el plástico a la izquierda y la etiqueta en blanco a la derecha) en la
+ * ranura 1 del 2D; sin él, el menú dibuja el ícono plano. */
+static bool ui_cart_icon;
+
+static void ui_cart_icon_load(void)
+{
+	uint8_t *rgba = malloc(COVER_RGBA_BYTES);
+	unsigned w = 0, h = 0;
+	enum cover_result r = rgba ? cover_decode_png(cart_icon_bin, cart_icon_bin_size, rgba, &w, &h) : COVER_TOO_BIG;
+	int rc = r == COVER_OK ? rsxkit_ui_image_set(MENU_CART_SLOT, rgba, w, h) : RSXKIT_EARG;
+	free(rgba);
+	ui_cart_icon = r == COVER_OK && rc == RSXKIT_OK && w == 2 * h;
+	if (!ui_cart_icon)
+		salsa64_log("menú: el ícono del cartucho no cargó (%s, %d, %ux%u): queda el plano", cover_result_name(r), rc, w, h);
+}
+
 /* rsxkit_ui: el menú y lo que se dibuja sobre el juego (aviso, contador);
- * se prepara una vez (2 MB mapeados, para siempre). */
+ * se prepara una vez (5 MB mapeados, para siempre). */
 static int ui_init_once(void)
 {
 	static int rc = 1;
@@ -5163,6 +5181,8 @@ static int ui_init_once(void)
 		rc = rsxkit_ui_init();
 		if (rc != RSXKIT_OK)
 			salsa64_log("2D del RSX no disponible (%d): sin avisos en pantalla", rc);
+		else
+			ui_cart_icon_load();
 	}
 	/* La salida puede cambiar sin reiniciar («Aplicar ahora»). */
 	const rsxkit_screen *sc = rsxkit_screen_info();
@@ -6241,6 +6261,7 @@ static void menu_show(const char *shot)
 	menu.bg_drawn = seda && seda_draw(menu.t);
 	if (!seda)
 		seda_release();
+	menu.cart_icon = ui_cart_icon;
 	rsxkit_ui_begin(mn.lw, mn.lh);
 	menu_frame(&menu, mn.lw, mn.lh, sysGetSystemTime());
 	rsxkit_ui_end();

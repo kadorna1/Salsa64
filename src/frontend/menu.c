@@ -1227,11 +1227,20 @@ static void icon_body(float x, float y, float s, float a)
 	rsxkit_ui_rect(x, y, s, s * 0.035f + 0.5f, rgba(0xFFFFFFu, a * 0.22f));
 }
 
-static void icon_cart(float x, float y, float s, uint32_t label, float a)
+/* El cartucho: el render del modelo (ranura MENU_CART_SLOT, 256 × 128: el
+ * plástico y la etiqueta en blanco, que aquí se tiñe con el color del
+ * juego), un poco más grande que los otros íconos; sin él, el plano. */
+static void icon_cart(const struct menu *m, float x, float y, float s, uint32_t label, float a)
 {
+	if (m->cart_icon) {
+		float c = s * 1.3f, cx = x + (s - c) * 0.5f, cy = y + (s - c) * 0.5f;
+		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 0.0f, 0.0f, 128.0f, 128.0f, rgba(0xFFFFFFu, a));
+		rsxkit_ui_image_part(MENU_CART_SLOT, cx, cy, c, c, 128.0f, 0.0f, 128.0f, 128.0f, rgba(label, a));
+		return;
+	}
 	icon_body(x, y, s, a);
-	float m = s * 0.14f;
-	rsxkit_ui_gradient(x + m, y + m, s - 2 * m, s * 0.5f, rgba(mix(label, 0xFFFFFFu, 0.25f), a), rgba(label, a),
+	float g = s * 0.14f;
+	rsxkit_ui_gradient(x + g, y + g, s - 2 * g, s * 0.5f, rgba(mix(label, 0xFFFFFFu, 0.25f), a), rgba(label, a),
 			   rgba(label, a), rgba(mix(label, 0x000000u, 0.3f), a));
 	for (int i = 0; i < 4; i++)
 		rsxkit_ui_rect(x + s * (0.24f + 0.14f * i), y + s * 0.78f, s * 0.08f, s * 0.1f, rgba(0x0E1116u, a));
@@ -1319,7 +1328,7 @@ struct row {
 	const char *value;  /* a la derecha del título (opciones) */
 };
 
-static void draw_row(const struct row *r, float d, float x, float W, float H, float a)
+static void draw_row(const struct menu *m, const struct row *r, float d, float x, float W, float H, float a)
 {
 	float ad = fabsf(d), k = smooth(1.0f - ad), y = row_y(d, H);
 	/* Se desvanece hacia los bordes de la columna (lejos del encabezado y
@@ -1333,7 +1342,7 @@ static void draw_row(const struct row *r, float d, float x, float W, float H, fl
 				   rgba(0xFFFFFFu, 0.0f), rgba(0xFFFFFFu, 0.07f * k * alpha), rgba(0xFFFFFFu, 0.0f));
 	float s = 42.0f + 26.0f * k;
 	if (r->icon == 0)
-		icon_cart(x, y - s * 0.5f, s, r->label, alpha);
+		icon_cart(m, x, y - s * 0.5f, s, r->label, alpha);
 	else if (r->icon == 1)
 		icon_options(x, y - s * 0.5f, s, alpha);
 	else if (r->icon == 3)
@@ -1453,7 +1462,7 @@ static void cheats_column(const struct menu *m, float x, float W, float H, float
 			r.sub = "A la lista de juegos";
 			r.glyph = "◀";
 		}
-		draw_row(&r, d, x, W, H, a);
+		draw_row(m, &r, d, x, W, H, a);
 	}
 }
 
@@ -1526,7 +1535,7 @@ static void game_column(const struct menu *m, float x, float W, float H, float a
 			continue;
 		float d = (float)game_row(m, i) - m->game_pos;
 		struct row r = { titles[i], subs[i], 2, glyphs[i], 0, game_value(m, i) };
-		draw_row(&r, d, x, W, H, a);
+		draw_row(m, &r, d, x, W, H, a);
 	}
 }
 
@@ -1573,7 +1582,7 @@ static void controls_column(const struct menu *m, float x, float W, float H, flo
 		bool n64 = i < SALSA64_IN_COUNT || i == MENU_CONTROL_STICK;
 		struct row r = { tr(control_row_title(i)), NULL, n64 ? 3 : 2, i == MENU_CONTROL_BACK ? "◀" : "●",
 				 n64 ? (uint32_t)i : 0, control_button_value(m, i) };
-		draw_row(&r, (float)i - m->control_pos, x, W, H, a);
+		draw_row(m, &r, (float)i - m->control_pos, x, W, H, a);
 	}
 }
 
@@ -1928,7 +1937,7 @@ static void games_column(const struct menu *m, float x, float W, float H, float 
 			r.icon = 2;
 			r.glyph = "◀";
 		}
-		draw_row(&r, d, x, W, H, a);
+		draw_row(m, &r, d, x, W, H, a);
 	}
 	if (!m->list->count) {
 		float y = H * 0.16f;
@@ -1971,32 +1980,32 @@ static void options_column(const struct menu *m, float x, float W, float H, floa
 	struct row refresh = { "Actualizar lista", "Volver a leer las carpetas de ROMs", 2, "○", 0, NULL };
 	struct row controls = { "Controles", "Botones del control de N64", 2, "●", 0, NULL };
 	struct row back = { "Volver", "A la lista de juegos", 2, "◀", 0, NULL };
-	draw_row(&waves, MENU_OPT_WAVES - m->opt_pos, x, W, H, a);
-	draw_row(&crop, MENU_OPT_OVERSCAN - m->opt_pos, x, W, H, a);
-	draw_row(&aspect, MENU_OPT_ASPECT - m->opt_pos, x, W, H, a);
-	draw_row(&filter, MENU_OPT_FILTER - m->opt_pos, x, W, H, a);
+	draw_row(m, &waves, MENU_OPT_WAVES - m->opt_pos, x, W, H, a);
+	draw_row(m, &crop, MENU_OPT_OVERSCAN - m->opt_pos, x, W, H, a);
+	draw_row(m, &aspect, MENU_OPT_ASPECT - m->opt_pos, x, W, H, a);
+	draw_row(m, &filter, MENU_OPT_FILTER - m->opt_pos, x, W, H, a);
 	if (opt_visible(m, MENU_OPT_DENSITY))
-		draw_row(&density, (float)opt_row(m, MENU_OPT_DENSITY) - m->opt_pos, x, W, H, a);
-	draw_row(&res, (float)opt_row(m, MENU_OPT_RESOLUTION) - m->opt_pos, x, W, H, a);
-	draw_row(&scale, (float)opt_row(m, MENU_OPT_SCALE) - m->opt_pos, x, W, H, a);
+		draw_row(m, &density, (float)opt_row(m, MENU_OPT_DENSITY) - m->opt_pos, x, W, H, a);
+	draw_row(m, &res, (float)opt_row(m, MENU_OPT_RESOLUTION) - m->opt_pos, x, W, H, a);
+	draw_row(m, &scale, (float)opt_row(m, MENU_OPT_SCALE) - m->opt_pos, x, W, H, a);
 	if (menu_video_pending(m))
-		draw_row(&apply, (float)opt_row(m, MENU_OPT_APPLY) - m->opt_pos, x, W, H, a);
-	draw_row(&interp, (float)opt_row(m, MENU_OPT_INTERP) - m->opt_pos, x, W, H, a);
-	draw_row(&fps, (float)opt_row(m, MENU_OPT_FPS) - m->opt_pos, x, W, H, a);
-	draw_row(&confirm, (float)opt_row(m, MENU_OPT_CONFIRM) - m->opt_pos, x, W, H, a);
-	draw_row(&accessory, (float)opt_row(m, MENU_OPT_ACCESSORY) - m->opt_pos, x, W, H, a);
-	draw_row(&lang, (float)opt_row(m, MENU_OPT_LANG) - m->opt_pos, x, W, H, a);
-	draw_row(&order, (float)opt_row(m, MENU_OPT_ROM_ORDER) - m->opt_pos, x, W, H, a);
-	draw_row(&ra, (float)opt_row(m, MENU_OPT_RA) - m->opt_pos, x, W, H, a);
-	draw_row(&ra_acc, (float)opt_row(m, MENU_OPT_RA_ACCOUNT) - m->opt_pos, x, W, H, a);
-	draw_row(&ra_hc, (float)opt_row(m, MENU_OPT_RA_HARDCORE) - m->opt_pos, x, W, H, a);
-	draw_row(&refresh, (float)opt_row(m, MENU_OPT_REFRESH) - m->opt_pos, x, W, H, a);
-	draw_row(&controls, (float)opt_row(m, MENU_OPT_CONTROLS) - m->opt_pos, x, W, H, a);
+		draw_row(m, &apply, (float)opt_row(m, MENU_OPT_APPLY) - m->opt_pos, x, W, H, a);
+	draw_row(m, &interp, (float)opt_row(m, MENU_OPT_INTERP) - m->opt_pos, x, W, H, a);
+	draw_row(m, &fps, (float)opt_row(m, MENU_OPT_FPS) - m->opt_pos, x, W, H, a);
+	draw_row(m, &confirm, (float)opt_row(m, MENU_OPT_CONFIRM) - m->opt_pos, x, W, H, a);
+	draw_row(m, &accessory, (float)opt_row(m, MENU_OPT_ACCESSORY) - m->opt_pos, x, W, H, a);
+	draw_row(m, &lang, (float)opt_row(m, MENU_OPT_LANG) - m->opt_pos, x, W, H, a);
+	draw_row(m, &order, (float)opt_row(m, MENU_OPT_ROM_ORDER) - m->opt_pos, x, W, H, a);
+	draw_row(m, &ra, (float)opt_row(m, MENU_OPT_RA) - m->opt_pos, x, W, H, a);
+	draw_row(m, &ra_acc, (float)opt_row(m, MENU_OPT_RA_ACCOUNT) - m->opt_pos, x, W, H, a);
+	draw_row(m, &ra_hc, (float)opt_row(m, MENU_OPT_RA_HARDCORE) - m->opt_pos, x, W, H, a);
+	draw_row(m, &refresh, (float)opt_row(m, MENU_OPT_REFRESH) - m->opt_pos, x, W, H, a);
+	draw_row(m, &controls, (float)opt_row(m, MENU_OPT_CONTROLS) - m->opt_pos, x, W, H, a);
 	if (m->dl_enabled) {
-		draw_row(&dlc, (float)opt_row(m, MENU_OPT_DL_COVERS) - m->opt_pos, x, W, H, a);
-		draw_row(&dlt, (float)opt_row(m, MENU_OPT_DL_CHEATS) - m->opt_pos, x, W, H, a);
+		draw_row(m, &dlc, (float)opt_row(m, MENU_OPT_DL_COVERS) - m->opt_pos, x, W, H, a);
+		draw_row(m, &dlt, (float)opt_row(m, MENU_OPT_DL_CHEATS) - m->opt_pos, x, W, H, a);
 	}
-	draw_row(&back, (float)opt_row(m, MENU_OPT_BACK) - m->opt_pos, x, W, H, a);
+	draw_row(m, &back, (float)opt_row(m, MENU_OPT_BACK) - m->opt_pos, x, W, H, a);
 }
 
 void menu_frame(struct menu *m, float lw, float lh, uint64_t now_us)

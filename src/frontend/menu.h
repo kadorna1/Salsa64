@@ -40,6 +40,7 @@
 #define MENU_REPEAT_FAST_AFTER_US 1500000u
 #define MENU_REPEAT_FAST_US       45000u
 #define MENU_STATUS_MAX           120
+#define MENU_CART_SLOT            1   /* ranura del 2D con el ícono del cartucho (la 0 es la carátula) */
 #define MENU_DIRS_MAX             4
 
 enum menu_action {
@@ -238,6 +239,7 @@ struct menu {
 	unsigned ndirs;
 	const char *loading;   /* título que se está cargando, o NULL */
 	bool bg_drawn;         /* main.c ya dibujó el fondo «Seda» en este cuadro */
+	bool cart_icon;        /* el ícono del cartucho está en la ranura MENU_CART_SLOT del 2D */
 	/* Arriba a la derecha, chico, bajo el contador (los pone main.c): la
 	 * versión corta (version.h) y, en un paquete de prueba, «título ·
 	 * APPID»; NULL, nada. */
