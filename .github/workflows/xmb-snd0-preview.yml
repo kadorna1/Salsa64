@@ -7,6 +7,7 @@ on:
       - "assets/ps3/SND0.AT3"
       - "mk/ps3.mk"
       - ".github/workflows/xmb-snd0-preview.yml"
+      - "tools/check-snd0.py"
   workflow_dispatch:
 
 permissions:
@@ -72,6 +73,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y zlib1g-dev
 
+      - name: Validate XMB SND0 metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/logs
+          python3 tools/check-snd0.py assets/ps3/SND0.AT3 | tee build/logs/snd0-validation.log
+
       - name: Run host regression suite
         shell: bash
         run: |
@@ -87,6 +95,7 @@ jobs:
           test -s build/salsa64/salsa64.pkg
           test -s build/salsa64/obj/pkg/SND0.AT3
           cmp assets/ps3/SND0.AT3 build/salsa64/obj/pkg/SND0.AT3
+          python3 tools/check-snd0.py build/salsa64/obj/pkg/SND0.AT3 >> build/logs/snd0-validation.log
           echo "SND0.AT3 staged byte-for-byte at the PKG root."
 
       - name: Upload package and diagnostics
@@ -102,3 +111,4 @@ jobs:
             build/logs/docker-image.log
             build/logs/snd0-host-tests.log
             build/logs/snd0-ps3-package.log
+            build/logs/snd0-validation.log
