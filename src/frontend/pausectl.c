@@ -11,6 +11,7 @@
 #include <rsxkit/ui.h>
 
 #include "padmap.h"
+#include "prompts.h"
 
 #define BIT(b) (1u << (b))
 #define QUIT   (BIT(SALSA64_DS3_START) | BIT(SALSA64_DS3_SELECT))
@@ -290,7 +291,7 @@ void pausectl_layout(const char *question, const char *answers, float lw, float 
 	b->qscale = 2.5f;
 	b->ascale = 2.0f;
 	float qw = rsxkit_ui_text_width(question, b->qscale), qh = RSXKIT_FONT_H * b->qscale;
-	float aw = rsxkit_ui_text_width(answers, b->ascale), ah = RSXKIT_FONT_H * b->ascale;
+	float aw = prompt_width(answers, b->ascale), ah = RSXKIT_FONT_H * b->ascale;
 	float inner = qw > aw ? qw : aw;
 	b->w = inner + 2 * pad;
 	b->h = qh + gap + ah + 2 * pad;

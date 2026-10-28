@@ -222,6 +222,8 @@
 #include "frontend/cartucho3d.h"
 #include "frontend/thumbs.h"
 #include "frontend/thumbs_calc.h"
+#include "prompts_bin.h"
+#include "prompts.h"
 
 SYS_PROCESS_PARAM(1001, 0x100000);
 
@@ -5195,8 +5197,24 @@ static void ui_cart3d_load(void)
 		salsa64_log("menú: el cartucho 3D no cargó (%s): queda el sprite", cover_result_name(r));
 }
 
+/* Los íconos de botones (assets/menu/prompts.png, Kenney CC0; prompts.h) en la
+ * ranura PROMPTS_SLOT del 2D; sin ellos, el texto lleva los símbolos de siempre. */
+static void ui_prompts_load(void)
+{
+	uint8_t *rgba = malloc(COVER_RGBA_BYTES);
+	unsigned w = 0, h = 0;
+	enum cover_result r = rgba ? cover_decode_png(prompts_bin, prompts_bin_size, rgba, &w, &h) : COVER_TOO_BIG;
+	int rc = r == COVER_OK ? rsxkit_ui_image_set(PROMPTS_SLOT, rgba, w, h) : RSXKIT_EARG;
+	free(rgba);
+	bool ok = r == COVER_OK && rc == RSXKIT_OK && w == PROMPT_ATLAS_W && h == PROMPT_ATLAS_H;
+	prompts_enable(ok);
+	if (!ok)
+		salsa64_log("menú: los íconos de botones no cargaron (%s, %d, %ux%u): quedan los símbolos de texto",
+			    cover_result_name(r), rc, w, h);
+}
+
 /* rsxkit_ui: el menú y lo que se dibuja sobre el juego (aviso, contador);
- * se prepara una vez (5 MB mapeados, para siempre). */
+ * se prepara una vez (6 MB mapeados, para siempre). */
 static int ui_init_once(void)
 {
 	static int rc = 1;
@@ -5213,6 +5231,7 @@ static int ui_init_once(void)
 			ui_cart_icon_load();
 			ui_cart3d_load();
 			thumbs_init(COVERS_DIR);
+			ui_prompts_load();
 		}
 	}
 	/* La salida puede cambiar sin reiniciar («Aplicar ahora»). */

@@ -175,6 +175,9 @@ Salsa64 is an AI-assisted project. The emulator itself is tested on real PS3 har
 - The cartridge icon in the game list is a render of **"Stylized N64" by
   AlessandroFortuna** (Sketchfab), licensed under CC BY 4.0, modified to remove
   Nintendo artwork.
+- The button icons in the menus (DualShock 3 prompts and the N64 buttons on
+  the controls page, drawn with GameCube icons) are from **Kenney** "Input
+  Prompts" 1.5A ([kenney.nl](https://kenney.nl)), CC0.
 
 ## License
 

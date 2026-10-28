@@ -7,6 +7,12 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Added
+- **Button icons in the menus:** the footer hints, panel help, pause menu and
+  dialogs show DualShock 3 button icons (cross, circle, square, triangle, d-pad,
+  START, SELECT, L1/R1...) instead of text symbols, and the controls page draws
+  the N64 buttons with icons (A blue, B green, red Start, gray Z/L/R, yellow C
+  buttons). Icons are Kenney "Input Prompts" (CC0). Translations are unchanged;
+  if the icons fail to load the old text symbols are used.
 - **RetroAchievements** (off by default): achievements for N64 games through the
   official rcheevos library (v12.5.0, MIT, vendored in `third_party/rcheevos`).
   Options > RetroAchievements, account sign-in with the system keyboard (only the
