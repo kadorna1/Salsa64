@@ -319,6 +319,14 @@ static void targets_decode_rgba16(void)
 /* Dr. Mario CopyColorFromRDRAM: once CPU-owned bytes are uploaded back to
  * the target surface, recent texture reads should sample that synchronized RSX
  * image instead of continuing to decode the stale RDRAM backing. */
+static void targets_copy_color_from_rdram_alpha(void)
+{
+	CHECK_EQ(rdp_rgba5551_full_alpha(0x0000), 0x0001);
+	CHECK_EQ(rdp_rgba5551_full_alpha(0xF800), 0xF801);
+	CHECK_EQ(rdp_rgba5551_full_alpha(0x7FFE), 0x7FFF);
+	CHECK_EQ(rdp_rgba5551_full_alpha(0xFFFF), 0xFFFF);
+}
+
 static void targets_profile_readback_transition(void)
 {
 	rdp_targets_init(&s);
@@ -1270,6 +1278,7 @@ void t_suite_targets(void)
 	RUN(targets_cpu_guard);
 	RUN(targets_profile_baseline_commit);
 	RUN(targets_profile_readback_transition);
+	RUN(targets_copy_color_from_rdram_alpha);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);
 	RUN(targets_present_interlaced);
