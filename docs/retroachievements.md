@@ -58,7 +58,7 @@ se abra y solo mientras ese juego tenga logros cargados. Las reglas
 | User agent | Propio: `Salsa64/<versión> rcheevos/12.5` (nombre y versión numérica; nunca otro cliente). |
 
 Además: los logros y las tablas de clasificación se mandan como *hardcore*
-(`h=1`), y el aviso «RA Hardcore: sin estados ni trucos» sale al abrir el juego.
+(`h=1`), y el aviso «RA Hardcore: sin cargar estados ni trucos» sale al abrir el juego.
 Reiniciar con el botón Reset y los ajustes de imagen (filtros, escala,
 interpolación, aspecto) siguen permitidos: no alteran el juego.
 

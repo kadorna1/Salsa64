@@ -1083,7 +1083,7 @@ static void state_command(int what)
 	if (state_req || state_parked)
 		return;  /* ya hay una en curso, o emulación todavía sale de la anterior */
 	if (!ra_rules_allowed(ra_hardcore_active(), what == STATE_LOAD ? RA_RULE_STATE_LOAD : RA_RULE_STATE_SAVE)) {
-		osd_notice(now, "RA Hardcore: sin estados");
+		osd_notice(now, "RA Hardcore: sin cargar estados");
 		return;
 	}
 	if (lle_mode != SALSA64_LLE_OFF) {
