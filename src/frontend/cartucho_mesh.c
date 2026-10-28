@@ -180,9 +180,13 @@ void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *base, c
 	}
 	if (!cover || !w || !h)  /* sin carátula, la etiqueta tal cual */
 		return;
-	/* La carátula llena el sticker sin deformarse: se recorta centrada a su proporción. */
+	/* La carátula llena el sticker: estirada o, con thumb_set_crop, recortada sin deformarse. */
 	unsigned kx, ky, kw, kh;
-	cover_fit_crop(w, h, (unsigned)(fx1 - fx0), (unsigned)(fy1 - fy0), &kx, &ky, &kw, &kh);
+	if (thumb_crop()) {
+		cover_fit_crop(w, h, (unsigned)(fx1 - fx0), (unsigned)(fy1 - fy0), &kx, &ky, &kw, &kh);
+	} else {
+		kx = ky = 0, kw = w, kh = h;
+	}
 	for (int y = 0; y < N; y++) {
 		uint8_t *row = dst + (size_t)y * pitch;
 		for (int x = 0; x < N; x++) {

@@ -31,7 +31,7 @@
 void cover_fit_crop(unsigned w, unsigned h, unsigned tw, unsigned th, unsigned *x, unsigned *y, unsigned *cw, unsigned *ch);
 
 /* Archivo de la caché en disco de una miniatura (covers/.mini/<nombre>.mini),
- * todo big-endian: 0 "SMIN", 4 u16 versión (1), 6 u8 clase (THUMB_FILE_*), 8 u16 ancho,
+ * todo big-endian: 0 "SMIN", 4 u16 versión (2), 6 u8 clase (THUMB_FILE_*), 7 u8 recorte (0 estirada, 1 recortada; si no es el actual, no vale), 8 u16 ancho,
  * 10 u16 alto, 12 u32 tamaño del PNG, 16 u32 fecha del PNG, 20 u16 largo de la
  * ruta, 22.. la ruta del PNG (hasta THUMB_PATH_MAX), y en THUMB_FILE_HEADER
  * los píxeles RGBA8888 (solo en la clase THUMB_FILE_OK). En THUMB_FILE_NONE
@@ -52,9 +52,14 @@ size_t thumb_file_pack(uint8_t *out, const struct thumb_file *f, const uint8_t *
 /* Lee uno: 0 si es válido (con `px` apuntando a los píxeles en la clase OK), o < 0. */
 int thumb_file_unpack(const uint8_t *in, size_t size, struct thumb_file *f, const uint8_t **px);
 
-/* RGBA8888 w × h → THUMB_W × THUMB_H: la carátula llena la casilla sin
- * deformarse (se recorta centrada a la proporción de la casilla, que es la del
- * sticker) y se reduce con promedio de bloques; el alfa es cero fuera de las
+/* Cómo llena la carátula el sticker: por omisión se estira a todo el sticker
+ * (relleno); con thumb_set_crop(true), sin deformarse, recortada y centrada a la
+ * proporción del sticker. Vale para las miniaturas y para la etiqueta del
+ * cartucho 3D, y va en las miniaturas guardadas en disco (cambiarlo las rehace). */
+void thumb_set_crop(bool on);
+bool thumb_crop(void);
+
+/* RGBA8888 w × h → THUMB_W × THUMB_H (según thumb_crop: estirada o recortada) y se reduce con promedio de bloques; el alfa es cero fuera de las
  * esquinas redondeadas (con 1 píxel de borde suave). */
 void thumb_scale(const uint8_t *rgba, unsigned w, unsigned h, uint8_t *dst);
 

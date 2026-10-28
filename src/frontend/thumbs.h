@@ -3,8 +3,8 @@
  * Salsa64 — miniaturas de las carátulas del menú y la carátula completa de la
  * fila elegida, decodificadas fuera del hilo del menú.
  *
- * Las miniaturas (56 × 64, recortadas a la proporción del sticker y con las
- * esquinas redondeadas) van a un atlas de la ranura THUMBS_SLOT del 2D con una
+ * Las miniaturas (56 × 64, estiradas al sticker, o recortadas con el archivo
+ * caratula-recorte, y con las esquinas redondeadas) van a un atlas de la ranura THUMBS_SLOT del 2D con una
  * caché de 24 casillas por LRU, y se copian también a la memoria del PPE (la
  * etiqueta del cartucho 3D las usa mientras llega la carátula completa). Un
  * hilo del PPE de baja prioridad, una carátula a la vez, hace todo lo lento:

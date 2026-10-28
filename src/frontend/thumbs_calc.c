@@ -5,6 +5,18 @@
 #include <math.h>
 #include <string.h>
 
+static bool g_crop;
+
+void thumb_set_crop(bool on)
+{
+	g_crop = on;
+}
+
+bool thumb_crop(void)
+{
+	return g_crop;
+}
+
 void cover_fit_crop(unsigned w, unsigned h, unsigned tw, unsigned th, unsigned *x, unsigned *y, unsigned *cw, unsigned *ch)
 {
 	*x = *y = 0;
@@ -27,7 +39,11 @@ void thumb_scale(const uint8_t *rgba, unsigned w, unsigned h, uint8_t *dst)
 {
 	const float R = THUMB_RADIUS * THUMB_W;
 	unsigned fx, fy, fw, fh;
-	cover_fit_crop(w, h, THUMB_W, THUMB_H, &fx, &fy, &fw, &fh);
+	if (g_crop) {
+		cover_fit_crop(w, h, THUMB_W, THUMB_H, &fx, &fy, &fw, &fh);
+	} else {
+		fx = fy = 0, fw = w, fh = h;
+	}
 	for (unsigned y = 0; y < THUMB_H; y++) {
 		unsigned sy0 = fy + (unsigned)((uint64_t)y * fh / THUMB_H), sy1 = fy + (unsigned)((uint64_t)(y + 1) * fh / THUMB_H);
 		if (sy1 <= sy0)
@@ -166,8 +182,9 @@ size_t thumb_file_pack(uint8_t *out, const struct thumb_file *f, const uint8_t *
 		return 0;
 	memset(out, 0, THUMB_FILE_HEADER);
 	memcpy(out, "SMIN", 4);
-	put16(out + 4, 1);
+	put16(out + 4, 2);
 	out[6] = (uint8_t)f->kind;
+	out[7] = g_crop ? 1 : 0;
 	put16(out + 8, THUMB_W);
 	put16(out + 10, THUMB_H);
 	put32(out + 12, f->png_size);
@@ -182,10 +199,12 @@ size_t thumb_file_pack(uint8_t *out, const struct thumb_file *f, const uint8_t *
 
 int thumb_file_unpack(const uint8_t *in, size_t size, struct thumb_file *f, const uint8_t **px)
 {
-	if (size < THUMB_FILE_HEADER || memcmp(in, "SMIN", 4) || get16(in + 4) != 1)
+	if (size < THUMB_FILE_HEADER || memcmp(in, "SMIN", 4) || get16(in + 4) != 2)
 		return -1;
 	if (in[6] != THUMB_FILE_OK && in[6] != THUMB_FILE_NONE)
 		return -2;
+	if (in[7] != (g_crop ? 1 : 0))
+		return -6;  /* hecha con el otro modo de llenar el sticker */
 	if (get16(in + 8) != THUMB_W || get16(in + 10) != THUMB_H)
 		return -3;
 	uint32_t len = get16(in + 20);

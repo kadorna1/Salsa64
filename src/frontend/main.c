@@ -5201,6 +5201,10 @@ static int ui_init_once(void)
 {
 	static int rc = 1;
 	if (rc == 1) {
+		/* Las carátulas llenan el sticker estiradas; con el archivo caratula-recorte, recortadas. */
+		thumb_set_crop(file_exists(SALSA64_DATA_DIR "/caratula-recorte"));
+		if (thumb_crop())
+			salsa64_log("carátulas: se recortan al sticker (caratula-recorte)");
 		rc = rsxkit_ui_init();
 		if (rc != RSXKIT_OK)
 			salsa64_log("2D del RSX no disponible (%d): sin avisos en pantalla", rc);

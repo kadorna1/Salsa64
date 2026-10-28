@@ -60,7 +60,7 @@ void cartucho_mesh_draw(const struct cartucho_mesh *m, float yaw, float pitch, f
 /* Textura de la etiqueta: RGBA8888 (bytes R, G, B, A) de CARTUCHO_LABEL_TEX
  * por CARTUCHO_LABEL_TEX, `pitch` bytes por fila (también el de `base`).
  * Parte de `base` (la etiqueta del recurso, o gris liso si es NULL) y, con
- * carátula (RGBA8888, w × h; NULL, ninguna), la estira dentro del sticker
+ * carátula (RGBA8888, w × h; NULL, ninguna), la estira (o recorta, thumb_crop) dentro del sticker
  * con las esquinas de arriba redondeadas (5 % del ancho); el resto queda
  * como `base`. */
 void cartucho_label_compose(uint8_t *dst, uint32_t pitch, const uint8_t *base, const uint8_t *cover_rgba,

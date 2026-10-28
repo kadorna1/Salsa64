@@ -180,6 +180,27 @@ static void label(void)
 	CHECK_EQ(tex[((size_t)(int)(CARTUCHO_STICKER_V0 * N + 0.5f) * N + (int)(CARTUCHO_STICKER_U0 * N + 0.5f)) * 4], 0x10);
 }
 
+static void label_fill(void)
+{
+	enum { N = CARTUCHO_LABEL_TEX };
+	static uint8_t base[N * N * 4], tex[N * N * 4], wide[320 * 233 * 4];
+	memset(base, 0x10, sizeof base);
+	for (unsigned j = 0; j < 233; j++)
+		for (unsigned i = 0; i < 320; i++) {
+			uint8_t *p = wide + ((size_t)j * 320 + i) * 4;
+			bool blue = i >= 100 && i < 220;
+			p[0] = blue ? 0 : 255, p[1] = 0, p[2] = blue ? 255 : 0, p[3] = 255;
+		}
+	/* En el sticker, a 90/320 de su ancho: estirada, la columna 90 (roja); recortada, la ~114 (azul). */
+	size_t x = (size_t)(CARTUCHO_STICKER_U0 * N + (CARTUCHO_STICKER_U1 - CARTUCHO_STICKER_U0) * N * 90.0f / 320.0f), y = N / 2;
+	cartucho_label_compose(tex, N * 4, base, wide, 320, 233);
+	CHECK_EQ(tex[(y * N + x) * 4], 255);
+	thumb_set_crop(true);
+	cartucho_label_compose(tex, N * 4, base, wide, 320, 233);
+	CHECK_EQ(tex[(y * N + x) * 4 + 2], 255);
+	thumb_set_crop(false);
+}
+
 static int hook_calls;
 static void hook(void *u)
 {
@@ -263,11 +284,20 @@ static void thumb_scaling(void)
 			bool blue = i >= 100 && i < 220;
 			p[0] = blue ? 0 : 255, p[1] = 0, p[2] = blue ? 255 : 0, p[3] = 255;
 		}
+	const size_t mid_row = (size_t)(THUMB_H / 2) * THUMB_W;
+	/* Por omisión se estira: la columna 12 de la miniatura es la 70 de la carátula (roja). */
+	CHECK(!thumb_crop());
 	thumb_scale(wide, 320, 233, dst);
-	const uint8_t *c = dst + ((size_t)(THUMB_H / 2) * THUMB_W + THUMB_W / 2) * 4;
-	const uint8_t *e = dst + ((size_t)(THUMB_H / 2) * THUMB_W + 1) * 4;
-	CHECK_EQ(c[2], 255);
-	CHECK_EQ(e[0], 255);  /* el recorte llega a x = 58 < 100 */
+	CHECK_EQ(dst[(mid_row + 12) * 4], 255);
+	CHECK_EQ(dst[(mid_row + THUMB_W / 2) * 4 + 2], 255);
+	/* Recortada: esa columna cae en la 58 + 12 · 3,6 ≈ 101 de la carátula (azul). */
+	thumb_set_crop(true);
+	thumb_scale(wide, 320, 233, dst);
+	CHECK_EQ(dst[(mid_row + 12) * 4 + 2], 255);
+	CHECK_EQ(dst[(mid_row + 12) * 4], 0);
+	CHECK_EQ(dst[(mid_row + THUMB_W / 2) * 4 + 2], 255);
+	CHECK_EQ(dst[(mid_row + 1) * 4], 255);  /* el recorte llega a x = 58 < 100 */
+	thumb_set_crop(false);
 }
 
 static void thumb_file(void)
@@ -288,9 +318,9 @@ static void thumb_file(void)
 	CHECK(q != NULL && !memcmp(q, px, THUMB_BYTES));
 	/* Truncado, otra versión o otra casilla: no vale. */
 	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES - 1, &g, &q) < 0);
-	buf[5] = 2;
+	buf[5] = 1;  /* la versión anterior (miniaturas recortadas) */
 	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q) < 0);
-	buf[5] = 1;
+	buf[5] = 2;
 	buf[9] ^= 1;
 	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q) < 0);
 	buf[9] ^= 1;
@@ -301,6 +331,12 @@ static void thumb_file(void)
 	CHECK_EQ(thumb_file_pack(buf, &n, NULL), THUMB_FILE_HEADER);
 	CHECK_EQ(thumb_file_unpack(buf, THUMB_FILE_HEADER, &g, &q), 0);
 	CHECK(g.kind == THUMB_FILE_NONE && g.png_time == 99 && q == NULL);
+	/* Una miniatura hecha con el otro modo de llenar el sticker no vale. */
+	CHECK_EQ(thumb_file_pack(buf, &f, px), THUMB_FILE_HEADER + THUMB_BYTES);
+	thumb_set_crop(true);
+	CHECK(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q) < 0);
+	thumb_set_crop(false);
+	CHECK_EQ(thumb_file_unpack(buf, THUMB_FILE_HEADER + THUMB_BYTES, &g, &q), 0);
 	/* Una ruta que no cabe no se escribe. */
 	memset(f.path, 'a', THUMB_PATH_MAX);
 	f.path[THUMB_PATH_MAX] = 0;
@@ -352,6 +388,7 @@ void t_suite_cartucho(void)
 	RUN(draw);
 	RUN(painter);
 	RUN(label);
+	RUN(label_fill);
 	RUN(ui_hook);
 	RUN(thumb_scaling);
 	RUN(thumb_file);
