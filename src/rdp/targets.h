@@ -322,11 +322,11 @@ void rdp_targets_task(struct rdp_targets *s);
 enum rdp_texsrc { RDP_TEXSRC_NONE = 0, RDP_TEXSRC_RSX, RDP_TEXSRC_RDRAM, RDP_TEXSRC_SELF };
 enum rdp_texsrc rdp_targets_texture(struct rdp_targets *s, uint32_t addr, uint32_t pitch, uint32_t bpp, int cur,
 				    int *slot, uint32_t *x0, uint32_t *y0);
-/* Like rdp_targets_texture, but only after a CopyColorFromRDRAM caller has
- * synchronized every changed CPU span to the RSX surface. Stale and
- * CPU-owned targets still fall back to RDRAM. */
+/* Like rdp_targets_texture, after CopyColorFromRDRAM synchronized changed
+ * CPU spans into a live RSX-owned surface. Profiles may opt to sample a stale
+ * surface only after reconciliation; CPU-owned surfaces always fall back. */
 enum rdp_texsrc rdp_targets_texture_synced(struct rdp_targets *s, uint32_t addr, uint32_t pitch, uint32_t bpp,
-					   int cur, int *slot, uint32_t *x0, uint32_t *y0);
+					   int cur, bool allow_stale, int *slot, uint32_t *x0, uint32_t *y0);
 
 /* Al terminar una tarea que dibujó la ranura: si hay que copiarla a la
  * RDRAM (rdp_readback_wanted con los orígenes del VI de la tabla) devuelve
