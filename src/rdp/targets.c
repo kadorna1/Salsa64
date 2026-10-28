@@ -312,16 +312,17 @@ enum rdp_texsrc rdp_targets_texture(struct rdp_targets *s, uint32_t addr, uint32
 	return RDP_TEXSRC_RSX;
 }
 
-/* The caller has reconciled changed RDRAM spans into a live surface.
- * Reconciliation does not make a stale target current. */
+/* The caller reconciled changed RDRAM spans into a live surface. allow_stale
+ * is for a compatibility profile whose RDRAM copy is incomplete; never use a
+ * CPU-owned target even when stale sampling is explicitly enabled. */
 enum rdp_texsrc rdp_targets_texture_synced(struct rdp_targets *s, uint32_t addr, uint32_t pitch, uint32_t bpp,
-					   int cur, int *slot, uint32_t *x0, uint32_t *y0)
+					   int cur, bool allow_stale, int *slot, uint32_t *x0, uint32_t *y0)
 {
 	int i = rdp_targets_locate(s, addr, pitch, bpp, x0, y0);
 	*slot = i;
 	if (i < 0)
 		return RDP_TEXSRC_NONE;
-	if (s->t[i].cpu_owned || s->task - s->t[i].last_task > RDP_TARGETS_FRESH) {
+	if (s->t[i].cpu_owned || (!allow_stale && s->task - s->t[i].last_task > RDP_TARGETS_FRESH)) {
 		s->tex_rdram++;
 		return RDP_TEXSRC_RDRAM;
 	}
