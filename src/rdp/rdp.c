@@ -22,6 +22,7 @@
 
 #include <malloc.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/systime.h>
 
@@ -316,8 +317,13 @@ static struct {
 	uint32_t alias_sum[RDP_TARGETS_MAX];
 	bool alias_full[RDP_TARGETS_MAX];
 	struct rdp_box alias_dirty[RDP_TARGETS_MAX];
-	/* A changed RDRAM row is uploaded at most once per target per task. */
+	/* Per-target RDRAM snapshots let CopyColorFromRDRAM upload exact changed
+	 * pixels without replacing neighboring RSX-only pixels in the same 128-byte
+	 * guard line. The allocation exists only for active targets. */
 	uint32_t profile_prime_task[RDP_TARGETS_MAX];
+	uint8_t *profile_shadow[RDP_TARGETS_MAX];
+	uint32_t profile_shadow_bytes[RDP_TARGETS_MAX];
+	bool profile_shadow_valid[RDP_TARGETS_MAX];
 	unsigned ppe_wr_next;
 	int bound_t;                 /* ranura ligada, o -1 */
 	struct depth *bound_d;
@@ -539,11 +545,22 @@ void salsa64_rdp_fbfx(int level)
 }
 
 static void profile_guard_reset(void);
+static bool profile_shadow_capture(int i);
 
 void salsa64_rdp_copy_color_from_rdram(bool on)
 {
-	if (rdp.copy_color_from_rdram != on)
+	if (rdp.copy_color_from_rdram != on) {
 		profile_guard_reset();
+		for (int i = 0; i < RDP_TARGETS_MAX; i++) {
+			free(rdp.profile_shadow[i]);
+			rdp.profile_shadow[i] = NULL;
+			rdp.profile_shadow_bytes[i] = 0;
+			rdp.profile_shadow_valid[i] = false;
+			if (on && rdp.surf[i] && rdp.rdram && !profile_shadow_capture(i))
+				LOGN(10, "gfx: CopyColorFromRDRAM: no se pudo crear la sombra de %06x/%u",
+				     rdp.tg.t[i].addr, rdp.tg.t[i].width);
+		}
+	}
 	rdp.copy_color_from_rdram = on;
 }
 
@@ -660,9 +677,14 @@ static void release_targets(void)
 	for (unsigned i = 0; i < SETS; i++)
 		rdp.sets[i].tg_task = 0;
 	memset(&rdp.again_last, 0, sizeof rdp.again_last);
-	for (int i = 0; i < RDP_TARGETS_MAX; i++)
+	for (int i = 0; i < RDP_TARGETS_MAX; i++) {
 		if (rdp.surf[i])
 			rsxkit_target_destroy(rdp.surf[i]);
+		free(rdp.profile_shadow[i]);
+		rdp.profile_shadow[i] = NULL;
+		rdp.profile_shadow_bytes[i] = 0;
+		rdp.profile_shadow_valid[i] = false;
+	}
 	for (int i = 0; i < MAX_DEPTHS; i++)
 		if (rdp.depths[i].used)
 			rsxkit_depth_destroy(rdp.depths[i].d);
@@ -1342,6 +1364,65 @@ static void readbacks_finish(bool wait)
 /* Ceba la superficie de la ranura con lo que hay en la RDRAM (lo que el
  * CPU dibujó o dejó ahí): la N64 siempre dibuja encima de la memoria. Solo
  * color images de 16 bits que caben en el búfer de cebado. */
+static bool profile_shadow_ensure(int i)
+{
+	if (i < 0 || i >= RDP_TARGETS_MAX || !rdp.rdram)
+		return false;
+	const struct rdp_target *t = &rdp.tg.t[i];
+	if (!t->used || t->bpp != 2 || !t->width || !t->lw || !t->lh || t->lw > t->width ||
+	    t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+		return false;
+	uint64_t bytes64 = (uint64_t)t->width * 2u * t->lh;
+	if (!bytes64 || bytes64 > 0xFFFFFFFFu)
+		return false;
+	uint32_t bytes = (uint32_t)bytes64;
+	if (rdp.profile_shadow[i] && rdp.profile_shadow_bytes[i] == bytes)
+		return true;
+	uint8_t *p = realloc(rdp.profile_shadow[i], bytes);
+	if (!p)
+		return false;
+	rdp.profile_shadow[i] = p;
+	rdp.profile_shadow_bytes[i] = bytes;
+	rdp.profile_shadow_valid[i] = false;
+	return true;
+}
+
+/* Capture the current RDRAM as a baseline when the profile is enabled for an
+ * already-live target. Normal target creation instead seeds the snapshot from
+ * the exact staging bytes that were uploaded to the RSX. */
+static bool profile_shadow_capture(int i)
+{
+	if (!profile_shadow_ensure(i))
+		return false;
+	const struct rdp_target *t = &rdp.tg.t[i];
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	uint64_t end = (uint64_t)t->addr + (uint64_t)row_bytes * t->lh;
+	if (end > rdp.rdram_size || end > 0xFFFFFFFFu)
+		return false;
+	for (uint32_t y = 0; y < t->lh; y++)
+		memcpy(rdp.profile_shadow[i] + y * row_bytes, rdp.rdram + t->addr + y * row_bytes, visible_bytes);
+	rdp.profile_shadow_valid[i] = true;
+	return true;
+}
+
+static void profile_shadow_rows_from_buffer(int i, uint32_t y0, uint32_t y1, const uint8_t *src,
+					    uint32_t src_pitch)
+{
+	if (i < 0 || i >= RDP_TARGETS_MAX || !src || !rdp.profile_shadow[i])
+		return;
+	const struct rdp_target *t = &rdp.tg.t[i];
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	if (rdp.profile_shadow_bytes[i] < (uint64_t)row_bytes * t->lh || y1 > t->lh || y0 > y1)
+		return;
+	bool full = y0 == 0 && y1 == t->lh;
+	if (!rdp.profile_shadow_valid[i] && !full)
+		return;
+	for (uint32_t y = y0; y < y1; y++)
+		memcpy(rdp.profile_shadow[i] + y * row_bytes, src + y * src_pitch, visible_bytes);
+	if (full)
+		rdp.profile_shadow_valid[i] = true;
+}
+
 static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile);
 static void prime(int i, bool commit_profile)
 {
@@ -1375,6 +1456,9 @@ static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile)
 		y1 = t->lh;
 	if (y0 >= y1)
 		return false;
+	if (rdp.copy_color_from_rdram && y0 == 0 && y1 == t->lh && !profile_shadow_ensure(i))
+		LOGN(10, "gfx: CopyColorFromRDRAM: sin memoria para la sombra exacta de %06x/%u",
+		     t->addr, t->width);
 	/* Búfer de la rotación: si el RSX aún no leyó el cebado que lo usó, se
 	 * espera su barrera (casi nunca: son PRIME_BUFS). */
 	unsigned k = rdp.prime_next;
@@ -1391,6 +1475,8 @@ static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile)
 	rdp.tb.copy += tb_now() - t0;
 	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1, RSXKIT_RGBA5551) != RSXKIT_OK)
 		return false;
+	if (rdp.copy_color_from_rdram)
+		profile_shadow_rows_from_buffer(i, y0, y1, dst, pitch);
 	/* The baseline describes RDRAM bytes already uploaded to RSX. RDP
 	 * draws later in this task change the surface, not RDRAM, so keep the
 	 * baseline committed to avoid reapplying stale pixels on the next task. */
@@ -1432,6 +1518,10 @@ static void drop_surface(int i)
 		rdp.again.surf = NULL;
 	rsxkit_target_destroy(rdp.surf[i]);
 	rdp.surf[i] = NULL;
+	free(rdp.profile_shadow[i]);
+	rdp.profile_shadow[i] = NULL;
+	rdp.profile_shadow_bytes[i] = 0;
+	rdp.profile_shadow_valid[i] = false;
 	rdp.surf_dirty[i] = false;
 	rdp.vram -= rdp.surf_bytes[i];
 	rdp.surf_bytes[i] = 0;
@@ -1474,114 +1564,115 @@ static inline uint32_t alias_rows(const struct rdp_target *t)
 	return t->box.y1 ? t->box.y1 : t->lh;
 }
 
-/* Any guard-line change inside a reused image is a candidate CPU update.
- * The actual upload is limited to changed rows so untouched RSX background
- * pixels remain resident in the surface. */
+/* Per-target pixel comparisons distinguish CPU-written pixels from neighboring
+ * stale RDRAM bytes. A 128-byte guard line is still useful for late-readback
+ * protection, but is too coarse as an upload unit for a mixed RSX/RDRAM image. */
 static bool profile_cpu_rows_changed(int i)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
 	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || t->bpp != 2 ||
-	    t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+	    !t->width || !t->lw || !t->lh || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
 		return false;
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	uint64_t bytes = (uint64_t)row_bytes * t->lh;
+	if ((uint64_t)t->addr + bytes > rdp.rdram_size)
+		return true;
+	if (!rdp.profile_shadow_valid[i] || !rdp.profile_shadow[i] || rdp.profile_shadow_bytes[i] < bytes)
+		return true;
 	for (uint32_t y = 0; y < t->lh; y++)
-		if (rdp_target_row_cpu_changed(t, y, &guard, rdp.rdram, rdp.rdram_size))
+		if (memcmp(rdp.rdram + t->addr + y * row_bytes,
+			   rdp.profile_shadow[i] + y * row_bytes, visible_bytes))
 			return true;
 	return false;
 }
 
-/* Upload only the portions of RDRAM guard lines that changed. A guard line
- * is 128 bytes (64 RGBA5551 pixels); refreshing an entire row would replace
- * RSX-only background pixels in that row with stale RDRAM contents.
- *
- * On every successful span upload, commit the RDRAM baseline. Subsequent
- * RSX draws do not change RDRAM, so the same bytes must not be uploaded again
- * over those newer RSX pixels. CPU writes that happen later still differ. */
+/* Upload contiguous runs of changed 16-bit pixels only. Uploading the entire
+ * 128-byte hash line used by the older implementation replaced up to 63
+ * neighboring pixels that had been rendered only on the RSX, causing trails
+ * and corruption across the rest of the screen. */
 static uint32_t prime_profile_cpu_spans(int i, bool commit_profile)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
 	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || !rdp.surf[i] ||
-	    t->bpp != 2 || !t->width || !t->lh || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+	    t->bpp != 2 || !t->width || !t->lw || !t->lh || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
 		return 0;
 
-	uint32_t row_bytes = t->width * 2;
-	uint64_t end64 = (uint64_t)t->addr + (uint64_t)row_bytes * t->lh;
-	if (end64 > rdp.rdram_size)
-		end64 = rdp.rdram_size;
-	if (end64 <= t->addr)
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	uint64_t bytes = (uint64_t)row_bytes * t->lh;
+	uint64_t end64 = (uint64_t)t->addr + bytes;
+	if (end64 > rdp.rdram_size || !rdp.profile_shadow_valid[i] || !rdp.profile_shadow[i] ||
+	    rdp.profile_shadow_bytes[i] < bytes)
 		return 0;
-	uint32_t first_line = t->addr >> RDP_GUARD_SHIFT;
-	uint32_t last_line = (uint32_t)((end64 - 1) >> RDP_GUARD_SHIFT);
+
 	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
 	uint32_t regions = 0;
 	bool any = false;
 
-	for (uint32_t line = first_line; line <= last_line; line++) {
-		uint32_t baseline = guard.profile[line];
-		if (!baseline || rdp_guard_hash(rdp.rdram + (line << RDP_GUARD_SHIFT)) == baseline)
+	for (uint32_t y = 0; y < t->lh; y++) {
+		uint32_t row_off = y * row_bytes;
+		const uint8_t *ram_row = rdp.rdram + t->addr + row_off;
+		uint8_t *shadow_row = rdp.profile_shadow[i] + row_off;
+		if (!memcmp(ram_row, shadow_row, visible_bytes))
 			continue;
 
-		uint32_t lo = line << RDP_GUARD_SHIFT;
-		uint32_t hi = lo + RDP_GUARD_LINE;
-		uint32_t y0 = lo <= t->addr ? 0 : (lo - t->addr) / row_bytes;
-		uint32_t y1 = hi <= t->addr ? 0 : (hi - 1 - t->addr) / row_bytes;
-		if (y1 >= t->lh)
-			y1 = t->lh - 1;
-		bool line_ok = true;
-		bool line_uploaded = false;
-
-		for (uint32_t y = y0; y <= y1; y++) {
-			uint32_t row_lo = t->addr + y * row_bytes;
-			uint32_t row_hi = row_lo + row_bytes;
-			uint32_t a = lo > row_lo ? lo : row_lo;
-			uint32_t b = hi < row_hi ? hi : row_hi;
-			if (b > rdp.rdram_size)
-				b = rdp.rdram_size;
-			if (a >= b)
+		uint32_t x = 0;
+		while (x < t->lw) {
+			while (x < t->lw && !memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+				x++;
+			if (x == t->lw)
+				break;
+			uint32_t x0 = x;
+			while (x < t->lw && memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+				x++;
+			uint32_t w = x - x0;
+			if (!w)
 				continue;
 
-			/* The target is RGBA5551. Guard and row boundaries are normally
-			 * pixel-aligned; round outward defensively to include a whole pixel. */
-			uint32_t x0 = (a - row_lo) / 2;
-			uint32_t x1 = (b - row_lo + 1) / 2;
-			if (x1 > t->lw)
-				x1 = t->lw;
-			if (x0 >= x1)
-				continue;
-			uint32_t w = x1 - x0;
-			uint32_t pitch = (w * 2 + 63) & ~63u;
+			uint32_t pitch = (w * 2u + 63u) & ~63u;
 			unsigned k = rdp.prime_next;
 			uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
-					 : RB_SLOTS * RB_SLOT;
+					  : RB_SLOTS * RB_SLOT;
 			if (rdp.prime_fence[k] && !rsxkit_fence_done(rdp.prime_fence[k])) {
 				fence_wait(rdp.prime_fence[k]);
 				rdp.stats.prime_waits++;
 			}
-			memcpy(rdp.rb + boff, rdp.rdram + row_lo + x0 * 2, w * 2);
+			memcpy(rdp.rb + boff, ram_row + x0 * 2u, w * 2u);
 			uint32_t dx = x0 * scale, dy = y * scale;
 			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
-						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK) {
-				line_ok = false;
+						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
-			}
+
+			/* Remember the bytes actually staged for the RSX, not a second
+			 * read from RDRAM which could race a CPU write. */
+			memcpy(shadow_row + x0 * 2u, rdp.rb + boff, w * 2u);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
 			regions++;
-			line_uploaded = true;
 			any = true;
 		}
-		/* A guard line may cover the end of one row and the start of the next.
-		 * Commit it only after all of its intersections have been uploaded. */
-		if (commit_profile && line_ok && line_uploaded)
-			rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, lo, hi);
+	}
+
+	/* Keep the late-readback guard baseline only for complete 128-byte lines
+	 * whose visible pixels are now exactly represented by this target shadow.
+	 * Partial boundary lines must not hide writes belonging to another image. */
+	if (commit_profile) {
+		uint64_t visible_end = (uint64_t)t->addr + (uint64_t)(t->lh - 1) * row_bytes + visible_bytes;
+		uint32_t first_line = (t->addr + RDP_GUARD_LINE - 1u) & ~(RDP_GUARD_LINE - 1u);
+		for (uint64_t line = first_line; line + RDP_GUARD_LINE <= visible_end; line += RDP_GUARD_LINE) {
+			uint32_t off = (uint32_t)(line - t->addr);
+			uint32_t y = off / row_bytes, xoff = off % row_bytes;
+			if (y < t->lh && xoff + RDP_GUARD_LINE <= visible_bytes &&
+			    !memcmp(rdp.rdram + line, rdp.profile_shadow[i] + off, RDP_GUARD_LINE))
+				rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size,
+						       (uint32_t)line, (uint32_t)line + RDP_GUARD_LINE);
+		}
 	}
 
 	if (any) {
 		rdp.bound_t = -1;
 		rdp.surf_gen[i] = ++rdp.gen_seq;
-		/* Partial uploads restore RSX ownership only when every changed
-		 * span was copied successfully. */
-		if (commit_profile && rdp.copy_color_from_rdram && !profile_cpu_rows_changed(i))
+		if (commit_profile && !profile_cpu_rows_changed(i))
 			rdp_targets_rdram_uploaded(&rdp.tg, i);
 	}
 	return regions;
