@@ -28,6 +28,13 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in MB. Tested on a real PS3 with B3313 (96 MB) at full speed; a cache miss
   still waits for the hard disk, so short hitches are possible when a game
   streams new data.
+- **"Silk" menu background** (Options > Background: Waves → Silk → No): three
+  translucent fabric ribbons that twist and ripple, with glowing edges where
+  the cloth turns sideways, small light specks drifting along them and a
+  gradient that follows the console clock. An SPE computes the cloth every
+  frame and the RSX draws it with additive blending: 3.4–3.7 ms of RSX and
+  5.4 ms of one SPE at 1080p on a real PS3, nothing on the PPE. Own code, no
+  firmware data. See `docs/fondo-seda.md`.
 
 ### Fixed
 - Audio HLE no longer reports one multi-megabyte write span when its fixed

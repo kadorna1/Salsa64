@@ -49,6 +49,7 @@
 void menu_settings_default(struct menu_settings *s)
 {
 	s->waves = true;
+	s->seda = false;
 	s->overscan = MENU_OVERSCAN_NORMAL;
 	s->resolution = MENU_RES_720P;
 	s->scale = 0;
@@ -247,8 +248,11 @@ void menu_settings_parse(struct menu_settings *s, const char *text, size_t len)
 			*p = (char)lower((unsigned char)*p);
 		bool yes = !strcmp(val, "si") || !strcmp(val, "sí") || !strcmp(val, "1");
 		bool no = !strcmp(val, "no") || !strcmp(val, "0");
-		if (!strcmp(key, "fondo") && (yes || no))
-			s->waves = yes;
+		/* «shader» fue un fondo de prueba que ya no existe: queda la seda. */
+		if (!strcmp(key, "fondo") && (yes || no || !strcmp(val, "shader") || !strcmp(val, "seda"))) {
+			s->waves = !no;
+			s->seda = !strcmp(val, "seda") || !strcmp(val, "shader");
+		}
 		else if (!strcmp(key, "fps") && (yes || no))
 			s->fps = yes;
 		else if (!strcmp(key, "confirmar") && (yes || no))
@@ -509,11 +513,11 @@ int menu_video_format(const struct menu_settings *s, char *buf, size_t size)
 int menu_settings_format(const struct menu_settings *s, char *buf, size_t size)
 {
 	return snprintf(buf, size,
-			"# Ajustes del menú de Salsa64\n# aspecto = 4:3|16:9; filtro = suave|nitido|lineas|lineas+|crt-…; "
+			"# Ajustes del menú de Salsa64\n# fondo = si|no|seda; aspecto = 4:3|16:9; filtro = suave|nitido|lineas|lineas+|crt-…; "
 			"densidad = normal|fina; idioma = auto|es|en|fr|de|it|pt|nl|sv|da|no|fi|pl|tr|ru; interpolacion = no|geometria; orden = titulo|archivo\n"
 			"fondo = %s\nfps = %s\nconfirmar = %s\naspecto = %s\nfiltro = %s\ndensidad = %s\nidioma = %s\n"
 			"interpolacion = %s\norden = %s\naccesorio = %s\nretroachievements = %s\nhardcore = %s\n",
-			s->waves ? "si" : "no", s->fps ? "si" : "no", s->confirm ? "si" : "no",
+			s->waves ? (s->seda ? "seda" : "si") : "no", s->fps ? "si" : "no", s->confirm ? "si" : "no",
 			s->aspect == MENU_ASPECT_16_9 ? "16:9" : "4:3",
 			filter_key(s->filter), density_key[s->density == MENU_DENSITY_FINE],
 			lang_key[s->lang >= 0 && s->lang < MENU_LANGS ? s->lang : 0],
@@ -688,7 +692,11 @@ static enum menu_action options_buttons(struct menu *m, uint32_t pressed)
 		return MENU_NONE;
 	}
 	if (m->opt == MENU_OPT_WAVES && (pressed & change)) {
-		m->set.waves = !m->set.waves;
+		/* Ondas → Seda → No → Ondas (izquierda, al revés). */
+		int b = !m->set.waves ? 2 : m->set.seda ? 1 : 0;
+		b = (pressed & BIT(SALSA64_DS3_LEFT)) ? (b + 2) % 3 : (b + 1) % 3;
+		m->set.waves = b != 2;
+		m->set.seda = b == 1;
 		return MENU_SETTINGS;
 	}
 	if (m->opt == MENU_OPT_OVERSCAN && (pressed & change)) {
@@ -1175,8 +1183,18 @@ static uint32_t label_color(const char *title)
 	return hsv((float)(h % 360u), 0.55f, 0.88f);
 }
 
+/* Nombre del fondo elegido. */
+static const char *background_name(const struct menu_settings *s)
+{
+	return !s->waves ? "No" : s->seda ? "Seda" : "Ondas";
+}
+
 static void background(const struct menu *m, float W, float H)
 {
+	/* El fondo «Seda» lo dibuja main.c en el RSX antes del menú; si no
+	 * pudo, van las ondas. */
+	if (m->bg_drawn)
+		return;
 	/* Degradado que cambia despacio (un ciclo de 90 s) si el fondo está
 	 * animado; fijo si no. */
 	float s = m->set.waves ? 0.5f + 0.5f * sinf(m->t * TAU / 90.0f) : 0.0f;
@@ -1693,8 +1711,9 @@ static void panel(const struct menu *m, float W, float H, float a)
 	char buf[ROMLIST_PATH_MAX + 32];
 
 	if (!games) {
-		static const char *const waves_text[] = { "Ondas en movimiento de fondo.", "Apágalas para un fondo fijo.",
-							  NULL, "Se guarda en menu.cfg.", NULL, NULL };
+		static const char *const waves_text[] = { "Ondas: las de siempre.", "Seda: cintas de tela que",
+							  "ondulan y brillan de canto.", "No: fondo fijo.", NULL,
+							  "Se guarda en menu.cfg.", NULL, NULL };
 		static const char *const crop_text[] = { "Quita el borde de la imagen", "que una tele de tubo no deja",
 							 "ver (ahí algunos juegos dejan", "basura).", NULL,
 							 "Normal: 8 y 6 puntos por lado;", "amplio: 16 y 12.",
@@ -1772,7 +1791,7 @@ static void panel(const struct menu *m, float W, float H, float a)
 		const char *const apply_text[] = { "Pone la salida y la escala", "elegidas sin cerrar Salsa64:", want_buf, NULL,
 						   "Si la tele no acepta el", "modo, queda el anterior.", NULL, NULL };
 		static const char *const back_text[] = { "A la lista de juegos.", NULL, NULL };
-		const char *title = m->opt == MENU_OPT_WAVES ? "Fondo animado"
+		const char *title = m->opt == MENU_OPT_WAVES ? "Fondo"
 				    : m->opt == MENU_OPT_OVERSCAN ? "Recorte del borde"
 				    : m->opt == MENU_OPT_ASPECT ? "Aspecto"
 				    : m->opt == MENU_OPT_FILTER ? "Filtro de imagen"
@@ -1812,7 +1831,7 @@ static void panel(const struct menu *m, float W, float H, float a)
 					  : m->opt == MENU_OPT_RA ? ra_text
 					  : m->opt == MENU_OPT_RA_ACCOUNT ? ra_acc_text
 					  : m->opt == MENU_OPT_RA_HARDCORE ? ra_hc_text : back_text;
-		const char *value = m->opt == MENU_OPT_WAVES ? (m->set.waves ? "Sí" : "No")
+		const char *value = m->opt == MENU_OPT_WAVES ? background_name(&m->set)
 				    : m->opt == MENU_OPT_OVERSCAN ? overscan_name(m->set.overscan)
 				    : m->opt == MENU_OPT_ASPECT ? aspect_name(m->set.aspect)
 				    : m->opt == MENU_OPT_FILTER ? filter_name(m->set.filter)
@@ -1921,7 +1940,7 @@ static void games_column(const struct menu *m, float x, float W, float H, float 
 
 static void options_column(const struct menu *m, float x, float W, float H, float a)
 {
-	struct row waves = { "Fondo animado", "Ondas detrás del menú", 2, "~", 0, m->set.waves ? "Sí" : "No" };
+	struct row waves = { "Fondo", "Ondas, seda o fijo", 2, "~", 0, background_name(&m->set) };
 	struct row crop = { "Recorte del borde", "Overscan de la imagen del juego", 2, "□", 0,
 			    overscan_name(m->set.overscan) };
 	struct row aspect = { "Aspecto", "Forma de la imagen del juego (al abrir uno)", 2, "▶", 0,

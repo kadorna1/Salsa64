@@ -315,6 +315,23 @@ Lo que hizo falta saber para escribir fragment programs largos en Cg
   tabla de lugares (`rsxConstOffsetTable`) y rsxkit las parchea en su copia
   del programa (`rsxkit_program_set`). Un programa ya parcheado se vuelve a
   leer al ligarlo de nuevo (`rsxLoadFragmentProgramLocation`).
+- **Programas largos (un fondo de prueba del menú con raymarching, 2026-10-27; no quedó).** cgcomp revienta
+  («munmap_chunk(): invalid pointer») con un programa de ~1300
+  instrucciones (100 pasos de raymarching desenrollados); con ~330 anda.
+  La marcha del fondo va en cuatro pasadas de 25 pasos que se pasan la t
+  por una superficie fp16. Y Cg adelanta todo lo que no depende de lo
+  anterior (las 32 lecturas de textura, sus comparaciones y productos de
+  un mínimo sobre 32 muestras) y se queda sin registros («Temporary
+  register limit of 32 exceeded»): hacer que cada coordenada dependa del
+  resultado anterior con algo que vale 0 pero el compilador no puede
+  probar (`saturate(mn + mx − 10⁹)`) deja el programa en 8 registros a
+  cambio de dos sumas por muestra.
+- **Una sola entrada (TEXCOORD) y una sola constante por instrucción.** Cg
+  agrega un MOV cuando una instrucción lee dos atributos o dos uniforms
+  distintos (las dos de un mismo float4 con distinto swizzle cuentan como
+  una). Lo que es lineal en la pantalla conviene pasarlo como constante
+  afín de la pasada (`rsxkit_post_pass.kx`/`ky`): llega interpolado y no
+  cuesta instrucciones.
 - `tools/fpo-info.py` resume un .fpo: instrucciones, lecturas, precisión de
   cada operación y cuántas copias tiene cada constante.
 
@@ -337,3 +354,14 @@ firmware) en una caché de glifos del atlas de rsxkit. API, juegos de fuentes,
 trampas (callbacks por descriptor de 32 bits, `fontSetScalePixel` mal
 declarada en PSL1GHT, calibración de la línea base) y qué falta medir en la
 PS3: `docs/fuente-sistema.md`.
+
+## Fondo «Seda»: constantes en las mallas (2026-10-27)
+
+`rsxkit_post_pass.k` (TEXCOORD1..7) solo existe en las pasadas de pantalla
+(`rsxkit_post_run`): el vertex program de las mallas pasa nada más
+TEXCOORD0, y las constantes `uniform` de un programa se parchean en su copia
+del microcódigo (`rsxkit_program_set`), lo que obliga a esperar al RSX si el
+programa está en uso. Para un color que cambia con la hora, el fondo «Seda»
+lo lleva en una rampa de 16 texeles RGBA8 en memoria principal (una por
+capa, triple búfer) que la malla lee con el tono interpolado; más barato
+que parchear y sin esperas. Detalles en `docs/fondo-seda.md`.

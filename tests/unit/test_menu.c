@@ -1132,12 +1132,25 @@ static void menu_options_page(void)
 	CHECK_EQ(m.page, MENU_PAGE_OPTIONS);
 	CHECK_EQ(m.opt, MENU_OPT_WAVES);
 	CHECK_EQ(menu_selected(&m), -1);
+	/* Fondo: ondas → seda → no → ondas; izquierda, al revés. */
 	menu_input(&m, 0, 20);
 	CHECK_EQ(menu_input(&m, CROSS, 30), MENU_SETTINGS);
-	CHECK(!m.set.waves);
+	CHECK(m.set.waves && m.set.seda);
 	menu_input(&m, 0, 40);
 	CHECK_EQ(menu_input(&m, RIGHT, 50), MENU_SETTINGS);
-	CHECK(m.set.waves);
+	CHECK(!m.set.waves && !m.set.seda);
+	menu_input(&m, 0, 51);
+	CHECK_EQ(menu_input(&m, RIGHT, 52), MENU_SETTINGS);
+	CHECK(m.set.waves && !m.set.seda);
+	menu_input(&m, 0, 55);
+	CHECK_EQ(menu_input(&m, LEFT, 56), MENU_SETTINGS);
+	CHECK(!m.set.waves);
+	menu_input(&m, 0, 57);
+	CHECK_EQ(menu_input(&m, LEFT, 58), MENU_SETTINGS);
+	CHECK(m.set.waves && m.set.seda);
+	menu_input(&m, 0, 59);
+	CHECK_EQ(menu_input(&m, LEFT, 60), MENU_SETTINGS);
+	CHECK(m.set.waves && !m.set.seda);
 	/* Recorte del borde: derecha avanza, izquierda vuelve, con vuelta. */
 	menu_input(&m, 0, 60);
 	menu_input(&m, DOWN, 61);
@@ -1447,9 +1460,15 @@ static void menu_settings_file(void)
 	static const char bad[] = "fondo = quizá\n";
 	menu_settings_parse(&s, bad, sizeof bad - 1);
 	CHECK(!s.waves);
+	static const char shader[] = "fondo = Shader\n";  /* el fondo de prueba que ya no existe */
+	menu_settings_parse(&s, shader, sizeof shader - 1);
+	CHECK(s.waves && s.seda);
+	static const char seda[] = "fondo = seda\n";
+	menu_settings_parse(&s, seda, sizeof seda - 1);
+	CHECK(s.waves && s.seda);
 	static const char on[] = "fondo=sí";
 	menu_settings_parse(&s, on, sizeof on - 1);
-	CHECK(s.waves);
+	CHECK(s.waves && !s.seda);
 	CHECK(!s.fps);
 	static const char fps[] = "fps = si\n";
 	menu_settings_parse(&s, fps, sizeof fps - 1);
@@ -1478,6 +1497,12 @@ static void menu_settings_file(void)
 	CHECK(!t.waves);
 	CHECK(t.fps);
 	CHECK(!t.confirm);
+	s.waves = s.seda = true;
+	n = menu_settings_format(&s, text, sizeof text);
+	CHECK(n > 0 && (size_t)n < sizeof text);
+	CHECK(strstr(text, "fondo = seda\n") != NULL);
+	menu_settings_parse(&t, text, (size_t)n);
+	CHECK(t.waves && t.seda);
 }
 
 static void menu_autopilot_opens_target(void)
