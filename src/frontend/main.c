@@ -6390,7 +6390,12 @@ static bool direct_launch(void)
 #define INTRO_OFF_PATH  SALSA64_DATA_DIR "/sin-intro"
 #define INTRO_TEST_PATH SALSA64_DATA_DIR "/intro-prueba"
 #define INTRO_WAIT_PATH SALSA64_DATA_DIR "/intro-espera"  /* ms de negro tras videoConfigure antes del encendido */
-#define VIDEO_KEEP_PATH SALSA64_DATA_DIR "/video-sin-reconfigurar"
+/* Experimental, para el monitor que se apaga con cada videoConfigure:
+ * `video-igual` con «a» (videoConfigure con los mismos valores que dejó el
+ * XMB) o «b» (sin videoConfigure), más una «t» para quitar además las
+ * regiones de mosaico (tiles) del sistema: «a», «b», «at», «bt». En los dos
+ * los búferes llevan el pitch vigente. */
+#define VIDEO_SAME_PATH SALSA64_DATA_DIR "/video-igual"
 #define INTRO_WAIT_DEFAULT_MS 1500  /* tras un videoConfigure: lo que tarda un monitor en volver a dar imagen (a medir) */
 #define PRELOAD_PRIO   1500
 #define PRELOAD_STACK  0x100000
@@ -6967,13 +6972,20 @@ int main(int argc, char **argv)
 	video_scale_configured = video_load(&video_cfg);
 	rsxkit_config vcfg;
 	const rsxkit_config *vc = video_config_for(video_cfg.resolution, &vcfg);
-	if (file_exists(VIDEO_KEEP_PATH)) {
-		/* Experimental: no videoConfigure si el modo ya es el del XMB. */
-		if (!vc) {
-			memset(&vcfg, 0, sizeof vcfg);
-			vc = &vcfg;
+	{
+		char opt[8] = "";
+		FILE *sf = fopen(VIDEO_SAME_PATH, "r");
+		if (sf) {
+			if (fscanf(sf, "%7s", opt) != 1)
+				opt[0] = '\0';
+			fclose(sf);
+			if (!vc) {
+				memset(&vcfg, 0, sizeof vcfg);
+				vc = &vcfg;
+			}
+			vcfg.same_mode = opt[0] == 'b' || opt[0] == 'B' ? 2 : 1;
+			vcfg.unbind_tiles = strchr(opt, 't') || strchr(opt, 'T');
 		}
-		vcfg.keep_mode = 1;
 	}
 	int rc = rsxkit_init(vc);
 	if (rc == RSXKIT_OK)
@@ -6989,8 +7001,20 @@ int main(int argc, char **argv)
 		    vc ? " (video.cfg: 1080)" : "");
 	{
 		const rsxkit_video_boot *vb = rsxkit_video_boot_info();
-		salsa64_log("video: la salida estaba en el modo %d, se eligió el %d, %s", vb->prev_mode, vb->mode,
-			    vb->configured ? "videoConfigure llamado" : "modo conservado sin videoConfigure (video-sin-reconfigurar)");
+		salsa64_log("video: antes de configurar, estado %d (%s) modo %d, espacio de color %d, escaneo %d, conversión %d, "
+			    "aspecto %d, frecuencias 0x%x; configuración vigente %s: resolución %d, formato %d, aspecto %d, pitch %u",
+			    vb->state, vb->state == 1 ? "activo" : vb->state == 0 ? "desactivado" : "ocupado", vb->prev_mode,
+			    vb->color_space, vb->scan_mode, vb->conversion, vb->aspect, (unsigned)vb->refresh,
+			    vb->cfg_ok ? "leída" : "ILEGIBLE", vb->cfg_resolution, vb->cfg_format, vb->cfg_aspect,
+			    (unsigned)vb->cfg_pitch);
+		salsa64_log("video: se eligió el modo %d, pitch de nuestros búferes %u (el nuestro sería %u); %s; regiones de "
+			    "mosaico del sistema: %d%s%s", vb->mode, (unsigned)vb->pitch, (unsigned)sc->width * 4,
+			    vb->same_mode == 1 ? "A: videoConfigure con los valores vigentes"
+			    : vb->same_mode == 2 ? "B: sin videoConfigure"
+			    : "videoConfigure normal",
+			    vb->tiles_active, vb->tiles_active ? ": " : "", vb->tiles);
+		if (vb->tiles_unbound)
+			salsa64_log("video: %d regiones de mosaico desactivadas (gcmUnbindTile)", vb->tiles_unbound);
 	}
 	if (file_exists(SALSA64_DATA_DIR "/filtros-autoprueba")) {
 		bool ok = salsa64_filters_selftest();
