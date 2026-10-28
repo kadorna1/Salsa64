@@ -315,7 +315,7 @@ Lo que hizo falta saber para escribir fragment programs largos en Cg
   tabla de lugares (`rsxConstOffsetTable`) y rsxkit las parchea en su copia
   del programa (`rsxkit_program_set`). Un programa ya parcheado se vuelve a
   leer al ligarlo de nuevo (`rsxLoadFragmentProgramLocation`).
-- **Programas largos (fondo «Shader», 2026-10-27).** cgcomp revienta
+- **Programas largos (un fondo de prueba del menú con raymarching, 2026-10-27; no quedó).** cgcomp revienta
   («munmap_chunk(): invalid pointer») con un programa de ~1300
   instrucciones (100 pasos de raymarching desenrollados); con ~330 anda.
   La marcha del fondo va en cuatro pasadas de 25 pasos que se pasan la t

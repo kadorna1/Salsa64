@@ -52,8 +52,7 @@ static const u8 *const program_fpo[PROGRAMS] = { seda_fondo_fpo, seda_cinta_fpo,
 #define MEM_USED (OFF_RAMP + BUFS * RAMPS * RAMP_BYTES)
 #define MEM_BYTES ((MEM_USED + (1u << 20) - 1) & ~((1u << 20) - 1))
 
-/* Marcas de tiempo del RSX (las de los filtros van de 0 a 31, las del
- * fondo «Shader» de 40 a 55; este fondo no corre a la vez que él). */
+/* Marcas de tiempo del RSX (las de los filtros van de 0 a 31). */
 #define STAMP_BASE 56
 
 static struct {

@@ -1,10 +1,10 @@
 # Fondo «Seda» del menú
 
-Cuarto valor de la fila «Fondo» de Opciones (`fondo = seda` en `menu.cfg`;
-el orden es Ondas → Shader → Seda → No): tres cintas de tela que flotan,
+Segundo valor de la fila «Fondo» de Opciones (`fondo = seda` en `menu.cfg`;
+el orden es Ondas → Seda → No): tres cintas de tela que flotan,
 se tuercen sobre sí mismas y ondulan, con brillo en el borde donde quedan
 de canto, sobre un degradado que sigue la hora de la consola y con
-destellos que suben despacio.
+destellos que corren sobre las cintas.
 
 **Origen.** Todo es propio: el movimiento sale de sumas de senos con
 distintas frecuencias, direcciones y velocidades, más una torsión a lo

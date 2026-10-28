@@ -18,12 +18,12 @@ APPID   := SLSA00120
 endif
 SRCS    := main.c audio_out.c audio_sync.c menu.c osd.c osd_fps.c pacer.c padmap.c pausectl.c scale_auto.c replay.c romlist.c savefile.c mempakfile.c transferpakfile.c \
            cheats.c cuelgue.c cover.c download.c dlutil.c i18n.c namematch.c screenshot.c selftest.c selftest_audio.c selftest_gfx.c states.c cajanegra.c \
-           version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c fondo.c fondo_calc.c seda.c seda_calc.c
+           version.c perfilado.c perfilado_ps3.c filters/crt_params.c filters/filters.c seda.c seda_calc.c
 # Filtros de la presentación (filters/): fragment programs en Cg compilados
 # con cgcomp. Van en fp32: cgcomp pide -fastprecision a Cg, que baja a fp16
 # cuentas en píxeles que no lo aguantan.
-# El fondo «Shader» del menú (fondo/, docs/fondo-shader.md) va igual.
-SHADERS := $(sort $(wildcard filters/*.fcg fondo/*.fcg seda/*.fcg))
+# El fondo «Seda» del menú (seda/, docs/fondo-seda.md) va igual.
+SHADERS := $(sort $(wildcard filters/*.fcg seda/*.fcg))
 CGCFLAGS := -Wcg,-nofastprecision
 FPO_CHECK := 1
 
@@ -129,9 +129,6 @@ $(OBJ)/crt_cable_decode9.fpo $(OBJ)/crt_cable_decode27.fpo: filters/crt_cable_de
 $(OBJ)/crt_tube_lines_a4.fpo $(OBJ)/crt_tube_lines_a8.fpo $(OBJ)/crt_tube_lines_b4.fpo \
 $(OBJ)/crt_tube_lines_b8.fpo $(OBJ)/crt_trinitron_lines_a.fpo \
 $(OBJ)/crt_trinitron_lines_b.fpo: filters/crt_tube_lines.cgh
-
-$(OBJ)/fondo_final.fpo $(OBJ)/fondo_final_lite.fpo: fondo/fondo_final.cgh
-$(OBJ)/fondo_marcha0.fpo $(OBJ)/fondo_marcha.fpo: fondo/fondo_marcha.cgh
 
 # Un objeto de src/rsp/gfx en todas las imágenes del SPE 0.
 GFX_OBJ = $(foreach i,$(GFX_IMAGES),$(OBJ)/spu-gfx$(i)/src/rsp/gfx/$(1))

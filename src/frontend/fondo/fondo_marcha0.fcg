@@ -1,4 +1,0 @@
-/* SPDX-License-Identifier: GPL-2.0-or-later */
-/* Fondo «Shader», primera pasada de la marcha (desde t = 1): ver fondo_marcha.cgh. */
-#define FONDO_PRIMERA
-#include "fondo_marcha.cgh"
