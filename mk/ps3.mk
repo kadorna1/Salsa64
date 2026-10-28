@@ -133,7 +133,7 @@ $(OUT)/$(PROGRAM).fake.self: $(OUT)/$(PROGRAM).elf
 ICON0 ?= $(PS3DEV)/bin/ICON0.PNG
 PIC1  ?=
 
-$(SND0) ?= $(ROOT)/assets/ps3/SND0.AT3
+SND0 ?= $(ROOT)/assets/ps3/SND0.AT3
 
 $(OUT)/$(PROGRAM).pkg: $(OUT)/$(PROGRAM).elf $(ICON0) $(PIC1) $(SND0)
 	@echo "  PKG     $(notdir $@)"
