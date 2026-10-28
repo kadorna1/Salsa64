@@ -42,16 +42,29 @@ jobs:
           set -euo pipefail
           DOCKERFILE_HASH="$(sha256sum docker/Dockerfile | cut -c1-16)"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/salsa64-toolchain:$DOCKERFILE_HASH"
-          echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          COMPAT_IMAGE="ghcr.io/kadorna1/salsa64-toolchain:f24becb301d65113"
           if docker pull "$IMAGE"; then
             if docker run --rm "$IMAGE" sh -c 'test -s "$PS3DEV/portlibs/ppu/include/zlib.h" && test -s "$PS3DEV/portlibs/ppu/lib/libz.a"'; then
+              echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
               echo "Using cached toolchain image: $IMAGE"
               exit 0
             fi
-            echo "Cached image lacks PPU zlib; rebuilding."
+            echo "Cached image lacks PPU zlib; checking compatibility cache."
           else
-            echo "No cached image for Dockerfile hash $DOCKERFILE_HASH; building it."
+            echo "No exact Dockerfile image for hash $DOCKERFILE_HASH; checking compatibility cache."
           fi
+          # This previously successful image differs only by the runner-side
+          # zlib1g-dev package, which is installed separately below. Confirm
+          # the PPU zlib headers and library before reusing it.
+          if docker pull "$COMPAT_IMAGE"; then
+            if docker run --rm "$COMPAT_IMAGE" sh -c 'test -s "$PS3DEV/portlibs/ppu/include/zlib.h" && test -s "$PS3DEV/portlibs/ppu/lib/libz.a"'; then
+              echo "SALSA64_IMAGE=$COMPAT_IMAGE" >> "$GITHUB_ENV"
+              echo "Using compatible cached toolchain image: $COMPAT_IMAGE"
+              exit 0
+            fi
+          fi
+          echo "No usable cached image; building current toolchain image."
+          echo "SALSA64_IMAGE=$IMAGE" >> "$GITHUB_ENV"
           SALSA64_IMAGE="$IMAGE" tools/docker-image.sh
           docker run --rm "$IMAGE" sh -c 'test -s "$PS3DEV/portlibs/ppu/include/zlib.h" && test -s "$PS3DEV/portlibs/ppu/lib/libz.a"'
           docker push "$IMAGE"
