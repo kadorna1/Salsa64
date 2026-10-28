@@ -645,14 +645,22 @@ int rsxkit_target_fill_rect(rsxkit_target *t, uint32_t src_offset, uint32_t src_
 	rsxSetDepthTestEnable(ctx, GCM_FALSE);
 	rsxSetDepthWriteEnable(ctx, GCM_FALSE);
 	rsxSetCullFaceEnable(ctx, GCM_FALSE);
-	rsxSetBlendEnable(ctx, GCM_FALSE);
+	/* CopyColorFromRDRAM is a partial pixel composite, not an opaque blit:
+	 * RGBA5551's low bit is coverage. Match GLideN64's SRC_ALPHA blending and
+	 * keep the destination alpha channel out of the RGB blend equation. */
+	rsxSetBlendEnable(ctx, GCM_TRUE);
+	rsxSetBlendEquation(ctx, GCM_FUNC_ADD, GCM_FUNC_ADD);
+	rsxSetBlendFunc(ctx, GCM_SRC_ALPHA, GCM_ONE_MINUS_SRC_ALPHA,
+			t->alpha ? GCM_ONE : GCM_ZERO,
+			t->alpha ? GCM_ZERO : GCM_ONE);
 	rsxSetAlphaTestEnable(ctx, GCM_FALSE);
 	rsxInvalidateTextureCache(ctx, GCM_INVALIDATE_TEXTURE);
 	rsxkit_rect dst = { (int32_t)dst_x, (int32_t)dst_y, dst_w, dst_h };
-	rsxkit_blit_alpha(t->alpha);
+	rsxkit_blit_alpha(1);
 	rsxkit_blit_to(src_offset, RSXKIT_MEM_MAIN, src_pitch, src_w, src_h, 0.0f, 0.0f, 1.0f, 1.0f,
 		       format, &dst, t->w, t->h, RSXKIT_FILTER_NEAREST);
 	rsxkit_blit_alpha(0);
+	rsxSetBlendEnable(ctx, GCM_FALSE);
 	rsxkit_g.state_valid = 0;
 	return RSXKIT_OK;
 }
