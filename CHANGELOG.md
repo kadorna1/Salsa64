@@ -13,7 +13,11 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   then the Salsa64 logo and a fade into the menu, all through the Trinitron
   filter. It runs while the font, settings and ROM list load (it does not
   add time) and lasts about 3 s; X or O skips it. The file
-  `/dev_hdd0/salsa64/sin-intro` turns it off.
+  `/dev_hdd0/salsa64/sin-intro` turns it off; `intro-espera` (ms) adds a
+  black wait before the power-on for slow displays (0 by default).
+- **One HDMI renegotiation instead of two at startup:** the video is now
+  configured with exactly the values the XMB left (including its buffer
+  pitch), so monitors that blank on every mode change blank only once.
 
 ## [0.2.13] — 2026-10-26
 

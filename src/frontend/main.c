@@ -6390,13 +6390,7 @@ static bool direct_launch(void)
 #define INTRO_OFF_PATH  SALSA64_DATA_DIR "/sin-intro"
 #define INTRO_TEST_PATH SALSA64_DATA_DIR "/intro-prueba"
 #define INTRO_WAIT_PATH SALSA64_DATA_DIR "/intro-espera"  /* ms de negro tras videoConfigure antes del encendido */
-/* Experimental, para el monitor que se apaga con cada videoConfigure:
- * `video-igual` con «a» (videoConfigure con los mismos valores que dejó el
- * XMB) o «b» (sin videoConfigure), más una «t» para quitar además las
- * regiones de mosaico (tiles) del sistema: «a», «b», «at», «bt». En los dos
- * los búferes llevan el pitch vigente. */
-#define VIDEO_SAME_PATH SALSA64_DATA_DIR "/video-igual"
-#define INTRO_WAIT_DEFAULT_MS 1500  /* tras un videoConfigure: lo que tarda un monitor en volver a dar imagen (a medir) */
+#define INTRO_WAIT_DEFAULT_MS 0  /* con videoConfigure con los valores del XMB, el ProArt ve la intro entera sin espera; intro-espera sirve a una tele lenta */
 #define PRELOAD_PRIO   1500
 #define PRELOAD_STACK  0x100000
 
@@ -6495,7 +6489,7 @@ static void intro_probe(const char *what)
 static bool intro_wait_black(void)
 {
 	const rsxkit_video_boot *vb = rsxkit_video_boot_info();
-	int ms = vb->configured ? INTRO_WAIT_DEFAULT_MS : 0;
+	int ms = INTRO_WAIT_DEFAULT_MS;
 	FILE *f = fopen(INTRO_WAIT_PATH, "r");
 	if (f) {
 		int v;
@@ -6526,8 +6520,8 @@ static bool intro_wait_black(void)
 		frame_begin("intro: espera, flip anterior");
 		frame_end("intro: espera, flip");
 	}
-	salsa64_log("intro: espera en negro de %d ms tras el video (videoConfigure %s): esperó %llu ms%s", ms,
-		    vb->configured ? "llamado" : "omitido", (unsigned long long)((sysGetSystemTime() - t0) / 1000),
+	salsa64_log("intro: espera en negro de %d ms tras el video (videoConfigure con %s): esperó %llu ms%s", ms,
+		    vb->used_current ? "los valores del XMB" : "los de siempre", (unsigned long long)((sysGetSystemTime() - t0) / 1000),
 		    skip ? ", saltada" : "");
 	return skip;
 }
@@ -6972,21 +6966,6 @@ int main(int argc, char **argv)
 	video_scale_configured = video_load(&video_cfg);
 	rsxkit_config vcfg;
 	const rsxkit_config *vc = video_config_for(video_cfg.resolution, &vcfg);
-	{
-		char opt[8] = "";
-		FILE *sf = fopen(VIDEO_SAME_PATH, "r");
-		if (sf) {
-			if (fscanf(sf, "%7s", opt) != 1)
-				opt[0] = '\0';
-			fclose(sf);
-			if (!vc) {
-				memset(&vcfg, 0, sizeof vcfg);
-				vc = &vcfg;
-			}
-			vcfg.same_mode = opt[0] == 'b' || opt[0] == 'B' ? 2 : 1;
-			vcfg.unbind_tiles = strchr(opt, 't') || strchr(opt, 'T');
-		}
-	}
 	int rc = rsxkit_init(vc);
 	if (rc == RSXKIT_OK)
 		rsxkit_set_wait_hook(rsx_wait_hook, NULL, RSX_HOOK_US, RSX_HOOK_PERIOD_US);
@@ -7009,12 +6988,9 @@ int main(int argc, char **argv)
 			    (unsigned)vb->cfg_pitch);
 		salsa64_log("video: se eligió el modo %d, pitch de nuestros búferes %u (el nuestro sería %u); %s; regiones de "
 			    "mosaico del sistema: %d%s%s", vb->mode, (unsigned)vb->pitch, (unsigned)sc->width * 4,
-			    vb->same_mode == 1 ? "A: videoConfigure con los valores vigentes"
-			    : vb->same_mode == 2 ? "B: sin videoConfigure"
-			    : "videoConfigure normal",
+			    vb->used_current ? "videoConfigure con los valores vigentes del XMB"
+					     : "videoConfigure normal (otro modo que el vigente)",
 			    vb->tiles_active, vb->tiles_active ? ": " : "", vb->tiles);
-		if (vb->tiles_unbound)
-			salsa64_log("video: %d regiones de mosaico desactivadas (gcmUnbindTile)", vb->tiles_unbound);
 	}
 	if (file_exists(SALSA64_DATA_DIR "/filtros-autoprueba")) {
 		bool ok = salsa64_filters_selftest();
