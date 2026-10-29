@@ -25,6 +25,13 @@
 #else
 #define GFX_IMG1_COLD
 #endif
+/* Rutas frías en todas las imágenes del SPE 0 (el recorte contra la caja:
+ * pocos triángulos por tarea). */
+#ifdef __SPU__
+#define GFX_SPU_COLD __attribute__((optimize("Os")))
+#else
+#define GFX_SPU_COLD
+#endif
 
 #ifdef SALSA64_GFX_TRACE
 /* Depuración en el host (src/host/run.c): el estado resumido de cada dibujo. */
@@ -713,7 +720,7 @@ static void lerp_vertex(struct gfx_vertex *o, const struct gfx_vertex *a, const 
 
 /* Un plano a·x + b·y + c·w ≥ 0 sobre el polígono src[0..n): deja el
  * resultado en dst y devuelve sus vértices (0 si queda todo fuera). */
-static GFX_IMG1_COLD unsigned clip_plane(const struct gfx_vertex *src, unsigned n, float a, float b, float c,
+static GFX_SPU_COLD unsigned clip_plane(const struct gfx_vertex *src, unsigned n, float a, float b, float c,
 					  struct gfx_vertex *dst)
 {
 	float d[CLIP_MAX];
@@ -742,7 +749,7 @@ static GFX_IMG1_COLD unsigned clip_plane(const struct gfx_vertex *src, unsigned 
 /* El polígono p[0..n) contra la caja del clip ratio, en el orden del
  * microcódigo (derecha, abajo, arriba, izquierda); devuelve los vértices
  * que quedan en p. */
-static GFX_IMG1_COLD unsigned clip_box_poly(const struct gfx_state *g, struct gfx_vertex *p, unsigned n)
+static GFX_SPU_COLD unsigned clip_box_poly(const struct gfx_state *g, struct gfx_vertex *p, unsigned n)
 {
 	struct gfx_vertex q[CLIP_MAX];
 	float lim[4];
@@ -772,15 +779,18 @@ static inline bool outside_box(const struct gfx_state *g, const struct gfx_verte
 	return out;
 }
 
-/* Abanico desde p[0] de un polígono recortado: los triángulos enteros
- * fuera de un plano de la pantalla no se dibujan (como el rechazo trivial
- * del RSP con los vértices nuevos). */
-static GFX_IMG1_COLD void emit_fan(struct gfx_state *g, const struct gfx_vertex *p, unsigned n)
+/* Abanico desde p[0] de un polígono recortado: qué triángulos (bit i:
+ * p[0], p[i], p[i+1]) se dibujan y cuántos son. Los enteros fuera de un
+ * plano de la pantalla no (como el rechazo trivial del RSP con los vértices
+ * nuevos). Hoja: no suma a la cadena de begin_prim. */
+static GFX_SPU_COLD unsigned fan_keep(const struct gfx_state *g, const struct gfx_vertex *p, unsigned n,
+				      unsigned *count)
 {
 	float sx = g->vscale[0] < 0.0f ? -g->vscale[0] : g->vscale[0];
 	float sy = g->vscale[1] < 0.0f ? -g->vscale[1] : g->vscale[1];
 	float xlo = g->vtrans[0] - sx, xhi = g->vtrans[0] + sx, ylo = g->vtrans[1] - sy, yhi = g->vtrans[1] + sy;
-	unsigned flags[CLIP_MAX], keep = 0, count = 0;
+	unsigned flags[CLIP_MAX], keep = 0;
+	*count = 0;
 	for (unsigned i = 0; i < n; i++) {
 		float w = p[i].w;
 		flags[i] = (p[i].x < xlo * w) | (p[i].x > xhi * w) << 1 | (p[i].y < ylo * w) << 2 | (p[i].y > yhi * w) << 3;
@@ -788,22 +798,9 @@ static GFX_IMG1_COLD void emit_fan(struct gfx_state *g, const struct gfx_vertex 
 	for (unsigned i = 1; i + 1 < n; i++)
 		if (!(flags[0] & flags[i] & flags[i + 1])) {
 			keep |= 1u << i;
-			count++;
+			(*count)++;
 		}
-	if (!count)
-		return;
-	struct gfx_vertex *o = begin_prim(g, PRIM_TRI, g->tex_tile, 3 * count);
-	if (!o)
-		return;
-	g->res->triangles++;
-	GFX_DETAIL(g, g->detail->triangles_ok++);
-	for (unsigned i = 1; i + 1 < n; i++)
-		if (keep & (1u << i)) {
-			o[0] = p[0];
-			o[1] = p[i];
-			o[2] = p[i + 1];
-			o += 3;
-		}
+	return keep;
 }
 
 void gfx_triangle(struct gfx_state *g, uint32_t a, uint32_t b, uint32_t c)
@@ -867,19 +864,21 @@ void gfx_triangle(struct gfx_state *g, uint32_t a, uint32_t b, uint32_t c)
 		n = clip_box_poly(g, p, n);
 		clipped = true;
 	}
-	if (clipped) {
-		if (n >= 3)
-			emit_fan(g, p, n);
+	unsigned count = 1, keep = 2;  /* sin recorte: el triángulo (p[0], p[1], p[2]) */
+	if (clipped && !(n >= 3 && (keep = fan_keep(g, p, n, &count))))
 		goto detail_done;
-	}
-	struct gfx_vertex *o = begin_prim(g, PRIM_TRI, g->tex_tile, 3);
+	struct gfx_vertex *o = begin_prim(g, PRIM_TRI, g->tex_tile, 3 * count);
 	if (!o)
 		goto detail_done;
 	g->res->triangles++;
 	GFX_DETAIL(g, g->detail->triangles_ok++);
-	o[0] = p[0];
-	o[1] = p[1];
-	o[2] = p[2];
+	for (unsigned i = 1; i + 1 < n; i++)
+		if (keep & (1u << i)) {
+			o[0] = p[0];
+			o[1] = p[i];
+			o[2] = p[i + 1];
+			o += 3;
+		}
 detail_done:
 	GFX_DETAIL(g, g->detail->t_triangle += gfx_io_clock() - td - (g->res->t_state - ts));
 }
