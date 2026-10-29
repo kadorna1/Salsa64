@@ -1673,15 +1673,26 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
-			/* Commit the exact original bytes staged from RDRAM. Do not put
-			 * the forced-alpha RSX pixels into the shadow, or alpha-zero source
-			 * pixels would look changed forever and be uploaded every frame. */
-			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
-			/* Preserve screen CPU pixels for a late replay after the remaining
-			 * RDP draws. The stable shadow still commits now to avoid churn. */
+			/* Queue a per-pixel late replay only for a VI-visible target. Mode 1
+			 * means a covered CPU pixel that must remain visible; mode 2 means
+			 * its coverage bit changed from 1 to 0 and it must be replaced once
+			 * (not alpha-blended) to erase the old sprite pixel. Keep the
+			 * previous bytes available until this classification is complete. */
 			if (defer_to_vi && rdp.profile_pending[i] &&
-			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width)))
-				memset(rdp.profile_pending[i] + (size_t)y * t->width + x0, 1, w);
+			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width))) {
+				uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
+				for (uint32_t px = 0; px < w; px++) {
+					uint32_t x = x0 + px;
+					bool was_covered = (shadow_row[x * 2u + 1] & 1u) != 0;
+					bool is_covered = (raw_span[px * 2u + 1] & 1u) != 0;
+					if (is_covered)
+						pending_row[x] = 1;
+					else if (was_covered || pending_row[x] == 1)
+						pending_row[x] = 2;
+				}
+			}
+			/* Commit the exact RDRAM bytes; the coverage bit must remain intact. */
+			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
@@ -1747,14 +1758,28 @@ static uint32_t prime_profile_pending_spans(int i)
 		uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 		const uint8_t *ram_row = rdp.rdram + t->addr + (uint64_t)y * row_bytes;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
+
+		/* A live overlay whose RDRAM coverage bit has gone low is now a
+		 * one-shot erase. Conversely, a clear can be superseded by a newly
+		 * covered pixel before this VI is presented. */
+		for (uint32_t px = 0; px < t->lw; px++) {
+			if (!pending_row[px])
+				continue;
+			if (ram_row[px * 2u + 1] & 1u)
+				pending_row[px] = 1;
+			else if (pending_row[px] == 1)
+				pending_row[px] = 2;
+		}
+
 		uint32_t x = 0;
 		while (x < t->lw) {
 			while (x < t->lw && !pending_row[x])
 				x++;
 			if (x == t->lw)
 				break;
+			uint8_t mode = pending_row[x];
 			uint32_t x0 = x;
-			while (x < t->lw && pending_row[x])
+			while (x < t->lw && pending_row[x] == mode)
 				x++;
 			uint32_t w = x - x0;
 			if (!w)
@@ -1771,17 +1796,20 @@ static uint32_t prime_profile_pending_spans(int i)
 			memcpy(raw_span, ram_row + x0 * 2u, w * 2u);
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
 			uint32_t dx = x0 * scale, dy = y * scale;
-			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
-						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
+			int rc = mode == 2
+				? rsxkit_target_replace_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+							     dx, dy, w * scale, scale, RSXKIT_RGBA5551)
+				: rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+							  dx, dy, w * scale, scale, RSXKIT_RGBA5551);
+			if (rc != RSXKIT_OK)
 				continue;
 
 			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
-			/* Keep the CPU-pixel mask latched for this target. A later RDP task
-			 * can cover these pixels without changing RDRAM, so clearing them
-			 * after a single VI replay makes CPU-drawn sprites flicker: the
-			 * next task hides them and no changed span re-arms the mask. RDRAM
-			 * changes still refresh the source bytes and shadow in the normal
-			 * span path; the mask is reset with this target/profile. */
+			/* Active pixels stay latched so RDP work in later fields cannot
+			 * hide them. A coverage-one-to-zero transition is replaced once,
+			 * then removed from the mask so it cannot leave a permanent trail. */
+			if (mode == 2)
+				memset(pending_row + x0, 0, w);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
