@@ -7,6 +7,13 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Changed
+- **Serial Interface timing:** a PIF RAM write DMA now takes about 65 µs and
+  the read DMA what the PIF needs for the joybus exchanges it carries (0.66 ms
+  for one controller or one Controller Pak block, 1.65 ms for four controllers;
+  constants measured by the ares project), instead of a flat 2 ms each way.
+  Games that talk to the Controller Pak a lot (Forsaken 64 at its title screen,
+  #55) spent 4 ms per block and could run into their own timeouts. The file
+  `si-ritmo-viejo` in `/dev_hdd0/salsa64/` restores the flat 2 ms.
 - **RetroAchievements Hardcore:** saving a state is now allowed in Hardcore
   (loading stays blocked everywhere); turning Hardcore on with a game open no
   longer switches the running game's mode: it applies from the next game.

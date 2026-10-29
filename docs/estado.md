@@ -1,5 +1,20 @@
 # Estado
 
+## 2026-10-28 — Ritmo del SI según la PIF (#55 Forsaken 64) y latido para juegos que no arrancan (#54)
+- Forsaken 64 (USA) se queda en negro tras la intro, dos corridas idénticas en la PS3: 1100 tareas, 490 consultas
+  de estado, 592 lecturas y 285 escrituras del Controller Pak (0 bloques cambiados: son los sondeos de 0x8000 del
+  Rumble Pak y datos iguales) y después el hilo ocioso; SP/DP emparejadas, SI libre sin evento, PI y audio vivos.
+  Lo que espera el juego es un mensaje del SI que ya no va a llegar. Sin el respaldo no se reproduce en el host.
+- Con los 2 ms fijos de cada DMA (desde Cruis'n USA, 2026-10-25) cada bloque del pak costaba 4 ms (877 bloques,
+  3,5 s). Ahora la escritura dura 65 µs y la lectura lo que la PIF tarda con lo que hay en la PIF RAM (constantes
+  de ares: 0,66 ms un control o un bloque del pak, 1,65 ms cuatro controles). `si-ritmo-viejo` vuelve a los 2 ms.
+- Cruis'n USA en el host con el ritmo nuevo: 694 tareas en 1500 campos (2 ms fijos: 687; inmediato: 1, el bloqueo).
+  Unitarias: `si_dma_timing` y `cuelgue_avisa_siempre`; 782 pruebas, solo `cover` falla en macOS (en Docker pasa).
+- Donald Duck (PAL, #16) desde el estado del usuario: los hilos no están bloqueados (el de SP/DP despierta en cada
+  campo, lee el control y dibuja; los tres que esperan colas propias son los de carga, audio y reset); las 137,8
+  tareas de audio por segundo son lo normal del motor (160 muestras por tarea; desde el arranque 128–138/s) y la
+  consulta del pak 2 veces por campo también. Hace falta un estado de antes de hablar con el sobrino.
+
 ## 2026-10-27 — B3313: rangos de escritura del audio
 - El paginado no limita la escena: tras cargar hay 0–3 fallos/5 s (0–65 ms de disco).
 - La tabla de diez rangos del audio se llenaba y el último crecía hasta 6,4 MB; cada tarea invalidaba código intacto.

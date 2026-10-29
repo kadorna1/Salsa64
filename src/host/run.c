@@ -3873,6 +3873,10 @@ int main(int argc, char **argv)
 	salsa64_si_set_immediate(&n64.bus, si_immediate);
 	if (si_immediate)
 		fprintf(stderr, "salsa64-run: SI inmediato (SALSA64_SI_INMEDIATO)\n");
+	bool si_fixed = salsa64_host_env_on("SALSA64_SI_RITMO_VIEJO");
+	salsa64_si_set_fixed(&n64.bus, si_fixed);
+	if (si_fixed)
+		fprintf(stderr, "salsa64-run: SI con 2 ms fijos (SALSA64_SI_RITMO_VIEJO)\n");
 	const char *affine = getenv("SALSA64_GFX_AFFINE_CHAIN");
 	gfx_affine_chain = !affine || strcmp(affine, "0");
 	if (getenv("SALSA64_GFX_CYCLES"))
@@ -4046,6 +4050,7 @@ int main(int argc, char **argv)
 			/* La referencia arranca igual; cada bloque vuelve a C para comparar. */
 			salsa64_n64_init(&ref, ref_rdram, ram);
 			salsa64_si_set_immediate(&ref.bus, si_immediate);
+			salsa64_si_set_fixed(&ref.bus, si_fixed);
 			salsa64_cpu_set_idle(&ref.cpu, idle);
 			salsa64_bus_set_isviewer(&ref.bus, ref_isv_buf, ref_isv_out, NULL);
 			if (rom_paged)

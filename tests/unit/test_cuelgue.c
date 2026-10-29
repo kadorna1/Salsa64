@@ -115,7 +115,7 @@ static void cuelgue_texto(void)
 	CHECK(strstr(text, "sin SYNC_FULL ni corte 2"));
 	CHECK(strstr(text, "DP +5000"));
 	CHECK(strstr(text, "SI: STATUS 00000411"));
-	CHECK(strstr(text, "SI +187500"));
+	CHECK(strstr(text, "SI +6098"));
 	CHECK(strstr(text, "tarea -"));
 	CHECK(strstr(text, "eventos del RCP"));
 	/* Un búfer chico se corta sin pasarse. */

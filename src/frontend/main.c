@@ -5415,9 +5415,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	memset(rdram, 0, SALSA64_RDRAM_MAX);  /* cada juego arranca igual, venga después del que venga */
 	salsa64_n64_init(&n64, rdram, SALSA64_RDRAM_MAX);
 	bool si_immediate = file_exists(SALSA64_DATA_DIR "/sin-si-diferido");
+	bool si_fixed = file_exists(SALSA64_DATA_DIR "/si-ritmo-viejo");
 	salsa64_si_set_immediate(&n64.bus, si_immediate);
-	salsa64_log("SI: transferencia %s%s", si_immediate ? "inmediata" : "diferida",
-		    si_immediate ? " (sin-si-diferido)" : "");
+	salsa64_si_set_fixed(&n64.bus, si_fixed);
+	salsa64_log("SI: transferencia %s%s", si_immediate ? "inmediata (sin-si-diferido)"
+		    : si_fixed ? "diferida, 2 ms fijos (si-ritmo-viejo)"
+		    : "diferida: escritura 65 µs, lectura según la PIF", si_immediate ? "" : " (si-ritmo-viejo)");
 	states_init(SALSA64_RDRAM_MAX);  /* la foto de los estados y su hilo de escritura (docs/estados.md) */
 	cajanegra_init(&n64.bus);        /* el anillo de la caja negra, si hay archivo cajanegra (docs/cajanegra.md) */
 	n64.bus.rdram_written = front_rdram_written;
