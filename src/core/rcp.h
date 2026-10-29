@@ -142,6 +142,10 @@ struct salsa64_gfx_backend {
 	 * puede dormir un poco en vez de volver en el acto, para que el reloj
 	 * emulado no corra más rápido que el real. */
 	bool (*done)(void *ctx, bool idle);
+	/* Opcional (ritmo del RCP, rsp.c): tras finish, cuántos ciclos del
+	 * VR4300 tardaría la consola en la tarea que acaba de terminar, estimado
+	 * con lo que hizo la HLE (salsa64_gfx_model_cycles); 0 si no se sabe. */
+	uint32_t (*cycles)(void *ctx);
 	/* Opcionales (estados guardados, core/state.c), sin tarea en vuelo: el
 	 * estado que la HLE conserva entre tareas (el del RDP y la TMEM) en un
 	 * formato portable de state_size bytes, y de vuelta. */
@@ -307,6 +311,10 @@ struct salsa64_rsp_stats {
 	/* De la última tarea gráfica con microcódigo desconocido: dónde está su código y datos
 	 * (para el log: salsa64_rsp_ucode_ident). */
 	uint32_t unknown_ucode, unknown_ucode_size, unknown_data_size;
+	/* Ritmo del RCP (gfx_model): tareas cuyo fin se retrasó, ciclos que se
+	 * agregaron y la suma de las duraciones estimadas. */
+	uint32_t model_held;
+	uint64_t model_wait, model_sum;
 };
 
 /* Diagnóstico de cuelgues (frontend/cuelgue.c): los últimos eventos del RCP que el
@@ -349,6 +357,13 @@ struct salsa64_rsp {
 	enum salsa64_abi abi;   /* de la última tarea de audio */
 	/* Duración aparente de cada tarea, en ciclos del VR4300. */
 	uint32_t gfx_cycles, audio_cycles, dp_cycles, jpeg_cycles;
+	/* Ritmo del RCP (rsp-ritmo): con gfx_model en porcentaje (0: apagado) y
+	 * un backend con `cycles`, una tarea gráfica no termina antes de
+	 * gfx_start + cycles·gfx_model/100, lo que la consola tardaría en ella
+	 * (el RSP real, medido en ares); si no, el juego que no espera el
+	 * retrazo dibuja cuadros de más y su lógica corre más rápido. */
+	uint32_t gfx_model;
+	uint64_t gfx_start;     /* ciclo en que arrancó la tarea gráfica en curso */
 	/* Interrupción del DP retenida: el RDP terminó (SYNC_FULL) mientras
 	 * estaba congelado (DPC_STATUS FREEZE); llega al descongelarlo. */
 	bool dp_held;

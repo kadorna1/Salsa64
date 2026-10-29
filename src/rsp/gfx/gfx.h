@@ -244,8 +244,9 @@ struct gfx_result {
 	uint32_t loads;          /* cargas a la TMEM (LOADBLOCK, LOADTILE, LOADTLUT) */
 	uint32_t load_reads;     /* lecturas de la RDRAM para esas cargas */
 	uint32_t tex_old;        /* de las reusadas, decodificadas en tareas anteriores */
-	uint32_t tex_arena;      /* decodificadas en el arena (sin lugar en la caché) */
-	uint32_t tex_evicted;    /* texturas sacadas de la caché */
+	uint16_t tex_arena;      /* decodificadas en el arena (sin lugar en la caché; da la vuelta en 65536) */
+	uint16_t tex_evicted;    /* texturas sacadas de la caché (ídem) */
+	uint32_t vertices;       /* vértices cargados (G_VTX y los de cada microcódigo): ritmo del RCP */
 	uint32_t t_hash;         /* ticks identificando texturas (hash y búsqueda) */
 	uint32_t skipped;        /* comandos saltados de otro microcódigo (G_LOAD_UCODE) */
 	uint32_t bg;             /* fondos de S2DEX dibujados (G_BG_COPY, G_BG_1CYC) */

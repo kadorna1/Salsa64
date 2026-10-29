@@ -111,6 +111,28 @@ void salsa64_evlog_add(struct salsa64_bus *bus, uint32_t kind, uint32_t a, uint3
 
 static void dp_sync_at(struct salsa64_bus *bus, uint64_t now);
 
+/* Ritmo del RCP (gfx_model, rcp.h): la tarea gráfica que la HLE acaba de
+ * terminar (flags: lo que devolvió finish) no termina para el juego antes
+ * de lo que tardaría la consola en ella. Si falta, queda recogida y su fin
+ * se programa a esa hora (no antes de `when`, el fin ya programado);
+ * devuelve si se retrasó. Se aplica una vez por tarea: al recogerla. */
+static bool gfx_model_hold(struct salsa64_rsp *rsp, uint64_t when, uint32_t flags)
+{
+	if (!rsp->gfx_model || !rsp->gfx || !rsp->gfx->cycles || !rsp->sched)
+		return false;
+	uint64_t c = (uint64_t)rsp->gfx->cycles(rsp->gfx->ctx) * rsp->gfx_model / 100u;
+	rsp->stats.model_sum += c;
+	uint64_t end = rsp->gfx_start + c;
+	if (end <= when)
+		return false;
+	rsp->stats.model_held++;
+	rsp->stats.model_wait += end - when;
+	rsp->collected = true;
+	rsp->collected_flags = flags;
+	salsa64_sched_set(rsp->sched, SALSA64_EV_SP_TASK, end);
+	return true;
+}
+
 static void task_event(void *ctx, uint64_t when)
 {
 	struct salsa64_bus *bus = ctx;
@@ -141,12 +163,15 @@ static void task_event(void *ctx, uint64_t when)
 		rsp->busy = 0;
 		return;
 	}
-	if (rsp->busy == SALSA64_TASK_GFX && rsp->gfx)
+	if (rsp->busy == SALSA64_TASK_GFX && rsp->gfx) {
 		flags = rsp->gfx->finish(rsp->gfx->ctx);
-	else if (rsp->busy == SALSA64_TASK_AUDIO && rsp->audio)
+		if (gfx_model_hold(rsp, when, flags))
+			return;
+	} else if (rsp->busy == SALSA64_TASK_AUDIO && rsp->audio) {
 		rsp->audio->finish(rsp->audio->ctx, bus);
-	else if (rsp->busy == SALSA64_TASK_JPEG && rsp->jpeg_be)
+	} else if (rsp->busy == SALSA64_TASK_JPEG && rsp->jpeg_be) {
 		jpeg_collect(rsp);
+	}
 finished:
 	if (rsp->busy == SALSA64_TASK_GFX) {
 		rsp->stats.gfx_last = flags;
@@ -283,6 +308,11 @@ bool salsa64_rsp_quiesce(struct salsa64_bus *bus)
 		jpeg_collect(rsp);
 	rsp->collected = true;
 	rsp->collected_flags = flags;
+	/* El fin sigue en el evento ya programado; con el ritmo del RCP, no
+	 * antes de lo que tardaría la consola. */
+	if (rsp->busy == SALSA64_TASK_GFX && rsp->sched &&
+	    rsp->sched->when[SALSA64_EV_SP_TASK] != SALSA64_SCHED_NEVER)
+		gfx_model_hold(rsp, rsp->sched->when[SALSA64_EV_SP_TASK], flags);
 	return true;
 }
 
@@ -743,6 +773,7 @@ void salsa64_rsp_start(struct salsa64_bus *bus)
 	if (task.type == SALSA64_TASK_GFX && valid && rsp->sched && !rsp->jpeg_video) {
 		if (gbi != SALSA64_GBI_UNKNOWN && (!s2dex_gbi || s2dex_ok)) {
 			rsp->stats.gfx++;
+			rsp->gfx_start = now;
 			rsp->busy = SALSA64_TASK_GFX;
 			rsp->gbi = gbi;
 			rsp->gfx_nonear = nonear;
