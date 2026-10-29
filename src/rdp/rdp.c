@@ -1668,7 +1668,7 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 				fence_wait(rdp.prime_fence[k]);
 				rdp.stats.prime_waits++;
 			}
-			memcpy(raw_span, shadow_row + x0 * 2u, w * 2u);
+			memcpy(raw_span, ram_row + x0 * 2u, w * 2u);
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
 			uint32_t dx = x0 * scale, dy = y * scale;
 			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
@@ -1806,7 +1806,7 @@ static uint32_t prime_profile_pending_spans(int i)
 				fence_wait(rdp.prime_fence[k]);
 				rdp.stats.prime_waits++;
 			}
-			memcpy(raw_span, ram_row + x0 * 2u, w * 2u);
+			memcpy(raw_span, shadow_row + x0 * 2u, w * 2u);
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
 			uint32_t dx = x0 * scale, dy = y * scale;
 			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
