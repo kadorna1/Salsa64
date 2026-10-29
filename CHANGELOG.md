@@ -14,6 +14,12 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Yoshi's Story: coloured dots on the edges of the background layers.** The
+  RSX copied those 8-bit layers to RAM with a linear filter at 1:1, which on
+  this hardware blends a fraction of the neighbouring pixel; the red channel is
+  a palette index there, so an index off by one became a stray colour at every
+  edge. 1:1 copies now use nearest sampling (`gfx-copia-lineal` in
+  `/dev_hdd0/salsa64/` restores the old filter for comparison).
 - **Yoshi's Story: 8-bit background layers are primed from RAM.** The game
   draws its sky, hills and trees into three 336 × 256 8-bit images in strips;
   when the RSX surface of such a layer was new or stale it started from

@@ -19,6 +19,7 @@
 
 #include "fpgen_ref.h"
 #include "rsxkit/fpgen.h"
+#include "rsxkit/rsxkit.h"
 
 /* ---- Intérprete ---- */
 
@@ -433,8 +434,21 @@ static void fpgen_desc_rules(void)
 	CHECK_EQ(rsxkit_fpgen_emit(&bad6, words, RSXKIT_FP_MAX_WORDS, NULL), (uint64_t)RSXKIT_FP_EDESC);
 }
 
+/* rsxkit_target_read: el más cercano solo cuando la región y la salida
+ * miden lo mismo (copia 1:1, las capas de 8 bits); al reducir, lineal; y
+ * con exact = 0, lineal siempre. */
+static void rsxkit_read_filter(void)
+{
+	CHECK(rsxkit_read_filter_nearest(336, 256, 336, 256, 1));
+	CHECK(rsxkit_read_filter_nearest(336, 16, 336, 16, 1));
+	CHECK(!rsxkit_read_filter_nearest(960, 720, 320, 240, 1));
+	CHECK(!rsxkit_read_filter_nearest(336, 256, 336, 128, 1));
+	CHECK(!rsxkit_read_filter_nearest(336, 256, 336, 256, 0));
+}
+
 void t_suite_fpgen(void)
 {
+	RUN(rsxkit_read_filter);
 	RUN(fpgen_refs_lincomb);
 	RUN(fpgen_refs_products);
 	RUN(fpgen_emit_forms);

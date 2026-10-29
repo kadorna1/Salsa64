@@ -1,5 +1,22 @@
 # Estado
 
+## 2026-10-28 — Yoshi's Story: los puntos de las capas de fondo eran la copia lineal a 1:1
+
+- Cuatro cajas negras de la consola con el paquete «Salsa64 Yoshi»: las tiras
+  de 336 × 6 que la HLE decodificó de la RDRAM (reconstruidas capa por capa
+  en `build/yoshi-rdp/ps3/caja-2268/capa-*.png`) ya traen los puntos en cada
+  borde y una cuadrícula en las zonas planas; ninguna de esas tareas dibuja en
+  las capas (los puntos ya estaban en la RDRAM). Los únicos muestreos en ese
+  camino son los tiles de 16 × 16 (ya sin filtro) y `rsxkit_target_read`,
+  que copiaba con filtro lineal también a 1:1.
+- Causa: el lineal a 1:1 no es exacto en el RSX (el vértice se ajusta a su
+  subpíxel y la muestra cae a una fracción del centro): mezcla parte del
+  vecino, y en una capa cuyo rojo es un índice de paleta un índice ± 1 es otro
+  color. Arreglo en rsxkit: a 1:1 el más cercano (`rsxkit_read_filter_nearest`,
+  con prueba en `test_fpgen`); `gfx-copia-lineal` vuelve al lineal. Nota en
+  `docs/rsx-notes.md`. No cambia el host (no usa rsxkit): escenas iguales por
+  construcción; unitarias 782, `fpgen` 5 de 5.
+
 ## 2026-10-28 — Yoshi's Story: las capas de 8 bits se ceban desde la RDRAM; inventario contra ares
 
 - **Inventario (host contra ares, mismas escenas).** Intro y título (tres

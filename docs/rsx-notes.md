@@ -391,3 +391,18 @@ registro de `rsxkit_init` («video: antes de configurar…»):
   (`rsxkit_back_buffer`, `rsxkit_screen_texture`, `rsxkit_bind_frame`).
 - Regiones de mosaico (tiles) del sistema: el registro las lista; no se
   quitan.
+
+## Copias a 1:1 con filtro lineal: puntos en las capas de 8 bits (2026-10-28)
+
+`rsxkit_target_read` copiaba siempre con filtro lineal (reduce 3× → 1×). Con
+una superficie a 1× (las capas de fondo de 8 bits de Yoshi's Story, 336 × 256)
+la copia es 1:1 y el lineal no es exacto en el RSX: el vértice se ajusta a su
+subpíxel y la muestra cae a una fracción de texel del centro, así que el rojo
+sale mezclado con el vecino. En RGB es invisible; en una capa cuyo rojo es un
+índice de paleta, un índice ± 1 es otro color: puntos sueltos en cada borde de
+la capa (y una cuadrícula en las zonas planas, en las esquinas de los tiles).
+Reproducido con las cajas negras de la consola: las tiras de 336 × 6 que la
+HLE decodificó de la RDRAM ya traen los puntos (`build/yoshi-rdp/ps3/`).
+Arreglo: a 1:1 el más cercano (`rsxkit_read_filter_nearest`); la bandera
+`gfx-copia-lineal` vuelve al lineal. El mismo fenómeno obligó antes a dibujar
+sin filtro dentro de esas capas (rdp.c, «puntos naranjas y azules»).

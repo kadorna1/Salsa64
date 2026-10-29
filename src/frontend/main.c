@@ -5548,6 +5548,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_rdp_set_big8_wait(rom[0x3B] == 'N' && rom[0x3C] == 'Y' && rom[0x3D] == 'S');
 	/* Las capas de 8 bits se ceban desde la RDRAM cuando su superficie es
 	 * nueva o quedó vieja; `gfx-big8-sin-cebar` lo apaga (para comparar). */
+	/* Las copias del RSX a la RDRAM a 1:1 (las capas de 8 bits) van con el
+	 * filtro más cercano; `gfx-copia-lineal` vuelve al lineal (para comparar). */
+	if (file_exists(SALSA64_DATA_DIR "/gfx-copia-lineal")) {
+		rsxkit_target_read_exact(0);
+		salsa64_log("copias del RSX a la RDRAM a 1:1 con filtro lineal (gfx-copia-lineal)");
+	}
 	{
 		bool big8_prime = !file_exists(SALSA64_DATA_DIR "/gfx-big8-sin-cebar");
 		salsa64_rdp_set_big8_prime(big8_prime);
