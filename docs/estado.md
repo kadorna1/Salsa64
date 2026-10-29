@@ -1,5 +1,30 @@
 # Estado
 
+## 2026-10-29 — rsxkit unificada con SalsaDS (rama rsxkit-unificar)
+
+- `lib/rsxkit` es ahora la misma biblioteca, byte a byte, en Salsa64 y en
+  SalsaDS (las dos copias habían divergido desde 61ea9f43, el árbol que
+  SalsaDS tomó por subtree). Entra lo de SalsaDS (stencil, programa del
+  usuario con etiqueta de uso, COLOR0 auxiliar, constantes incrementales,
+  mezclas con máximo y mínimo del alfa, pruebas de z GEQUAL/ALWAYS/EQUAL,
+  `RSXKIT_ARGB8888`, `RSXKIT_CLEAR_ALPHA`, `out_target`) y se conserva todo lo
+  de Salsa64. Donde chocaban (destinos con alfa, blit con alfa, `set_depth`)
+  queda una sola forma, documentada en el README de la biblioteca; la API de
+  Salsa64 no cambia y `src/` no se toca.
+- Para Salsa64 lo único distinto que llega al RSX: `rsxSetBlendEquation` en
+  cada cambio de mezcla y en el estado 2D, tramado y stencil apagados en el
+  estado fijo del 3D, un fragment program menos (el blit con alfa) y las
+  etiquetas FINISH/FENCE en 0 al arrancar.
+- Verificado: 785 pruebas unitarias del host (0 fallidas); las 8 escenas del
+  host idénticas a main c006f36 (sin SM64, que no está en el conjunto);
+  paquete `build/salsa64-rsxkit/salsa64-rsxkit.pkg` («Salsa64 rsxkit»,
+  SLSA00215). Falta la PS3 real: guion en `build/rsxkit-unificar/guion-ps3.md`
+  e informe completo en `build/rsxkit-unificar/informe.md`.
+- Publicar en el repositorio rsxkit: la historia del split de `lib/rsxkit` no
+  tiene relación con la de rsxkit/main (62bf102), así que no sirve
+  `subtree push`: hay que unir el split con rsxkit/main en un worktree aparte
+  (ver el informe). En el repo, el README de la lib es `README.es.md`.
+
 ## 2026-10-28 — Yoshi's Story: camino rápido de layer8 (el genérico costaba 1 µs por píxel en el PPE)
 
 - En la consola (`build/yoshi-rdp/ps3/yoshi3.log`) las esperas bajaron a 0,
