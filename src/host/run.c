@@ -2761,6 +2761,12 @@ static void gfx_summary(void)
 		raster_8bit_stats(&d8, &t8r, &t8m);
 		fprintf(stderr, "salsa64-run: gfx: imágenes de 8 bits: %u dibujos; texturas I8 de ellas: %u de su imagen, %u "
 			"de la RDRAM\n", d8, t8r, t8m);
+		uint32_t m32t, m32d, m32p, m32b, m32r;
+		raster_mask32_stats(&m32t, &m32d, &m32p, &m32b, &m32r);
+		if (m32t || m32r)
+			fprintf(stderr, "salsa64-run: gfx: imágenes chicas de 32 bits en software: %u tareas, %u dibujos, %u "
+				"píxeles, %u bytes a la RDRAM; %u quedaron para el rasterizador\n", m32t, m32d, m32p, m32b,
+				m32r);
 		fprintf(stderr, "salsa64-run: gfx: profundidad: %u borrados enteros puestos (z images que el RDP no borra "
 			"enteras, como rdp.c)\n", raster_zauto_count());
 	}

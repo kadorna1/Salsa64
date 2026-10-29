@@ -890,8 +890,235 @@ static void raster_layer8_cost(void)
 	CHECK_EQ(lr.n, 1);
 }
 
+/* mask32 (src/rdp/mask32.c): la luz de los cuartos oscuros de Paper Mario,
+ * armada como la deja la HLE. Una imagen RGBA32 de 64 × 64 en 0x400 (sobre
+ * el z-buffer): un cuadro blanco y uno negro con alfa 1 − I de una textura
+ * de luz (mezcla con la memoria: queda I); la misma memoria como I8 con
+ * cuatro franjas 1:1 que leen la RGBA32 (la HLE las decodificó de la RDRAM
+ * vieja: aquí basura que no se debe usar); el relleno de 0xFFFC que devuelve
+ * el z-buffer. La RDRAM debe quedar con la máscara I8 en sus 4 KB; el resto
+ * del z-buffer, con el relleno. Después, la tarea chica que abre el cuadro
+ * siguiente borra el z-buffer entero y la máscara se repone. */
+#include "rdp/mask32.h"
+#define M32_ADDR 0x400u
+#define M32_N    (2 + 4 + 1)
+static uint8_t m32_cmd[4 * sizeof(struct gfx_cmd) + M32_N * sizeof(struct gfx_draw) + sizeof(struct gfx_zclear) +
+		       sizeof(struct gfx_cmd)] __attribute__((aligned(16)));
+static struct gfx_vertex m32_vtx[6 * M32_N] __attribute__((aligned(16)));
+static uint8_t m32_tex[64 * 256 + 4 * 64 * 64] __attribute__((aligned(128)));  /* luz 64×64 y franjas viejas */
+static uint8_t m32_ram[0x30000] __attribute__((aligned(16)));
+
+static uint8_t m32_light(uint32_t x, uint32_t y)
+{
+	uint32_t v = 3 * x + 2 * y;
+	return (uint8_t)(v > 255 ? 255 : v);
+}
+
+static struct gfx_draw *m32_draw(uint8_t **p, uint32_t v0, float x0, float y0, float x1, float y1, float s1,
+				 float t1)
+{
+	struct gfx_draw *d = (struct gfx_draw *)*p;
+	*p += sizeof *d;
+	memset(d, 0, sizeof *d);
+	d->h.op = GFX_OP_DRAW;
+	d->h.size = sizeof *d;
+	d->h.a = (uint16_t)v0;
+	d->h.b = 6;
+	d->scissor[2] = 64 * 4;
+	d->scissor[3] = 64 * 4;
+	d->blend = GFX_BLEND_ALPHA;
+	struct gfx_vertex *v = &m32_vtx[v0];
+	set_vtx(&v[0], x0, y0);
+	set_vtx(&v[1], x1, y0);
+	set_vtx(&v[2], x0, y1);
+	set_vtx(&v[3], x1, y0);
+	set_vtx(&v[4], x1, y1);
+	set_vtx(&v[5], x0, y1);
+	v[1].s = v[3].s = v[4].s = s1;
+	v[2].t = v[4].t = v[5].t = t1;
+	for (int i = 0; i < 6; i++)
+		v[i].a = 255;
+	return d;
+}
+
+static struct gfx_cmd *m32_target(uint8_t **p, uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz)
+{
+	struct gfx_cmd *t = (struct gfx_cmd *)*p;
+	*p += sizeof *t;
+	t->op = GFX_OP_TARGET;
+	t->size = sizeof *t;
+	t->a = addr;
+	t->b = width;
+	t->c = fmt << 8 | siz;
+	return t;
+}
+
+/* Arma la tarea; devuelve sus bytes. */
+static uint32_t m32_build(void)
+{
+	memset(m32_cmd, 0, sizeof m32_cmd);
+	for (uint32_t y = 0; y < 64; y++)
+		for (uint32_t x = 0; x < 64; x++)
+			memset(&m32_tex[y * 256 + x * 4], m32_light(x, y), 4);
+	memset(m32_tex + 64 * 256, 0xFF, 4 * 64 * 64);  /* franjas «decodificadas de la RDRAM vieja» */
+	uint8_t *p = m32_cmd;
+	m32_target(&p, M32_ADDR, 64, 0, 3);
+	struct gfx_draw *d = m32_draw(&p, 0, 0, 0, 128, 128, 0, 0);
+	for (int l = 0; l < 4; l++)
+		d->k[GFX_K_ONE][0][l] = 1.0f;
+	d = m32_draw(&p, 6, 0, 0, 64, 64, 64, 64);
+	d->ntex = 1;
+	d->tex[0].width = d->tex[0].height = 64;
+	d->tex[0].pitch = 256;
+	d->tex[0].xf[0] = d->tex[0].xf[1] = 1.0f / 64;
+	d->tex[0].src_addr = 0x14D500;  /* la textura de luz (ROM), no la imagen */
+	d->k[GFX_K_T0A][0][3] = -1.0f;
+	d->k[GFX_K_ONE][0][3] = 1.0f;
+	m32_target(&p, M32_ADDR, 64, 4, 1);
+	for (uint32_t k = 0; k < 4; k++) {
+		/* Como la HLE: t de 0 a 16 en cada franja (vértices en y = 16k..16k+16). */
+		d = m32_draw(&p, 12 + 6 * k, 0, 16.0f * k, 64, 16.0f * (k + 1), 64, 16);
+		d->ntex = 1;
+		d->tex[0].width = 64;
+		d->tex[0].height = 16;
+		d->tex[0].pitch = 256;
+		d->tex[0].offset = 64 * 256 + k * 64 * 64;
+		d->tex[0].xf[0] = 1.0f / 64;
+		d->tex[0].xf[1] = 1.0f / 16;
+		d->tex[0].src_addr = M32_ADDR + k * 0x1000;
+		d->tex[0].src_pitch = 64;
+		d->tex[0].src_siz = 3;
+		d->tex[0].src_fmt = 0;
+		d->k[GFX_K_T0][0][0] = d->k[GFX_K_T0][0][1] = d->k[GFX_K_T0][0][2] = 1.0f;
+		d->k[GFX_K_ONE][0][3] = 1.0f;
+	}
+	struct gfx_zclear *z = (struct gfx_zclear *)p;
+	p += sizeof *z;
+	z->h.op = GFX_OP_ZCLEAR;
+	z->h.size = sizeof *z;
+	z->h.a = M32_ADDR;
+	z->h.b = 0xFFFC;
+	z->h.c = 3u << 16 | 64u;
+	z->rect[2] = z->rect[3] = 64;
+	z->fill = 0xFFFCFFFC;
+	m32_target(&p, 0x20000, 320, 0, 2);
+	d = m32_draw(&p, 36, 0, 0, 320, 240, 0, 0);
+	d->scissor[2] = 320 * 4;
+	d->scissor[3] = 240 * 4;
+	return (uint32_t)(p - m32_cmd + sizeof(struct gfx_cmd));
+}
+
+/* Lo que hace salsa64_gfx_rdram_fills con un relleno de 0xFFFC de `bytes`. */
+static void m32_fill(uint32_t addr, uint32_t bytes)
+{
+	for (uint32_t a = addr; a < addr + bytes; a += 2)
+		salsa64_wr16(m32_ram + a, 0xFFFC);
+}
+
+static void raster_mask32_light(void)
+{
+	uint32_t bytes = m32_build();
+	struct mask32_result warm;
+	mask32_run(m32_ram, sizeof m32_ram, m32_cmd, bytes, m32_vtx, m32_tex, NULL, &warm);  /* memoria tocada */
+	mask32_forget();
+	for (int pass = 0; pass < 2; pass++) {
+		mask32_fast = pass == 0;
+		memset(m32_ram, 0x5A, sizeof m32_ram);
+		m32_fill(M32_ADDR, 0x4000);  /* el relleno de la misma tarea ya está en la RDRAM */
+		struct mask32_result mr;
+		uint64_t t0 = host_clock();
+		mask32_run(m32_ram, sizeof m32_ram, m32_cmd, bytes, m32_vtx, m32_tex, NULL, &mr);
+		uint64_t ns = host_clock() - t0;
+		/* Medida (guía, no aserción). */
+		fprintf(stderr, "    mask32 %s: %u px en %.3f ms (%.1f ns/px)\n", pass == 0 ? "entero" : "coma flotante",
+			mr.pixels, ns / 1e6, mr.pixels ? (double)ns / mr.pixels : 0.0);
+		CHECK_EQ(mr.n, 1);
+		CHECK_EQ(mr.addr[0], M32_ADDR);
+		CHECK_EQ(mr.width[0], 64);
+		CHECK_EQ(mr.refused, 0);
+		CHECK_EQ(mr.draws, 6);
+		CHECK_EQ(mr.bytes, 64 * 64);
+		unsigned bad = 0;
+		for (uint32_t y = 0; y < 64; y++)
+			for (uint32_t x = 0; x < 64; x++) {
+				int got = m32_ram[M32_ADDR + y * 64 + x], want = m32_light(x, y);
+				bad += got - want > 1 || want - got > 1;
+			}
+		CHECK_EQ(bad, 0);
+		/* El resto del z-buffer, con el relleno; el framebuffer no se tocó. */
+		CHECK_EQ(salsa64_rd16(m32_ram + M32_ADDR + 0x1000), 0xFFFC);
+		CHECK_EQ(salsa64_rd16(m32_ram + M32_ADDR + 0x3FFE), 0xFFFC);
+		CHECK_EQ(m32_ram[0x20000], 0x5A);
+	}
+	mask32_fast = true;
+
+	/* La tarea chica del cuadro siguiente borra el z-buffer entero: se repone. */
+	static uint8_t zc[sizeof(struct gfx_zclear) + sizeof(struct gfx_cmd)] __attribute__((aligned(16)));
+	memset(zc, 0, sizeof zc);
+	struct gfx_zclear *z = (struct gfx_zclear *)zc;
+	z->h.op = GFX_OP_ZCLEAR;
+	z->h.size = sizeof *z;
+	z->h.a = M32_ADDR;
+	z->h.b = 0xFFFC;
+	z->h.c = 2u << 16 | 320u;
+	z->rect[2] = 320;
+	z->rect[3] = 240;
+	z->fill = 0xFFFCFFFC;
+	m32_fill(M32_ADDR, 320 * 240 * 2);
+	struct mask32_result mr;
+	mask32_run(m32_ram, sizeof m32_ram, zc, sizeof zc, m32_vtx, m32_tex, NULL, &mr);
+	CHECK_EQ(mr.n, 0);
+	CHECK_EQ(mr.restored, 64 * 64);
+	CHECK_EQ(m32_ram[M32_ADDR + 63 * 64 + 63], m32_light(63, 63));
+	CHECK_EQ(salsa64_rd16(m32_ram + M32_ADDR + 0x1000), 0xFFFC);
+	/* Una tarea sin relleno ahí no repone nada (la RDRAM puede ser del CPU). */
+	z->h.a = 0x20000;
+	m32_ram[M32_ADDR] = 0x11;
+	mask32_run(m32_ram, sizeof m32_ram, zc, sizeof zc, m32_vtx, m32_tex, NULL, &mr);
+	CHECK_EQ(mr.restored, 0);
+	CHECK_EQ(m32_ram[M32_ADDR], 0x11);
+	/* Pasadas MASK32_KEEP tareas, ni con relleno. */
+	z->h.a = M32_ADDR;
+	for (int i = 0; i < MASK32_KEEP; i++)
+		mask32_run(m32_ram, sizeof m32_ram, zc, sizeof zc, m32_vtx, m32_tex, NULL, &mr);
+	CHECK_EQ(mr.restored, 0);
+	/* Ni después de olvidar (otro juego, un estado cargado). */
+	mask32_run(m32_ram, sizeof m32_ram, m32_cmd, bytes, m32_vtx, m32_tex, NULL, &mr);
+	CHECK_EQ(mr.n, 1);
+	mask32_forget();
+	mask32_run(m32_ram, sizeof m32_ram, zc, sizeof zc, m32_vtx, m32_tex, NULL, &mr);
+	CHECK_EQ(mr.restored, 0);
+}
+
+/* Lo que no cabe deja la imagen al RSX: un dibujo con z, o una imagen de 8
+ * bits en la misma memoria antes que la de 32 (ya iría al RSX). */
+static void raster_mask32_refused(void)
+{
+	uint32_t bytes = m32_build();
+	struct gfx_draw *d = (struct gfx_draw *)(m32_cmd + sizeof(struct gfx_cmd) + sizeof(struct gfx_draw));
+	d->depth = GFX_DEPTH_TEST;
+	memset(m32_ram, 0x5A, sizeof m32_ram);
+	struct mask32_result mr;
+	mask32_run(m32_ram, sizeof m32_ram, m32_cmd, bytes, m32_vtx, m32_tex, NULL, &mr);
+	CHECK_EQ(mr.n, 0);
+	CHECK_EQ(mr.refused, 1);
+	CHECK_EQ(mr.draws, 0);
+	CHECK_EQ(m32_ram[M32_ADDR], 0x5A);
+	d->depth = 0;
+	/* La I8 primero: los dos TARGET se cambian de tamaño de píxel. */
+	((struct gfx_cmd *)m32_cmd)->c = 4u << 8 | 1u;
+	((struct gfx_cmd *)(m32_cmd + sizeof(struct gfx_cmd) + 2 * sizeof(struct gfx_draw)))->c = 3u;
+	mask32_run(m32_ram, sizeof m32_ram, m32_cmd, bytes, m32_vtx, m32_tex, NULL, &mr);
+	CHECK_EQ(mr.n, 0);
+	CHECK_EQ(mr.refused, 1);
+	CHECK_EQ(m32_ram[M32_ADDR], 0x5A);
+	mask32_forget();
+}
+
 void t_suite_raster(void)
 {
+	RUN(raster_mask32_light);
+	RUN(raster_mask32_refused);
 	RUN(raster_layer8_equals_host);
 	RUN(raster_layer8_cost);
 	RUN(raster_big8_primed);

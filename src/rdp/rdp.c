@@ -20,6 +20,7 @@
  */
 #include "rdp/rdp.h"
 #include "rdp/layer8.h"
+#include "rdp/mask32.h"
 
 static inline uint64_t tb_now(void);  /* abajo; la usa el reloj de layer8 */
 
@@ -147,9 +148,10 @@ struct set {
 	 * (la misma imagen se pide en tareas seguidas: un efecto por cuadro
 	 * recibe el cuadro anterior, como la intro de Conker). */
 	uint32_t rb_addr[RB_PER_TASK], rb_width[RB_PER_TASK];
-	/* Capas de 8 bits que done dibujó en la RDRAM (layer8): sin copia y
-	 * sin dibujos en el RSX en esta tarea. */
-	uint32_t sw8_addr[LAYER8_MAX], sw8_width[LAYER8_MAX], sw8_n;
+	/* Capas de 8 bits que done dibujó en la RDRAM (layer8) e imágenes
+	 * chicas de 32 bits (mask32): sin copia y sin dibujos en el RSX en esta
+	 * tarea. */
+	uint32_t sw8_addr[LAYER8_MAX + MASK32_MAX], sw8_width[LAYER8_MAX + MASK32_MAX], sw8_n;
 	uint32_t rb_rep[RB_PER_TASK];  /* tareas seguidas en que se venía pidiendo */
 	bool rb_sync[RB_PER_TASK];
 	uint32_t rb_n, rb_nsync;
@@ -389,6 +391,8 @@ static struct {
 	bool big8_prime;
 	/* Si las capas big8 las dibuja el PPE en la RDRAM (gfx-capas8-rsx lo apaga). */
 	bool layer8_on;
+	/* Si las imágenes chicas de 32 bits las dibuja el PPE (gfx-mascara32-rsx lo apaga). */
+	bool mask32_on;
 	bool zclear_target;          /* el borrado pertenece a la próxima color image */
 	uint32_t rb_prev_n[RB_HISTORY];
 	uint32_t rb_prev_i;
@@ -518,6 +522,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.fbfx = 2;
 	rdp.big8_prime = true;
 	rdp.layer8_on = true;
+	rdp.mask32_on = true;
 	layer8_clock = tb_now;
 	rdp.aa_edges = false;  /* experimental: engordaba los modelos en la PS3 */
 	rdp.ready = true;
@@ -640,6 +645,8 @@ static void interp_release(void);
 
 static void release_targets(void)
 {
+	/* Lo que mask32 repone en la RDRAM era de la máquina anterior. */
+	mask32_forget();
 	rdp.again.surf = NULL;
 	rdp.again.interp = false;
 	interp_release();
@@ -2379,6 +2386,11 @@ void salsa64_rdp_set_layer8(bool on)
 	rdp.layer8_on = on;
 }
 
+void salsa64_rdp_set_mask32(bool on)
+{
+	rdp.mask32_on = on;
+}
+
 void salsa64_rdp_zclear_target(bool on)
 {
 	rdp.zclear_target = on;
@@ -2533,8 +2545,30 @@ static void done(void *ctx, const struct gfx_job *job, const struct gfx_result *
 		rdp.stats.tb_layer8_slow += lr.slow_ticks;
 		rdp.stats.tb_layer8 += tb_now() - t0;
 	}
+	uint32_t l8n = s->sw8_n;
+	/* Las imágenes chicas de 32 bits (la luz de los cuartos oscuros de
+	 * Paper Mario, mask32.h), también en la RDRAM ya mismo: la HLE de la
+	 * tarea siguiente carga de ahí la máscara. */
+	if (rdp.mask32_on && rdp.rdram && rdp.fbfx >= 2) {
+		uint64_t t0 = tb_now();
+		struct mask32_result mr;
+		mask32_run(rdp.rdram, rdp.rdram_size, s->cmd, res->cmd_bytes, (const struct gfx_vertex *)s->vtx, s->tex,
+			   rdp.cache, &mr);
+		for (uint32_t i = 0; i < mr.n && s->sw8_n < LAYER8_MAX + MASK32_MAX; i++) {
+			s->sw8_addr[s->sw8_n] = mr.addr[i];
+			s->sw8_width[s->sw8_n] = mr.width[i];
+			s->sw8_n++;
+		}
+		rdp.stats.mask32_tasks += mr.n > 0;
+		rdp.stats.mask32_draws += mr.draws;
+		rdp.stats.mask32_pixels += mr.pixels;
+		rdp.stats.mask32_bytes += mr.bytes;
+		rdp.stats.mask32_restored += mr.restored;
+		rdp.stats.mask32_refused += mr.refused;
+		rdp.stats.tb_mask32 += tb_now() - t0;
+	}
 	readbacks_wanted(s, res);
-	if (s->sw8_n && !s->rb_nsync)
+	if (l8n && !s->rb_nsync)
 		rdp.stats.layer8_waits_avoided++;
 	guard_mark_task(s, res);
 	lwsync();
@@ -2746,9 +2780,10 @@ static void translate(uint32_t n)
 			uint32_t lh = scissor_bottom(s, off + c->size, res->cmd_bytes), siz = c->c & 0xFF;
 			skip8 = set_sw8(s, c->a, c->b);
 			if (skip8) {
-				/* La capa ya está en la RDRAM: ni se dibuja ni se copia; si
-				 * otra tarea la lleva al RSX, get_target la ceba de ahí. */
-				ppe_wr_note(c->a, c->a + c->b * (lh ? lh : 240u));
+				/* La capa (o la imagen de 32 bits) ya está en la RDRAM: ni se
+				 * dibuja ni se copia; si otra tarea la lleva al RSX,
+				 * get_target la ceba de ahí. */
+				ppe_wr_note(c->a, c->a + c->b * (siz == 3u ? 4u : siz == 2u ? 2u : 1u) * (lh ? lh : 240u));
 				cur = -1;
 				break;
 			}

@@ -3705,6 +3705,17 @@ static void stats(uint64_t now)
 				    fpx ? fms * 1e6 / fpx : 0.0, spx, sms, spx ? sms * 1e6 / spx : 0.0,
 				    rs.layer8_waits_avoided - sw.rdp0.layer8_waits_avoided, rs.layer8_refused - sw.rdp0.layer8_refused);
 		}
+		if (rs.mask32_tasks != sw.rdp0.mask32_tasks || rs.mask32_refused != sw.rdp0.mask32_refused ||
+		    rs.mask32_restored != sw.rdp0.mask32_restored) {
+			uint32_t m32t = rs.mask32_tasks - sw.rdp0.mask32_tasks;
+			salsa64_log("gfx: imágenes chicas de 32 bits en el PPE: %u tareas, %u dibujos, %u píxeles, %.3f ms "
+				    "por tarea; %u bytes a la RDRAM y %u repuestos tras un relleno; %u quedaron para el RSX "
+				    "(dibujo no soportado)",
+				    m32t, rs.mask32_draws - sw.rdp0.mask32_draws, rs.mask32_pixels - sw.rdp0.mask32_pixels,
+				    m32t ? (rs.tb_mask32 - sw.rdp0.tb_mask32) * 1e3 / spukit_tick_hz() / m32t : 0.0,
+				    rs.mask32_bytes - sw.rdp0.mask32_bytes, rs.mask32_restored - sw.rdp0.mask32_restored,
+				    rs.mask32_refused - sw.rdp0.mask32_refused);
+		}
 		uint32_t gcop = rs.guard_copies - sw.rdp0.guard_copies, glin = rs.guard_lines - sw.rdp0.guard_lines;
 		uint64_t gtb = rs.tb_guard_mark - sw.rdp0.tb_guard_mark;
 		if (gcop || gtb)
@@ -5580,6 +5591,15 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (file_exists(SALSA64_DATA_DIR "/gfx-capas8-rsx")) {
 		salsa64_rdp_set_layer8(false);
 		salsa64_log("capas de 8 bits (big8): en el RSX con copia a la RDRAM (gfx-capas8-rsx)");
+	}
+	/* Las imágenes chicas de 32 bits (la luz de los cuartos oscuros de Paper
+	 * Mario) las dibuja el PPE en la RDRAM; `gfx-mascara32-rsx` las deja en
+	 * el RSX como antes. */
+	{
+		bool m32 = !file_exists(SALSA64_DATA_DIR "/gfx-mascara32-rsx");
+		salsa64_rdp_set_mask32(m32);
+		if (!m32)
+			salsa64_log("imágenes chicas de 32 bits: en el RSX (gfx-mascara32-rsx)");
 	}
 	{
 		bool big8_prime = !file_exists(SALSA64_DATA_DIR "/gfx-big8-sin-cebar");
