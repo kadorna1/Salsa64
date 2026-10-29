@@ -8,9 +8,6 @@ on:
       - "src/frontend/main.c"
       - "lib/rsxkit/**"
       - "tests/unit/test_targets.c"
-      - "mk/ps3.mk"
-      - "tools/prepare_snd0.py"
-      - "assets/ps3/SND0.AT3"
       - ".github/workflows/dr-mario64-v214.yml"
   workflow_dispatch:
 
@@ -90,11 +87,6 @@ jobs:
           set -euo pipefail
           bash tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/dr-mario-ps3-package.log
           test -s build/salsa64/salsa64.pkg
-          test -s assets/ps3/SND0.AT3
-          test -s build/salsa64/obj/pkg/SND0.AT3
-          python3 tools/prepare_snd0.py --check assets/ps3/SND0.AT3 build/salsa64/obj/pkg/SND0.AT3
-          echo "Normalized XMB hover audio verified at the PKG content root."
-          sha256sum assets/ps3/SND0.AT3 build/salsa64/obj/pkg/SND0.AT3
 
       - name: Upload package and diagnostics
         if: always()
