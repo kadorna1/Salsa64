@@ -1,5 +1,13 @@
 # Estado
 
+## 2026-10-29 — Ritmo del RCP (#40, Shadows of the Empire acelerado)
+- ares (GDB): SotE en Hoth 80–89 tareas gráficas/s y 40–44 cuadros presentados/s; el host daba 150 y 60 (el juego armaba ~75 cuadros/s). Dos tareas por cuadro; la grande tarda 8,5–18 ms de RSP en ares.
+- El RDP de ares termina en el acto: lo medido es el tiempo del RSP real; el relleno del RDP no está (cota inferior).
+- Modelo por familia (comandos, triángulos y vértices; `gfx_result.vertices` nuevo, `tex_arena`/`tex_evicted` a 16 bits para no crecer los 112 bytes), ajustado sobre 62 tareas volcadas en ares de SM64, SotE, GE, F-Zero X y OoT: error medio 2–5 %.
+- Host con el ritmo: SotE 94 tareas/s y 47 cuadros/s; SM64, OoT, MK64 y F-Zero X igual que antes; GE 53,6 → 50,5 (ares 41,9). Ninguna ventana más lenta que ares. Sin huecos nuevos del AI.
+- Encendido por omisión solo en SotE (`NSW`); `rsp-ritmo`, `rsp-ritmo-<código>` y `sin-rsp-ritmo`; porcentaje en el archivo. Host: `SALSA64_RITMO_RCP`, informe `SALSA64_RITMO=N`. Detalle en `docs/ritmo-rcp.md`.
+- Docker: 793 pruebas sin fallos; escenas del host idénticas a la base. Falta la PS3 (SotE en Hoth y un control); no se llegó a los AT-AT sin jugar.
+
 ## 2026-10-28 — Correcciones de los issues #38, #39, #30 y #52
 - #38: BG_1CYC limita marcos mayores que la imagen escalada; contraste con S2DEX real y `s2dex-marco-viejo` para A/B. Falta confirmar C&C en PS3.
 - #39: tejido de cuadros completos; en Indy la ventana pasa de alternar filas 1/2 a mantener 1. `vi-campos` restaura la ruta anterior.

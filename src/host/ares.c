@@ -209,10 +209,19 @@ static bool ucode_nonear(const struct salsa64_task *t, char *text, size_t n)
 
 /* ---- HLE y rasterizador ----------------------------------------------------- */
 
+/* Detalle de la HLE de la última tarea (vértices de G_VTX, triángulos de
+ * entrada): para comparar el modelo del ritmo del RCP con lo que tarda la
+ * misma tarea en ares (docs/ritmo-rcp.md). */
+static struct gfx_detail detail __attribute__((aligned(128)));
+
 static void run_task(const struct salsa64_task *t, enum salsa64_gbi gbi, struct gfx_job *job,
 		     struct gfx_result *res)
 {
 	salsa64_gfx_job(job, &bus, t, gbi);
+	memset(&detail, 0, sizeof detail);
+	job->detail_ea = (uint64_t)(uintptr_t)&detail;
+	job->detail_cap = sizeof detail;
+	job->detail_version = GFX_DETAIL_VERSION;
 	job->vtx_ea = (uint64_t)(uintptr_t)out_vtx;
 	job->vtx_cap = sizeof out_vtx;
 	job->cmd_ea = (uint64_t)(uintptr_t)out_cmd;
@@ -698,6 +707,10 @@ static int one_dump(const char *path, const struct opts *o)
 		if (res.dl_errors)
 			printf(", %u errores de la lista", res.dl_errors);
 		printf("\n");
+		printf("  ritmo: %u cargas a la TMEM, %u G_VTX con %u vértices (%u con luz; %u en el resultado), %u triángulos de entrada; "
+		       "modelo del RCP %u ciclos (%.2f ms)\n",
+		       res.loads, detail.vertex_calls, detail.vertices, detail.lit_vertices, res.vertices, detail.triangles_in,
+		       salsa64_gfx_model_cycles(&res, gbis[i]), salsa64_gfx_model_cycles(&res, gbis[i]) / 93750.0);
 		uint32_t behind = behind_camera(&res);
 		if (behind)
 			printf("  %u triángulos con algún vértice detrás de la cámara (w ≤ 0; se recortan)\n", behind);

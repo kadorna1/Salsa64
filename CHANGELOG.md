@@ -14,6 +14,23 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Star Wars: Shadows of the Empire ran too fast** (#40). The game advances
+  its logic once per rendered frame and does not wait for the vertical blank;
+  the emulated graphics task finished in 0.3 ms, so it rendered about 75
+  frames per second. A new RCP pacing model estimates how long the real RSP
+  would take for each graphics task from what the HLE did (display list
+  commands, triangles and vertices, per microcode family) and does not end
+  the task earlier. It was calibrated against ares on 62 tasks of Super Mario
+  64, Shadows of the Empire, GoldenEye, F-Zero X and Zelda: Ocarina of Time
+  (average error 2–5 %). In the Battle of Hoth the game now draws about 47
+  frames per second (94 graphics tasks/s) against 42 in ares and 75 before;
+  the control games run as before or closer to ares, never slower. ares does
+  not time the RDP, so heavy fill-rate scenes on a real N64 can be slower
+  still. On by default only for Shadows of the Empire; `rsp-ritmo` turns it on
+  for every game, `rsp-ritmo-<code>` (the 4-character cartridge code shown in
+  the log) for one game, `sin-rsp-ritmo` turns it off, and the file may hold a
+  percentage (150 = 50 % slower RCP; about 37 frames per second in Hoth, 200
+  about 31). Details in `docs/ritmo-rcp.md`. PS3 check pending.
 - **Vigilante 8: 2nd Offense: explosions, smoke and the sun glare drew as
   black squares.** The game paints each of them twice with the same quad: a
   `MEM·A_IN` pass that darkens the background through the texture and an

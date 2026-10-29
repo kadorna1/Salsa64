@@ -3286,7 +3286,8 @@ static struct {
 	uint64_t t_stats, us_emu0, us_copy0, us_pace0, cyc0, idle0;
 	uint32_t fields0, pif_reads0;
 	struct salsa64_rdp_stats rdp0;
-	uint32_t gfx_waits0, gfx_polls0, gfx_cut0;
+	uint32_t gfx_waits0, gfx_polls0, gfx_cut0, gfx_tasks0, model_held0;
+	uint64_t model_wait0, model_sum0;
 	uint64_t gfx_skipped0, gfx_bg0;
 	uint64_t gfx_ticks0, gfx_wait0, gfx_sleep0, gfx_vtx0, gfx_state0, gfx_tex0, gfx_load0;
 	uint32_t lle_tasks0, lle_jobs0, lle_polls0;
@@ -3616,6 +3617,18 @@ static void stats(uint64_t now)
 			    rs.set_waits - sw.rdp0.set_waits,
 			    (rs.us_set_wait - sw.rdp0.us_set_wait) / 1e3, n64.bus.rsp.stats.cut - sw.gfx_cut0,
 			    (unsigned)(gfx_spu.skipped - sw.gfx_skipped0), (unsigned)(gfx_spu.bg - sw.gfx_bg0));
+		/* Ritmo del RCP (rsp-ritmo): lo estimado por tarea y cuántas terminaron
+		 * después de lo que habrían terminado sin él (en tiempo de la N64). */
+		uint32_t mtasks = n64.bus.rsp.stats.gfx - sw.gfx_tasks0;
+		if (n64.bus.rsp.gfx_model && mtasks)
+			salsa64_log("gfx: ritmo del RCP al %u %%: %.2f ms de N64 estimados por tarea; %u de %u tareas "
+				    "retrasadas, %.2f ms de N64 cada una",
+				    n64.bus.rsp.gfx_model, (n64.bus.rsp.stats.model_sum - sw.model_sum0) / 93750.0 / mtasks,
+				    n64.bus.rsp.stats.model_held - sw.model_held0, mtasks,
+				    n64.bus.rsp.stats.model_held - sw.model_held0
+					    ? (n64.bus.rsp.stats.model_wait - sw.model_wait0) / 93750.0 /
+						      (n64.bus.rsp.stats.model_held - sw.model_held0)
+					    : 0.0);
 		if (gfx_on_spu) {
 			double k = 1e3 / spukit_tick_hz() / tasks;
 			salsa64_log("gfx en el SPE por tarea: vértices %.2f ms, estado %.2f ms (texturas %.2f ms), "
@@ -3829,6 +3842,10 @@ static void stats(uint64_t now)
 	sw.gfx_polls0 = gfx_spu.polls;
 	sw.gfx_sleep0 = gfx_spu.sleep_us;
 	sw.gfx_cut0 = n64.bus.rsp.stats.cut;
+	sw.gfx_tasks0 = n64.bus.rsp.stats.gfx;
+	sw.model_held0 = n64.bus.rsp.stats.model_held;
+	sw.model_wait0 = n64.bus.rsp.stats.model_wait;
+	sw.model_sum0 = n64.bus.rsp.stats.model_sum;
 	sw.gfx_skipped0 = gfx_spu.skipped;
 	sw.gfx_bg0 = gfx_spu.bg;
 	sw.t_stats = now;
@@ -5423,6 +5440,58 @@ static void font_select(int lang)
 	font_log();
 }
 
+/* Ritmo del RCP (rsp.c, gfx_model; docs/ritmo-rcp.md): una tarea gráfica no
+ * termina antes de lo que tardaría el RSP real en ella, estimado con lo que
+ * hizo la HLE. Sin eso, un juego cuya lógica avanza por cuadro dibujado y que
+ * no espera el retrazo corre más rápido que en la consola (Shadows of the
+ * Empire: 150 tareas por segundo contra 85 en ares). Encendido por omisión solo
+ * en los juegos de RITMO_RCP_JUEGOS (medidos); rsp-ritmo lo enciende en todos,
+ * rsp-ritmo-<código> (los 4 caracteres del código del cartucho, p. ej.
+ * rsp-ritmo-NSWE) en uno, y sin-rsp-ritmo lo apaga. El archivo puede traer un
+ * porcentaje del modelo (100 por omisión; 150 = la consola un 50 % más lenta). */
+static const char *const RITMO_RCP_JUEGOS[] = {
+	"NSW",  /* Star Wars: Shadows of the Empire (todas las regiones) */
+};
+
+static bool ritmo_pct(const char *path, unsigned *pct)
+{
+	FILE *f = fopen(path, "r");
+	if (!f)
+		return false;
+	unsigned v = 0;
+	*pct = fscanf(f, "%u", &v) == 1 && v >= 10 && v <= 400 ? v : 100;
+	fclose(f);
+	return true;
+}
+
+static void ritmo_rcp_setup(const uint8_t *rom)
+{
+	char code[5];
+	for (int i = 0; i < 4; i++) {
+		char c = (char)rom[0x3B + i];
+		code[i] = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ? c : '_';
+	}
+	code[4] = '\0';
+	unsigned pct = 0;
+	const char *why = "apagado por omisión";
+	for (size_t i = 0; i < sizeof RITMO_RCP_JUEGOS / sizeof RITMO_RCP_JUEGOS[0]; i++)
+		if (!strncmp(code, RITMO_RCP_JUEGOS[i], strlen(RITMO_RCP_JUEGOS[i])))
+			pct = 100, why = "encendido por omisión en este juego";
+	char path[128];
+	snprintf(path, sizeof path, SALSA64_DATA_DIR "/rsp-ritmo-%s", code);
+	if (ritmo_pct(SALSA64_DATA_DIR "/rsp-ritmo", &pct))
+		why = "rsp-ritmo";
+	if (ritmo_pct(path, &pct))
+		why = path + sizeof SALSA64_DATA_DIR;
+	if (file_exists(SALSA64_DATA_DIR "/sin-rsp-ritmo"))
+		pct = 0, why = "sin-rsp-ritmo";
+	n64.bus.rsp.gfx_model = pct;
+	if (pct)
+		salsa64_log("RSP: ritmo del RCP al %u %% (%s; código %s)", pct, why, code);
+	else
+		salsa64_log("RSP: ritmo del RCP apagado (%s; código %s: rsp-ritmo-%s lo enciende)", why, code, code);
+}
+
 /* Una sesión de juego con la ROM ya en memoria (cualquier orden de bytes):
  * la arranca, la emula en dos hilos hasta START + SELECT, «Salir del
  * juego» o el fin de una prueba, y lo cierra todo (game_close). Llamar
@@ -5510,6 +5579,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 			salsa64_log("RSP: una tarea gráfica dura al menos %u ciclos (rsp-gfx-ciclos)", n64.bus.rsp.gfx_cycles);
 		}
 	}
+	ritmo_rcp_setup(rom);
 	/* Killer Instinct Gold (y otros) dibuja con listas del RDP que el CPU
 	 * escribe por DPC_START/DPC_END, sin RSP, y espera la interrupción del
 	 * DP de su SYNC_FULL antes de seguir: sin quien consuma esas listas el

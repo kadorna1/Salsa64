@@ -242,6 +242,112 @@ static void rsp_gfx_task_polls(void)
 	salsa64_rsp_set_gfx(bus, NULL);
 }
 
+/* Ritmo del RCP (gfx_model): una tarea que la HLE termina pronto no termina
+ * para el juego antes de lo que el backend estima que tardaría la consola
+ * (por el porcentaje), y la que tardaría menos que gfx_cycles termina como
+ * siempre. También al recogerla antes (salsa64_rsp_quiesce, estados). */
+static uint32_t fake_model;
+
+static uint32_t fake_cycles(void *ctx)
+{
+	(void)ctx;
+	return fake_model;
+}
+
+static const struct salsa64_gfx_backend model_backend = { .start = fake_start, .finish = fake_finish,
+							  .cycles = fake_cycles };
+
+static void rsp_gfx_model(void)
+{
+	struct salsa64_bus *bus = &t_n64.bus;
+	memset(&fake, 0, sizeof fake);
+	salsa64_rsp_set_gfx(bus, &model_backend);
+	salsa64_mi_clear(bus, SALSA64_IRQ_SP);
+	salsa64_mi_clear(bus, SALSA64_IRQ_DP);
+	put_text(0x5000 + 0x123, "Salsa64 GBI F3DEX2");
+	put_task(SALSA64_TASK_GFX, 0x5000, 0x6000);
+	bus->rsp.gfx_model = 150;
+	fake_model = 400000;  /* ×1,5 = 600000 ciclos */
+	uint32_t held0 = bus->rsp.stats.model_held;
+	wr(SP_REG(SALSA64_SP_STATUS), 0x8);
+	wr(SP_REG(SALSA64_SP_STATUS), 0x1 | 0x4 | 0x100);
+	CHECK_EQ(fake.starts, 1);
+	uint64_t t0 = CPU->cycles;
+	CHECK_EQ(bus->rsp.gfx_start, t0);
+	salsa64_sched_dispatch(&t_n64.sched, t0 + bus->rsp.gfx_cycles);
+	/* La HLE ya terminó (finish), pero el juego todavía no lo ve. */
+	CHECK_EQ(fake.finishes, 1);
+	CHECK_EQ(bus->rsp.busy, SALSA64_TASK_GFX);
+	CHECK(bus->rsp.collected);
+	CHECK_EQ(rd(SP_REG(SALSA64_SP_STATUS)) & SALSA64_SP_STATUS_HALT, 0);
+	CHECK_EQ(bus->mi.intr & (1u << SALSA64_IRQ_SP), 0);
+	CHECK_EQ(t_n64.sched.when[SALSA64_EV_SP_TASK], t0 + 600000);
+	CHECK_EQ(bus->rsp.stats.model_held, held0 + 1);
+	/* Una tarea nueva no arranca mientras tanto. */
+	wr(SP_REG(SALSA64_SP_STATUS), 0x1 | 0x4);
+	CHECK_EQ(fake.starts, 1);
+	salsa64_sched_dispatch(&t_n64.sched, t0 + 600000);
+	CHECK_EQ(fake.finishes, 1);  /* no se recoge dos veces */
+	CHECK_EQ(bus->rsp.busy, 0);
+	CHECK_EQ(bus->mi.intr, 1u << SALSA64_IRQ_SP);
+	salsa64_sched_dispatch(&t_n64.sched, t0 + 600000 + bus->rsp.dp_cycles);
+	CHECK_EQ(bus->mi.intr, (1u << SALSA64_IRQ_SP) | (1u << SALSA64_IRQ_DP));
+
+	/* Más corta que gfx_cycles: termina a la hora de siempre. */
+	wr(SP_REG(SALSA64_SP_STATUS), 0x8);
+	salsa64_mi_clear(bus, SALSA64_IRQ_DP);
+	fake_model = 1000;
+	wr(SP_REG(SALSA64_SP_STATUS), 0x1 | 0x4 | 0x100);
+	CHECK_EQ(fake.starts, 2);
+	t0 = CPU->cycles;
+	salsa64_sched_dispatch(&t_n64.sched, t0 + bus->rsp.gfx_cycles);
+	CHECK_EQ(bus->rsp.busy, 0);
+	CHECK_EQ(bus->mi.intr, 1u << SALSA64_IRQ_SP);
+	CHECK_EQ(bus->rsp.stats.model_held, held0 + 1);
+
+	/* Recogida antes (un estado guardado): el fin queda a la hora del modelo. */
+	wr(SP_REG(SALSA64_SP_STATUS), 0x8);
+	fake_model = 200000;
+	bus->rsp.gfx_model = 100;
+	wr(SP_REG(SALSA64_SP_STATUS), 0x1 | 0x4 | 0x100);
+	CHECK_EQ(fake.starts, 3);
+	t0 = CPU->cycles;
+	CHECK(salsa64_rsp_quiesce(bus));
+	CHECK_EQ(fake.finishes, 3);
+	CHECK_EQ(t_n64.sched.when[SALSA64_EV_SP_TASK], t0 + 200000);
+	salsa64_sched_dispatch(&t_n64.sched, t0 + bus->rsp.gfx_cycles);
+	CHECK_EQ(bus->rsp.busy, SALSA64_TASK_GFX);
+	salsa64_sched_dispatch(&t_n64.sched, t0 + 200000);
+	CHECK_EQ(bus->rsp.busy, 0);
+	CHECK_EQ(fake.finishes, 3);
+	salsa64_sched_dispatch(&t_n64.sched, t0 + 200000 + bus->rsp.dp_cycles);
+	wr(SP_REG(SALSA64_SP_STATUS), 0x8);
+	salsa64_mi_clear(bus, SALSA64_IRQ_DP);
+	bus->rsp.gfx_model = 0;
+	salsa64_rsp_set_gfx(bus, NULL);
+}
+
+/* El modelo crece con lo que hace la tarea y una tarea vacía no cuesta nada. */
+static void rsp_gfx_model_cycles(void)
+{
+	struct gfx_result r;
+	memset(&r, 0, sizeof r);
+	uint32_t empty = salsa64_gfx_model_cycles(&r, SALSA64_GBI_F3DEX2);
+	CHECK_EQ(empty, 0);
+	r.commands = 3000;
+	r.triangles = 500;
+	uint32_t big = salsa64_gfx_model_cycles(&r, SALSA64_GBI_F3DEX2);
+	CHECK(big > empty);
+	r.triangles = 1000;
+	CHECK(salsa64_gfx_model_cycles(&r, SALSA64_GBI_F3DEX2) > big);
+	r.commands = 6000;
+	CHECK(salsa64_gfx_model_cycles(&r, SALSA64_GBI_F3DEX2) > big);
+	/* Fast3D tarda más que F3DEX2 en lo mismo; lo que no se midió, nada. */
+	CHECK(salsa64_gfx_model_cycles(&r, SALSA64_GBI_F3D) > salsa64_gfx_model_cycles(&r, SALSA64_GBI_F3DEX2));
+	CHECK_EQ(salsa64_gfx_model_cycles(&r, SALSA64_GBI_F5ROGUE), 0);
+	CHECK_EQ(salsa64_gfx_model_cycles(&r, SALSA64_GBI_UNKNOWN), 0);
+}
+
 /* Una lista cortada por la HLE (búfer lleno, sin G_RDPFULLSYNC) también
  * termina con la interrupción del DP: el juego espera al RDP por cada tarea
  * gráfica (Zelda OoT: «RCP is HUNG UP» a los 3 s sin ella). */
@@ -833,6 +939,8 @@ void t_suite_rsp(void)
 	RUN(rsp_gfx_task);
 	RUN(rsp_gfx_task_polls);
 	RUN(rsp_gfx_task_cut);
+	RUN(rsp_gfx_model);
+	RUN(rsp_gfx_model_cycles);
 	RUN(rsp_audio_task);
 	RUN(rsp_other_task);
 	RUN(rsp_detect_gbi);
