@@ -30,6 +30,7 @@
 
 #include "core/endian.h"
 #include "core/rcp.h"
+#include "rdp/mask32.h"
 #include "rdp/targets.h"
 
 #define MAX_DEPTHS 4
@@ -89,6 +90,11 @@ static struct rdp_vi_ring vi_ring;
 static uint32_t primes, readbacks, mirrors, frames, dma_skipped;
 static uint32_t all_draws, edge_draws, edge_tris;  /* dibujos, y los que llevaron aristas */
 static uint32_t draws8, tex8_rsx, tex8_rdram;    /* dibujos en imágenes de 8 bits; I8 leídas de ellas */
+/* Imágenes chicas de 32 bits dibujadas en software (mask32.h, como el PPE
+ * en la PS3): tareas, dibujos, píxeles, bytes a la RDRAM y las que quedaron
+ * aquí. SALSA64_MASCARA32_RSX=1 las deja al rasterizador, como antes. */
+static uint32_t m32_tasks, m32_draws, m32_pixels, m32_bytes, m32_refused;
+static int m32_on = -1;
 uint32_t ps3_rb, ps3_rb_old;  /* diagnóstico (SALSA64_PS3_RB) */
 static struct rdp_dma_ring dma_ring;
 
@@ -856,6 +862,21 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 	++task_no;  /* tg.field lo lleva el VI (raster_vi), como en la PS3 */
 	if (!(job->flags & GFX_JOB_DPC_CONT))
 		rdp_targets_task(&tg);
+	/* Como done en la PS3 (rdp.c): las imágenes chicas de 32 bits van a la
+	 * RDRAM antes de traducir; sus destinos no se dibujan aquí. */
+	if (m32_on < 0)
+		m32_on = !getenv("SALSA64_MASCARA32_RSX");
+	struct mask32_result m32;
+	memset(&m32, 0, sizeof m32);
+	if (m32_on && raster_fbfx >= 2 && job->rdram_ea) {
+		mask32_run((uint8_t *)(uintptr_t)job->rdram_ea, job->rdram_size, cmd, res->cmd_bytes, vtx, m.base[0],
+			   m.base[1], &m32);
+		m32_tasks += m32.n > 0;
+		m32_draws += m32.draws;
+		m32_pixels += m32.pixels;
+		m32_bytes += m32.bytes + m32.restored;
+		m32_refused += m32.refused;
+	}
 	scratch_slot = -1;
 	last_job = *job;
 #ifdef SALSA64_GFX_TRACE
@@ -871,6 +892,15 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 		switch (c->op) {
 		case GFX_OP_TARGET: {
 			uint32_t lh = scissor_bottom(cmd, off + c->size, res->cmd_bytes), siz = c->c & 0xFF;
+			bool sw32 = false;
+			for (uint32_t k = 0; k < m32.n; k++)
+				sw32 |= m32.addr[k] == c->a && m32.width[k] == c->b;
+			if (sw32) {
+				/* Ya está en la RDRAM (mask32): ni se dibuja ni se copia. */
+				cur = -1;
+				tall.rows = 0;
+				break;
+			}
 			if (getenv("SALSA64_PS3_RB")) {
 				/* Diagnóstico: cuántas color images pediría copiar la regla
 				 * de readbacks_wanted de la PS3 (src/rdp/rdp.c), con el ancho
@@ -1174,6 +1204,8 @@ void raster_reset(void)
 	primes = readbacks = mirrors = frames = dma_skipped = tex_decoded_here = 0;
 	all_draws = edge_draws = edge_tris = 0;
 	draws8 = tex8_rsx = tex8_rdram = 0;
+	m32_tasks = m32_draws = m32_pixels = m32_bytes = m32_refused = 0;
+	mask32_forget();
 	raster_zauto = 0;
 	first_cimg = cimg_task = 0;
 	frame_start = false;
@@ -1202,6 +1234,15 @@ void raster_8bit_stats(uint32_t *draws, uint32_t *tex_rsx, uint32_t *tex_rdram)
 	*draws = draws8;
 	*tex_rsx = tex8_rsx;
 	*tex_rdram = tex8_rdram;
+}
+
+void raster_mask32_stats(uint32_t *tasks, uint32_t *draws, uint32_t *pixels, uint32_t *bytes, uint32_t *refused)
+{
+	*tasks = m32_tasks;
+	*draws = m32_draws;
+	*pixels = m32_pixels;
+	*bytes = m32_bytes;
+	*refused = m32_refused;
 }
 
 void raster_edge_stats(uint32_t *draws, uint32_t *with_edges, uint32_t *tris)

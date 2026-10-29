@@ -78,6 +78,17 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   Copies of render-to-texture images now carry the RSX alpha into the
   RGBA5551 alpha bit, as the RDP does; `copia-sin-alfa` in
   `/dev_hdd0/salsa64/` restores the old copies for comparison.
+- **Paper Mario: dark rooms stayed completely black (Watt's light).** The game
+  builds the light mask with the RDP every frame: a 64 × 64 RGBA32 image on top
+  of its z-buffer, the same memory reread as an 8-bit image, loaded into TMEM
+  and then filled back with the z value before the full-screen darkness is
+  drawn with it. The HLE read the mask from RAM, where only the z-buffer was,
+  so everything outside the HUD was dark. Those small 32-bit images (up to
+  64 × 64, and the 8-bit image on the same memory) are now drawn by the PPE
+  straight into RAM, and the next frame's light uses them (one frame late);
+  the light around Mario and Watt's ability (C-Down) match the reference
+  emulator. The flag file `gfx-mascara32-rsx` restores the old behaviour
+  (`SALSA64_MASCARA32_RSX=1` on the host).
 - **Yoshi's Story: camera stutter when walking fast.** The game draws its
   8-bit background layers with the RDP and reads them back from RAM in the
   next task, so the emulator waited for the RSX to draw and copy them back on

@@ -107,6 +107,78 @@
   idéntica a la de main). Prueba `gfx_s2dex_bg_row_stride` (imagen RGBA16 de
   filas de 40 texels declarada de 41, y el interruptor).
 
+## 2026-10-29 — Paper Mario: los cuartos oscuros (luz de Watt) salían negros; Mystical Ninja (Undub): créditos
+
+- **Paper Mario, efecto.** La luz de los cuartos oscuros (Bowser's Castle,
+  `kpa_01`, «Dark Cave») la arma el RDP en cada cuadro, en la tarea principal:
+  color image RGBA32 de 64 × 64 en 0x400 (encima del z-buffer, que va de 0x400
+  a 0x25C00), un cuadro blanco y dos cuadros (uno girado) con la textura de luz
+  I8 de 0x14D500 en espejo, negro con alfa (PRIM_A − T0a)·PRIM_A y mezcla
+  IN·A + MEM·(1 − A): queda la intensidad de la textura; la misma memoria como
+  color image I8 de 64 de ancho y cuatro TEXRECT 1:1 que copian cada franja
+  RGBA32 de 64 × 16 a su fila de 8 bits (el RDP escribe el rojo; la copia en
+  el lugar funciona porque cada franja escribe detrás de lo que lee); LOADTILE
+  de esa I8 a la TMEM; un FILLRECT de 0xFFFC en modo FILL sobre la imagen de
+  32 bits (devuelve el z-buffer) **antes** del dibujo que la usa; y un TEXRECT
+  de toda la pantalla (dsdx 2, shift ×2, espejo y clamp: la máscara cubre 32 px
+  de lado) con color negro y alfa 0,749·I + 0,247. Además la tarea chica que
+  abre cada cuadro borra el z-buffer entero (0xFFFC).
+- **Causa.** La HLE decodifica cada carga a la TMEM de la RDRAM: las franjas
+  RGBA32 y la máscara salían del z-buffer (0xFFFC → alfa ≈ 1): todo negro salvo
+  el HUD, también con el poder de Watt. En la salida de la HLE la I8 final no
+  puede ser render a textura (máscara dentro del clamp) y las franjas RGBA32
+  tampoco (solo RGBA16 e I8 lo son); y aunque lo fueran, el relleno de 0xFFFC
+  llega entre la carga y el dibujo.
+- **Arreglo.** `src/rdp/mask32.c` (portable): las color images de 32 bits de
+  hasta 64 × 64 y la de 8 bits en su misma dirección y ancho se dibujan en el
+  PPE (en `done`, como layer8) sobre una ventana de su memoria, en el orden de
+  la tarea y con la semántica del rasterizador del host (perspectiva afín,
+  combinación lineal o términos, prueba de alfa, mezcla con la memoria; los
+  dibujos que leen la misma memoria la leen de ahí, copiada al empezar cada
+  dibujo como la TMEM). La RDRAM recibe la I8 (4 KB): la HLE de la tarea
+  principal siguiente la carga, un cuadro tarde. Los rellenos que pisan esos
+  bytes en las tareas que siguen (el borrado del z-buffer de la tarea chica)
+  se deshacen ahí hasta 4 tareas (`MASK32_KEEP`); es lo único que se aparta de
+  la consola (el CPU vería la máscara en 4 KB del z-buffer). Esas imágenes no
+  van al RSX ni se copian (lista `sw8`). Camino entero por píxel (sin
+  conversiones entre coma flotante y entero, que en el PPE pasan por la
+  memoria) para combinación lineal con color constante y sin filtro; si no,
+  el de coma flotante. Interruptor `gfx-mascara32-rsx` (PS3) y
+  `SALSA64_MASCARA32_RSX=1` (host). Línea de log «gfx: imágenes chicas de 32
+  bits en el PPE: tareas, dibujos, píxeles, ms por tarea; bytes a la RDRAM y
+  repuestos». Host: 11 ns/px (≈ 15 000 px por tarea); falta medir en la PS3.
+- **Cómo se reprodujo sin la ROM europea.** El estado del reporte es de la
+  versión europea (otro código y otras direcciones en la ROM). De su FlashRAM
+  (sección CART del estado) salió una partida para la ROM de EE. UU. (mismo
+  formato «Mario Story 006»; suma de palabras con crc1 = 0 y crc2 = ~0), con
+  `areaID`/`mapID`/`entryID`, la posición y el compañero cambiados: Watt en
+  `kpa_14` frente a la puerta con llave que lleva a `kpa_01`. Guion con
+  `--pad`: START, START, A, A (archivo 1), derecha, A (llave), A, A (puerta),
+  derecha; C-abajo en la cueva.
+- **Contra ares.** El mismo guion en ares v148 (instancia propia, GDB en otro
+  puerto; los botones se escriben en `OSContPad[0]` con un punto de parada de
+  escritura en cada lectura del control): en `kpa_01` se ve un círculo chico
+  alrededor de Mario (15 × 19 px de píxeles claros en ares y en la rama; sin
+  el arreglo, nada) y con C-abajo el cuarto entero se ilumina igual en los
+  dos. Sin el arreglo, C-abajo sigue en negro (media 0,0 contra 18,0 de la rama
+  y 20,9 de ares; la diferencia es el alfa de 5 bits del blender: en ares lo
+  oscuro deja ver ~3 % del cuarto con tramado).
+- **Mystical Ninja Starring Goemon: créditos negros y música detenida.** El
+  estado del reporte es de una ROM «Undub» (CRC 9FB23339-E6B70EAC; no es la de
+  EE. UU., FCBCCB21-72903C6B; difiere en los megas 0 y 5–15). En el estado, el
+  hilo de carga (id 4, prioridad 9) descomprime el archivo 1154 de la tabla del
+  juego (en RAM, 0x800573C8): la tabla del parche lo pone en 0xE4E8FC con fin
+  en 0xE5DA08 (el inicio del 1155, que no movió): 0xF10C bytes en vez de los
+  ~0x80 de su contenido. El descompresor (0x80005394) solo termina por bytes
+  leídos: tras el bloque bueno lee como cabecera los bytes que siguen
+  (0x8B450FC0: tipo 8, ~189 MB) y escribe sin fin más allá de la RDRAM, por
+  los registros del RCP (VI: negro; AI: silencio). En la consola pasaría lo
+  mismo con esa ROM. No es un fallo del emulador; pedir la prueba con la ROM
+  de EE. UU. sin parche.
+- Pruebas: `raster_mask32_light` (la máscara byte a byte ±1, los dos caminos,
+  el resto del z-buffer intacto, la reposición tras el borrado de la tarea
+  siguiente, el fin tras `MASK32_KEEP`, olvidar) y `raster_mask32_refused`.
+
 ## 2026-10-29 — rsxkit unificada con SalsaDS (rama rsxkit-unificar)
 
 - `lib/rsxkit` es ahora la misma biblioteca, byte a byte, en Salsa64 y en

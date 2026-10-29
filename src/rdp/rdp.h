@@ -75,6 +75,11 @@ struct salsa64_rdp_stats {
 	/* Por camino: rectángulos 1:1 (entero) y triángulos genéricos. */
 	uint32_t layer8_fast_pixels, layer8_slow_pixels;
 	uint64_t tb_layer8_fast, tb_layer8_slow;
+	/* Imágenes chicas de 32 bits dibujadas en la RDRAM por el PPE (mask32.h):
+	 * tareas, dibujos, píxeles, bytes escritos, bytes repuestos tras un
+	 * relleno, imágenes que quedaron para el RSX y el tiempo (timebase). */
+	uint32_t mask32_tasks, mask32_draws, mask32_pixels, mask32_bytes, mask32_restored, mask32_refused;
+	uint64_t tb_mask32;
 	uint32_t big8_copies, big8_changed;  /* copias big8 hechas y píxeles de la RDRAM que cambiaron */
 	uint64_t us_readback, us_readback_wait;
 	uint32_t mirrors, mirrors_skipped;  /* copias espejo (sin esperar) y las que no cupieron */
@@ -240,6 +245,11 @@ void salsa64_rdp_set_copy_alpha(bool on);
  * pasan por el RSX ni por su copia; `false` (bandera gfx-capas8-rsx) vuelve
  * a dibujarlas en el RSX y a esperar la copia. */
 void salsa64_rdp_set_layer8(bool on);
+/* Las imágenes chicas de 32 bits (hasta 64 × 64) y la de 8 bits en su misma
+ * memoria las dibuja el PPE en la RDRAM (mask32.h: la luz de los cuartos
+ * oscuros de Paper Mario) y no pasan por el RSX; `false` (bandera
+ * gfx-mascara32-rsx) las deja en el RSX como antes. */
+void salsa64_rdp_set_mask32(bool on);
 /* Interruptor por juego: cada borrado de z espera al próximo destino que se
  * liga. LEGO Racers emite el borrado antes de cambiar de color image y
  * alterna una auxiliar de 32 x 32 y el framebuffer de 320 x 240 con la misma
