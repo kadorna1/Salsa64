@@ -1,6 +1,12 @@
 name: SND0.AT3 XMB audio preview package
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "assets/ps3/SND0.AT3"
+      - "mk/ps3.mk"
+      - ".github/workflows/xmb-snd0-preview.yml"
   pull_request:
     branches: [main]
     paths:
