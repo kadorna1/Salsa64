@@ -6,6 +6,7 @@ on:
     paths:
       - "assets/ps3/SND0.AT3"
       - "mk/ps3.mk"
+      - "tools/prepare_snd0.py"
       - ".github/workflows/xmb-snd0-preview.yml"
   workflow_dispatch:
 
@@ -86,8 +87,9 @@ jobs:
           bash tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/snd0-ps3-package.log
           test -s build/salsa64/salsa64.pkg
           test -s build/salsa64/obj/pkg/SND0.AT3
-          cmp assets/ps3/SND0.AT3 build/salsa64/obj/pkg/SND0.AT3
-          echo "SND0.AT3 staged byte-for-byte at the PKG root."
+          python3 tools/prepare_snd0.py --check assets/ps3/SND0.AT3 build/salsa64/obj/pkg/SND0.AT3
+          echo "Normalized SND0.AT3 verified at the PKG root."
+          sha256sum assets/ps3/SND0.AT3 build/salsa64/obj/pkg/SND0.AT3
 
       - name: Upload package and diagnostics
         if: always()
