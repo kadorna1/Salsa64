@@ -139,7 +139,8 @@ $(OUT)/$(PROGRAM).pkg: $(OUT)/$(PROGRAM).elf $(ICON0) $(PIC1) $(SND0)
 	@echo "  PKG     $(notdir $@)"
 	$(VERB)rm -rf $(OBJ)/pkg && mkdir -p $(OBJ)/pkg/USRDIR
 	$(VERB)cp $(ICON0) $(OBJ)/pkg/ICON0.PNG
-	$(VERB)cp $(SND0) $(OBJ)/pkg/SND0.AT3
+	# Clamp ATRAC3 fact samples and provide a loop chunk accepted by the PS3 XMB.
+	$(VERB)python3 $(ROOT)/tools/prepare_snd0.py $(SND0) $(OBJ)/pkg/SND0.AT3
 	$(if $(PIC1),$(VERB)cp $(PIC1) $(OBJ)/pkg/PIC1.PNG)
 	$(VERB)make_self_npdrm $< $(OBJ)/pkg/USRDIR/EBOOT.BIN $(CONTENTID) >/dev/null
 	$(VERB)sfo --title "$(TITLE)" --appid "$(APPID)" -f $(PS3DEV)/bin/sfo.xml $(OBJ)/pkg/PARAM.SFO
