@@ -153,6 +153,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/file.h>
 #include <sys/memory.h>
 #include <sys/process.h>
 #include <sys/sem.h>
@@ -936,6 +937,7 @@ static bool gfx_s2dex_bg_old;
 static bool gfx_no_yuv;
 static bool gfx_blend_old;
 static bool gfx_s2dex_bg_row_old;
+static bool gfx_f5_sub_old;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -957,6 +959,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_NO_RSP_CLIP;
 	if (gfx_s2dex_bg_row_old)
 		job->flags |= GFX_JOB_S2DEX_BG_ROW_OLD;
+	if (gfx_f5_sub_old)
+		job->flags |= GFX_JOB_F5_SUB_OLD;
 }
 
 /* DMA a la RDRAM (hilo de emulación): las copias del RDP no lo pisan. */
@@ -4907,6 +4911,8 @@ static void profile_close(void)
  * grupos de SPU vivos colgó la consola entera (2026-10-13): se paran los
  * SPE que se pueden parar sin el hilo de emulación y se termina el
  * proceso con sys_process_exit, con lo que haya quedado en el log. */
+static int exit_reboot;  /* forced_exit: 0 al XMB, 1 reinicio por el sistema, 2 directo (rsx_exit_policy) */
+
 static void forced_exit(const char *why, unsigned secs)
 {
 	/* Mejor esfuerzo antes de cualquier espera de cierre: no dejar actuadores
@@ -4924,6 +4930,18 @@ static void forced_exit(const char *why, unsigned secs)
 		salsa64_rsp_spu_shutdown(&rsp_spu);
 	if (gfx_on_spu)
 		salsa64_gfx_spu_shutdown(&gfx_spu);
+	if (exit_reboot) {
+		/* Pedido con rsx-colgado (rsx_exit_policy): con el RSX colgado,
+		 * volver al XMB dejó la consola congelada (Indiana Jones,
+		 * 2026-10-29); reiniciar la evita si el sistema todavía responde.
+		 * sys_sm_shutdown (379): 0x200 reinicio por el sistema, 0x1200
+		 * reinicio directo. Si no vuelve, se sale como siempre. */
+		salsa64_log("cierre forzado: SPE detenidos; se reinicia la consola (%s)",
+			    exit_reboot == 2 ? "directo, 0x1200" : "por el sistema, 0x200");
+		salsa64_log_shutdown();
+		lv2syscall4(379, exit_reboot == 2 ? 0x1200 : 0x200, 0, 0, 0);
+		sysProcessExit(1);
+	}
 	salsa64_log("cierre forzado: SPE detenidos; saliendo");
 	salsa64_log_shutdown();
 	sysProcessExit(1);
@@ -4957,6 +4975,65 @@ static uint64_t rsx_exit_limit(void)
 	return pausectl_overlay(&pause_ctl) ? RSX_EXIT_OVERLAY_US : RSX_EXIT_US;
 }
 
+/* `n` palabras del búfer de comandos desde el offset de E/S `from` (que se
+ * alinea a 32 bytes), de a 8 por línea; con «>» la línea de `mark`. */
+static void rsx_log_words(const char *tag, uint32_t from, uint32_t n, uint32_t mark)
+{
+	from &= ~31u;
+	uint32_t avail = 0;
+	const uint32_t *w = rsxkit_cmd_at(from, &avail);
+	if (!w) {
+		salsa64_log("RSX fifo %s: 0x%08x fuera de la memoria mapeada", tag, from);
+		return;
+	}
+	if (n > avail)
+		n = avail;
+	for (uint32_t i = 0; i < n; i += 8) {
+		char line[128];
+		int len = snprintf(line, sizeof line, "%s%08x:", from + i * 4 == (mark & ~31u) ? ">" : " ", from + i * 4);
+		for (uint32_t k = i; k < i + 8 && k < n && len > 0 && len < (int)sizeof line; k++)
+			len += snprintf(line + len, sizeof line - (size_t)len, " %08x", w[k]);
+		salsa64_log("RSX fifo %s %s", tag, line);
+	}
+}
+
+/* Todo lo que se sabe de un RSX que no avanza: registros y hasta qué
+ * barrera llegó, las excepciones que avisó el sistema, el búfer de comandos
+ * alrededor de GET y de PUT (en la PS3 con Indiana Jones GET quedó en 0, el
+ * principio del búfer: solo lo de antes de PUT dice qué se mandó al final),
+ * el rastro de rsxkit (cada operación con su offset en el búfer) y lo último
+ * de los destinos y profundidades. Solo lee. */
+static void rsx_diag_full(void)
+{
+	rsxkit_fifo_info fi;
+	rsxkit_fifo_info_get(&fi);
+	salsa64_log("RSX búfer de comandos: memoria desde 0x%08x (%u KB), segmento 0x%08x–0x%08x, rsxkit escribe en "
+		    "0x%08x; GET 0x%08x PUT 0x%08x REF 0x%08x; barrera mandada %u y escrita %u, rsxkit_finish mandado %u y "
+		    "escrito %u",
+		    fi.base, fi.size >> 10, fi.begin, fi.end, fi.current, fi.get, fi.put, fi.ref, fi.fence_sent, fi.fence_done,
+		    fi.finish_sent, fi.finish_done);
+	rsxkit_rsx_error e;
+	rsxkit_rsx_errors(&e);
+	uint64_t now = sysGetSystemTime();
+	if (e.count)
+		salsa64_log("RSX: el sistema avisó %u excepciones del RSX: la primera 0x%08x hace %.1f s, la última 0x%08x "
+			    "hace %.1f s (con GET 0x%08x PUT 0x%08x)",
+			    e.count, e.first, (now - e.first_us) / 1e6, e.last, (now - e.last_us) / 1e6, e.get, e.put);
+	else
+		salsa64_log("RSX: el sistema no avisó ninguna excepción del RSX (gcmSetGraphicsHandler)");
+	if (fi.get != fi.put)
+		rsx_log_words("GET", fi.get >= 256 ? fi.get - 256 : 0, 96, fi.get);
+	rsx_log_words("PUT", fi.put >= 640 ? fi.put - 640 : 0, 168, fi.put);
+	rsxkit_trace_entry tr[RSXKIT_TRACE_LEN];
+	unsigned n = rsxkit_trace_get(tr, RSXKIT_TRACE_LEN);
+	for (unsigned i = 0; i < n; i++) {
+		char line[160];
+		rsxkit_trace_format(&tr[i], line, sizeof line);
+		salsa64_log("RSX rastro %u/%u, 0x%08x: %s", i + 1, n, tr[i].fifo, line);
+	}
+	salsa64_rdp_diag_log(salsa64_log);
+}
+
 /* Dónde está el PPE, qué espera del RSX y por dónde va el RSX; `why`,
  * entre paréntesis después de «RSX» (o NULL). */
 static void rsx_diag(const char *why, const rsxkit_wait_info *wi)
@@ -4981,39 +5058,92 @@ static void rsx_diag(const char *why, const rsxkit_wait_info *wi)
 		    wi->get != wi->get0 ? "el RSX avanzó" : wi->get == wi->put ? "el RSX está al día" : "el RSX no avanzó",
 		    beat.pres_at, tr, salsa64_rdp_translated(), salsa64_rdp_tasks_done(), n64.bus.vi.fields, pause_req,
 		    pausectl_overlay(&pause_ctl) ? "encima" : "sin dibujar");
-	/* Lo que el RSX tiene delante: 64 palabras antes del GET y 32 desde él. */
-	static bool fifo_dumped;
-	if (wi->get == wi->get0 && wi->get != wi->put && !fifo_dumped) {
-		fifo_dumped = true;
-		uint32_t from = wi->get >= 256 ? wi->get - 256 : 0, avail = 0;
-		const uint32_t *w = rsxkit_cmd_at(from, &avail);
-		if (w) {
-			uint32_t n = (wi->get - from) / 4 + 32;
-			if (n > avail)
-				n = avail;
-			for (uint32_t i = 0; i < n; i += 8) {
-				char line[128];
-				int len = snprintf(line, sizeof line, "%s%08x:", from + i * 4 == (wi->get & ~31u) ? ">" : " ",
-						   from + i * 4);
-				for (uint32_t k = i; k < i + 8 && k < n; k++)
-					len += snprintf(line + len, sizeof line - (size_t)len, " %08x", w[k]);
-				salsa64_log("RSX fifo %s", line);
-			}
+	/* Lo demás, una vez por corrida y solo si el RSX no avanzó. */
+	static volatile int full_said;
+	if (wi->get == wi->get0 && wi->get != wi->put && __sync_bool_compare_and_swap(&full_said, 0, 1))
+		rsx_diag_full();
+}
+
+/* Lo que queda en el disco de un RSX colgado, en SALSA64_DATA_DIR/
+ * rsx-colgado-<campo>/: el búfer de comandos (fifo.bin, el primer MB de la
+ * memoria mapeada que lo contiene, desde el offset de E/S que dice el log),
+ * la tarea que se traducía (gfxdump.bin, para salsa64-run --raster-dump) y,
+ * con la caja negra encendida, su anillo sin comprimir (caja.s4bb). Todo
+ * pasa por sysLv2FsFsync: puede que la consola se apague a la fuerza. */
+static bool write_synced(const char *path, const void *data, uint32_t len)
+{
+	s32 fd = -1;
+	if (sysLv2FsOpen(path, SYS_O_WRONLY | SYS_O_CREAT | SYS_O_TRUNC, &fd, 0666, NULL, 0) != 0)
+		return false;
+	u64 done = 0;
+	bool ok = sysLv2FsWrite(fd, data, len, &done) == 0 && done == len;
+	ok = sysLv2FsFsync(fd) == 0 && ok;
+	ok = sysLv2FsClose(fd) == 0 && ok;
+	return ok;
+}
+
+static void rsx_stuck_files(void)
+{
+	char dir[96], path[160], err[160];
+	snprintf(dir, sizeof dir, SALSA64_DATA_DIR "/rsx-colgado-%u", n64.bus.vi.fields);
+	sysLv2FsMkdir(dir, 0777);
+	uint64_t t0 = sysGetSystemTime();
+	rsxkit_fifo_info fi;
+	rsxkit_fifo_info_get(&fi);
+	uint32_t avail = 0;
+	const uint32_t *w = rsxkit_cmd_at(fi.base, &avail);
+	uint32_t bytes = avail * 4 < (1u << 20) ? avail * 4 : (1u << 20);
+	snprintf(path, sizeof path, "%s/fifo.bin", dir);
+	bool fifo_ok = w && write_synced(path, w, bytes);
+	snprintf(path, sizeof path, "%s/gfxdump.bin", dir);
+	uint32_t task = 0;
+	bool dump_ok = salsa64_rdp_dump_current(path, &task);
+	if (dump_ok) {
+		s32 fd = -1;
+		if (sysLv2FsOpen(path, SYS_O_WRONLY, &fd, 0, NULL, 0) == 0) {
+			sysLv2FsFsync(fd);
+			sysLv2FsClose(fd);
 		}
-		else
-			salsa64_log("RSX fifo: GET 0x%08x fuera de la memoria mapeada", wi->get);
 	}
+	snprintf(path, sizeof path, "%s/" CAJANEGRA_FILE, dir);
+	bool box_ok = cajanegra_write_now(path, 3000000, err, sizeof err);
+	salsa64_log("RSX colgado: en %s: búfer de comandos %s (fifo.bin, %u KB desde 0x%08x), tarea %u %s (gfxdump.bin), "
+		    "caja negra %s (%s); %.1f s",
+		    dir, fifo_ok ? "escrito" : "NO escrito", bytes >> 10, fi.base, task, dump_ok ? "escrita" : "NO escrita",
+		    box_ok ? "escrita" : "no escrita", err, (sysGetSystemTime() - t0) / 1e6);
+}
+
+/* Qué hacer al final de un cierre forzado por el RSX: el archivo
+ * SALSA64_DATA_DIR/rsx-colgado dice «reinicio» (reiniciar la consola por el
+ * sistema) o «reinicio-directo»; sin archivo, o con otra cosa, volver al
+ * XMB como siempre. Experimental: para probar con colgar-rsx qué deja la
+ * consola usable (docs/rsx-notes.md). */
+static int rsx_exit_policy(void)
+{
+	char word[24] = "";
+	FILE *f = fopen(SALSA64_DATA_DIR "/rsx-colgado", "r");
+	if (!f)
+		return 0;
+	if (fscanf(f, "%23s", word) != 1)
+		word[0] = '\0';
+	fclose(f);
+	int r = !strcmp(word, "reinicio") ? 1 : !strcmp(word, "reinicio-directo") ? 2 : 0;
+	salsa64_log("RSX: rsx-colgado dice «%s»: %s", word, r ? "se reinicia la consola" : "se vuelve al XMB");
+	return r;
 }
 
 /* Salida con el RSX sin avanzar: lo que se pueda guardar sin él (la
- * partida, la sesión del perfilado) y forced_exit. Desde el hilo que
- * espera o desde el latido; solo uno sale. */
+ * partida, la sesión del perfilado, y lo que hace falta para entender el
+ * cuelgue: rsx_stuck_files), se abandona el RSX y forced_exit. Desde el
+ * hilo que espera o desde el latido; solo uno sale. */
 static void rsx_stuck_exit(const char *why, const rsxkit_wait_info *wi)
 {
 	if (!__sync_bool_compare_and_swap(&rsx_exiting, 0, 1))
 		for (;;)
 			sysUsleep(100000);  /* el otro hilo termina el proceso */
 	rsx_diag(why, wi);
+	if (wi->get == wi->get0 && wi->get != wi->put)
+		rsx_stuck_files();
 	if (emu_live) {
 		savefile_write_staged(&save_file, ~0ull);  /* lo diferido que no llegó al disco */
 		mempakfile_write_staged(&mempak_file, ~0ull);
@@ -5032,6 +5162,15 @@ static void rsx_stuck_exit(const char *why, const rsxkit_wait_info *wi)
 			 n64.bus.vi.fields, emu_stats.fields);
 		perf_app_close(end);
 	}
+	/* Que nadie vuelva a esperarlo ni a mandarle órdenes, y que no le quede
+	 * nada pendiente (docs/rsx-notes.md: con el RSX colgado, volver al XMB
+	 * congeló la consola). La memoria del RSX no se suelta ni se esperan
+	 * flips: forced_exit no pasa por rsxkit. */
+	uint32_t get = 0, put = 0;
+	bool moved = rsxkit_abandon(&get, &put);
+	salsa64_log("RSX: abandonado (rsxkit no le manda nada más ni lo espera); %s (GET 0x%08x, PUT 0x%08x)",
+		    moved ? "PUT = GET: nada pendiente" : "PUT sin tocar", get, put);
+	exit_reboot = rsx_exit_policy();
 	forced_exit("el RSX no avanzó", (unsigned)(wi->elapsed_us / 1000000u));
 }
 
@@ -5522,6 +5661,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	gfx_s2dex_bg_row_old = file_exists(SALSA64_DATA_DIR "/s2dex-paso-viejo");
 	salsa64_log("gfx: paso de las filas de los fondos de S2DEX %s (s2dex-paso-viejo)",
 		    gfx_s2dex_bg_row_old ? "de imageW (el de antes)" : "en palabras de 64 bits, como el microcódigo");
+	/* Indiana Jones: la lista secundaria de Factor 5 termina en cualquier
+	 * G_ENDDL (f5indy.c, do_sub_dlist); f5-sublista-vieja vuelve a seguir
+	 * hasta el B8 … FFFFFFFF, que ejecutaba vértices como comandos. */
+	gfx_f5_sub_old = file_exists(SALSA64_DATA_DIR "/f5-sublista-vieja");
+	salsa64_log("gfx: lista secundaria de Factor 5 %s (f5-sublista-vieja)",
+		    gfx_f5_sub_old ? "hasta el B8 … FFFFFFFF (vieja)" : "hasta cualquier G_ENDDL");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);
@@ -5666,6 +5811,18 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (file_exists(SALSA64_DATA_DIR "/gfx-copia-lineal")) {
 		rsxkit_target_read_exact(0);
 		salsa64_log("copias del RSX a la RDRAM a 1:1 con filtro lineal (gfx-copia-lineal)");
+	}
+	/* Blindaje del RSX (docs/rsx-notes.md: Indiana Jones colgó la PS3 con
+	 * una color image de 900000/455 y una copia de la z de 455 de ancho):
+	 * las color images fuera de la RDRAM no tienen destino y las copias con
+	 * el motor de imagen escalada van con ancho de entrada par.
+	 * `rsx-sin-blindaje` lo apaga (para comparar). */
+	{
+		bool safe = !file_exists(SALSA64_DATA_DIR "/rsx-sin-blindaje");
+		rsxkit_set_safe(safe ? RSXKIT_SAFE_ALL : 0);
+		salsa64_rdp_set_rsx_safe(safe);
+		salsa64_log("RSX: blindaje %s (color images fuera de la RDRAM sin destino, copias de la z con ancho par)%s",
+			    safe ? "encendido" : "APAGADO", safe ? "" : " (rsx-sin-blindaje)");
 	}
 	/* Las capas de 8 bits las dibuja el PPE en la RDRAM (sin esperar la copia
 	 * del RSX); `gfx-capas8-rsx` vuelve a dibujarlas en el RSX. */
@@ -7429,6 +7586,8 @@ static const rsxkit_config *video_config_for(int resolution, rsxkit_config *cfg)
  * cuelgue (el del botón PS, 2026-10-11) deja su huella en el log UDP aunque
  * el de archivo pierda las últimas líneas. Solo lee; con más prioridad que
  * los dos para correr aunque uno gire. */
+static uint32_t rsx_errors_said;  /* watch_thread: excepciones del RSX ya en el log */
+
 static void watch_thread(void *arg)
 {
 	(void)arg;
@@ -7460,6 +7619,18 @@ static void watch_thread(void *arg)
 				    (now - pres_t) / 1e6, beat.pres_at, at, emu_live ? beat.emu_at : "sin juego", n64.bus.vi.fields,
 				    field_head - field_tail, pausectl_overlay(&pause_ctl) ? "encima" : "sin dibujar", pause_req,
 				    emu_paused ? "quieta" : "andando", (unsigned long long)audio_out_blocks());
+		}
+		/* Excepciones del RSX que avisó el sistema (rsxkit_rsx_errors): al
+		 * log en cuanto llegan, aunque nada espere al RSX todavía. */
+		{
+			rsxkit_rsx_error re;
+			rsxkit_rsx_errors(&re);
+			if (re.count != rsx_errors_said) {
+				rsx_errors_said = re.count;
+				salsa64_log("RSX: excepción del RSX avisada por el sistema: 0x%08x (%u en total; la primera 0x%08x), "
+					    "GET 0x%08x PUT 0x%08x; presentación en «%s», campo %u",
+					    re.last, re.count, re.first, re.get, re.put, beat.pres_at, n64.bus.vi.fields);
+			}
 		}
 		/* Vigía del RSX: la espera de lugar en el búfer de comandos (dentro
 		 * del callback del sistema, sin gancho) y, por si acaso, las otras. */

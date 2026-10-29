@@ -203,6 +203,10 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
  * abajo a palabras de 64 bits, como el microcódigo (s2dex.c bg_stride;
  * Worms Armageddon). El PPE lo pone si existe s2dex-paso-viejo. */
 #define GFX_JOB_S2DEX_BG_ROW_OLD 0x80000u
+/* Interruptor: la lista secundaria de Factor 5 (Indiana Jones, f5indy.c)
+ * sigue hasta el B8 000000 FFFFFFFF aunque antes haya otro G_ENDDL, como
+ * antes del 2026-10-29. El PPE lo pone si existe f5-sublista-vieja. */
+#define GFX_JOB_F5_SUB_OLD 0x100000u
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 
@@ -256,6 +260,7 @@ struct gfx_result {
 #define GFX_RES_LOAD_UCODE   0x20u  /* G_LOAD_UCODE a otro microcódigo: se saltó su tramo */
 #define GFX_RES_FOREIGN_END  0x40u  /* la lista terminó dentro de ese tramo (sin volver) */
 #define GFX_RES_VGROUP_FULL  0x80u  /* GFX_JOB_INTERP: faltan registros GFX_OP_VGROUP (no se corta) */
+#define GFX_RES_F5_SUB_END   0x100u /* Factor 5: una lista secundaria acabó en un G_ENDDL que no es B8 … FFFFFFFF */
 /* La lista no llegó a su fin (o acabó donde no se sabe qué hizo): el juego
  * sigue esperando al RDP. */
 #define GFX_RES_CUT (GFX_RES_VTX_FULL | GFX_RES_CMD_FULL | GFX_RES_TEX_FULL | GFX_RES_LOOP | GFX_RES_FOREIGN_END)

@@ -71,6 +71,10 @@ extern bool raster_affine;
  * lo apaga) y su bit en las copias a la RDRAM (salsa64_rdp_set_copy_alpha;
  * SALSA64_COPIA_SIN_ALFA=1 vuelve a copiar con alfa 1). */
 extern bool raster_target_alpha, raster_copy_alpha;
+/* Como el blindaje del RSX de la PS3 (rsx-sin-blindaje lo apaga): una color
+ * image que empieza fuera de la RDRAM no tiene destino (rdp_cimg_impossible).
+ * SALSA64_RSX_SIN_BLINDAJE=1 lo apaga. */
+extern bool raster_rsx_safe;
 extern float raster_edge_width;  /* ancho de esas líneas, en píxeles */
 extern float raster_edge_factor, raster_edge_units;  /* su desplazamiento hacia atrás */
 /* Cada campo con imagen: el origen y ancho del VI (como salsa64_rdp_vi). */

@@ -293,6 +293,20 @@ uint32_t rdp_scale_pick_budget(uint32_t requested, uint32_t screen_h, uint32_t b
  * las campanadas). */
 int rdp_targets_get(struct rdp_targets *s, uint32_t addr, uint32_t width, uint32_t siz, uint32_t min_lh,
 		    bool *fresh);
+/* Por qué una color image no puede tener destino, o RDP_CIMG_OK. Las
+ * imposibles salen de comandos que la HLE interpretó mal (Zelda al abrir la
+ * pausa manda anchos de 1495 y 3770): ancho 0 o de más de 640, alto pedido
+ * de más de 480 y, con `rdram_size` distinto de 0, una que empieza fuera de
+ * la RDRAM (el RDP no tiene dónde escribirla; Indiana Jones pidió una vez
+ * 900000/455 con 8 MB y el RSX se colgó en esa tarea: docs/rsx-notes.md).
+ * Quien llama no la convierte en destino ni recicla una ranura por ella. */
+enum rdp_cimg_bad {
+	RDP_CIMG_OK = 0,
+	RDP_CIMG_WIDTH,   /* ancho 0 o > 640 */
+	RDP_CIMG_HEIGHT,  /* alto pedido > 480 */
+	RDP_CIMG_RDRAM,   /* empieza fuera de la RDRAM */
+};
+enum rdp_cimg_bad rdp_cimg_impossible(uint32_t addr, uint32_t width, uint32_t min_lh, uint32_t rdram_size);
 /* La ranura en uso que rdp_targets_get con esos mismos argumentos
  * reasignaría a otra imagen (la recicla o la hace crecer), o -1 si la
  * imagen ya existe o la ranura estaba libre. Sirve para copiar a la RDRAM

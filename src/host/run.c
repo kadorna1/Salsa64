@@ -172,6 +172,7 @@ static bool gfx_affine_chain;
 static bool gfx_no_fog_1cycle;
 static bool gfx_no_rsp_clip;  /* SALSA64_SIN_SOMBRA_AFIN: sin la caja del RSP ni la sombra afín */
 static bool gfx_s2dex_bg_row_old;
+static bool gfx_f5_sub_old;  /* SALSA64_F5_SUBLISTA_VIEJA: GFX_JOB_F5_SUB_OLD */
 
 /* fastmem (docs/fastmem.md): un acceso del código generado fuera de la RDRAM
  * cae en la ventana sin permisos; el manejador parchea el sitio hacia su
@@ -1316,6 +1317,8 @@ static void gfx_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_BLEND_OLD;
 	if (gfx_s2dex_bg_row_old)
 		job->flags |= GFX_JOB_S2DEX_BG_ROW_OLD;
+	if (gfx_f5_sub_old)
+		job->flags |= GFX_JOB_F5_SUB_OLD;
 #ifdef SALSA64_GFX_TRACE
 	salsa64_gfx_trace_now = trace_gfx_verbose && trace_gfx_left && n64.bus.vi.fields > (trace_from ? trace_from : 500);
 	trace_draw = trace_states = 0;
@@ -3879,6 +3882,10 @@ int main(int argc, char **argv)
 		default:  usage(stderr); return 3;
 		}
 	}
+	/* Como /dev_hdd0/salsa64/rsx-sin-blindaje en la PS3: las color images
+	 * fuera de la RDRAM vuelven a tener destino (para comparar). */
+	if (getenv("SALSA64_RSX_SIN_BLINDAJE") && atoi(getenv("SALSA64_RSX_SIN_BLINDAJE")))
+		raster_rsx_safe = false;
 	if (dump_path)
 		return raster_dump(dump_path, gfx_path);
 	if (stop_field && !cycles_set)
@@ -3934,6 +3941,7 @@ int main(int argc, char **argv)
 	if (gfx_no_rsp_clip)
 		fprintf(stderr, "salsa64-run: recorte del RSP y sombra afín apagados (SALSA64_SIN_SOMBRA_AFIN)\n");
 	gfx_s2dex_bg_row_old = salsa64_host_env_on("SALSA64_S2DEX_PASO_VIEJO");
+	gfx_f5_sub_old = salsa64_host_env_on("SALSA64_F5_SUBLISTA_VIEJA");
 	if (getenv("SALSA64_GFX_CYCLES"))
 		n64.bus.rsp.gfx_cycles = (uint32_t)strtoul(getenv("SALSA64_GFX_CYCLES"), NULL, 0);
 	if (getenv("SALSA64_DP_CYCLES"))

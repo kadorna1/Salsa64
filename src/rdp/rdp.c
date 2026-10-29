@@ -25,6 +25,7 @@
 static inline uint64_t tb_now(void);  /* abajo; la usa el reloj de layer8 */
 
 #include <malloc.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/systime.h>
@@ -398,6 +399,9 @@ static struct {
 	/* Si las imágenes chicas de 32 bits las dibuja el PPE (gfx-mascara32-rsx lo apaga). */
 	bool mask32_on;
 	bool zclear_target;          /* el borrado pertenece a la próxima color image */
+	/* Blindaje del RSX (rsx-sin-blindaje lo apaga): una color image que
+	 * empieza fuera de la RDRAM no tiene destino (rdp_cimg_impossible). */
+	bool rsx_safe;
 	uint32_t rb_prev_n[RB_HISTORY];
 	uint32_t rb_prev_i;
 	/* Traza detallada (color images, ranuras y copias de cada tarea) de las
@@ -465,6 +469,29 @@ static struct {
 	struct salsa64_rdp_field_info finfo;  /* el último campo presentado (salsa64_rdp_field_info) */
 } rdp;
 
+/* Diagnóstico de un RSX colgado (salsa64_rdp_diag_log): lo último que pasó
+ * con los destinos, las profundidades y las cargas de la z, con su tarea.
+ * Son eventos raros (crear, reciclar, cargar la z): un snprintf cada uno. */
+#define DIAG_LEN 24
+static struct {
+	char line[DIAG_LEN][144];
+	uint32_t n;
+} diag;
+
+static void diag_note(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+static void diag_note(const char *fmt, ...)
+{
+	char *l = diag.line[diag.n % DIAG_LEN];
+	int len = snprintf(l, sizeof diag.line[0], "tarea %u: ", rdp.tg.task);
+	if (len < 0 || len >= (int)sizeof diag.line[0])
+		len = 0;
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(l + len, sizeof diag.line[0] - (size_t)len, fmt, ap);
+	va_end(ap);
+	diag.n++;
+}
+
 static void acquire(void *ctx, struct gfx_job *job);
 static void done(void *ctx, const struct gfx_job *job, const struct gfx_result *res);
 static const struct salsa64_gfx_sink sink = { NULL, acquire, done };
@@ -528,6 +555,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.layer8_on = true;
 	rdp.copy_alpha = true;
 	rdp.mask32_on = true;
+	rdp.rsx_safe = true;
 	layer8_clock = tb_now;
 	rdp.aa_edges = false;  /* experimental: engordaba los modelos en la PS3 */
 	rdp.ready = true;
@@ -1696,10 +1724,17 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	/* Una color image imposible (la HLE la sacó de un comando mal
 	 * interpretado: Zelda al abrir la pausa manda anchos de 1495 y 3770) no
 	 * toca la tabla: reciclaría una ranura buena para nada. */
-	if (!width || width > 640 || min_lh > 480) {
+	enum rdp_cimg_bad bad = rdp_cimg_impossible(addr, width, min_lh, rdp.rsx_safe ? rdp.rdram_size : 0);
+	if (bad != RDP_CIMG_OK) {
 		rdp.stats.targets_absurd++;
 		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, "imposible, ignorada");
-		LOGN(10, "gfx: color image imposible %06x/%u (alto %u): se ignora", addr, width, min_lh);
+		if (bad == RDP_CIMG_RDRAM) {
+			LOGN(20, "gfx: color image %06x/%u fuera de la RDRAM (%u KB; alto pedido %u, tarea %u): se ignora", addr,
+			     width, rdp.rdram_size >> 10, min_lh, rdp.tg.task);
+			diag_note("color image %06x/%u fuera de la RDRAM (alto pedido %u): ignorada", addr, width, min_lh);
+		} else {
+			LOGN(10, "gfx: color image imposible %06x/%u (alto %u): se ignora", addr, width, min_lh);
+		}
 		return -1;
 	}
 	uint32_t bpp = siz == G_IM_SIZ_32b ? 4 : siz == G_IM_SIZ_8b ? 1 : 2;
@@ -1789,6 +1824,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	if (rdp.surf[i] && rsxkit_target_has_alpha(rdp.surf[i]))
 		rdp.stats.targets_alpha++;
 	if (!rdp.surf[i]) {
+		diag_note("destino %06x/%u: sin superficie de %u × %u", addr, width, t->lw * sc, t->lh * sc);
 		rdp.stats.targets_failed++;
 		LOGN(20, "gfx: destino %06x/%u: el RSX no dio una superficie de %u × %u (%u×; %u KB vivos)", addr, width,
 		     t->lw * sc, t->lh * sc, sc, rdp.vram >> 10);
@@ -1804,6 +1840,8 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	rdp.vram += bytes;
 	LOGN(40, "gfx: destino %06x/%u: %u × %u a %u× (%s; alto pedido %u; %u KB vivos)", addr, width, t->lw, t->lh, sc,
 	     rdp.last_get.how, min_lh, rdp.vram >> 10);
+	diag_note("destino %06x/%u: %u × %u a %u× en la ranura %d (%s; alto pedido %u)", addr, width, t->lw, t->lh, sc, i,
+		  rdp.last_get.how, min_lh);
 	rdp.surf_dirty[i] = false;
 	rdp.tg.t[i].fmt = (uint8_t)fmt;
 	rdp.stats.targets_created++;
@@ -1859,6 +1897,8 @@ static struct depth *get_depth(uint32_t addr, int slot)
 	}
 	uint32_t bytes = rdp_surface_bytes(w, h);
 	d->d = make_room(bytes, slot) ? rsxkit_depth_create(w, h) : NULL;
+	diag_note("profundidad %06x: %u × %u para el destino %06x/%u%s", addr, w, h, t->addr, t->width,
+		  d->d ? (same ? " (crece)" : "") : ": SIN SUPERFICIE");
 	if (!d->d)
 		return NULL;
 	d->bytes = bytes;
@@ -1978,6 +2018,8 @@ static bool zfeed(struct depth *d, int slot)
 		__asm__ volatile("dcbst 0,%0" ::"r"(dst + o) : "memory");
 	__asm__ volatile("sync" ::: "memory");
 	rdp.tb.copy += tb_now() - t0;
+	diag_note("z %06x desde la RDRAM: %u × %u (filas %u a %u) a %u× en %u × %u%s", d->addr, lw, ry1 - ry0, ry0, ry1, sc,
+		  d->w, d->h, src ? " (la z se dibujó como color)" : "");
 	if (rsxkit_depth_load(d->d, rdp.rb_off + ZUP_OFF + ry0 * ZUP_PITCH, ZUP_PITCH, lw, ry1 - ry0, ry0, sc) == RSXKIT_OK) {
 		rdp.zup_fence = rsxkit_fence();
 		rdp.bound_t = -1;
@@ -2449,6 +2491,11 @@ void salsa64_rdp_set_mask32(bool on)
 	rdp.mask32_on = on;
 }
 
+void salsa64_rdp_set_rsx_safe(bool on)
+{
+	rdp.rsx_safe = on;
+}
+
 void salsa64_rdp_zclear_target(bool on)
 {
 	rdp.zclear_target = on;
@@ -2788,6 +2835,9 @@ static void translate(uint32_t n)
 					    rdp.cache, CACHE_BYTES, rdp.rdram, rdp.rdram_size };
 		rdp.task_hook(rdp.task_ctx, n, &src, res);
 	}
+	if (res->flags & GFX_RES_F5_SUB_END)
+		LOGN(5, "gfx: tarea %u: una lista secundaria de Factor 5 acabó en un G_ENDDL que no es B8 … FFFFFFFF "
+		     "(f5-sublista-vieja seguiría por lo que hay detrás)", n);
 	rsxkit_vertices(s->vtx_off, RSXKIT_MEM_MAIN);
 	s->interp_ok = false;
 	to_rsxkit_fb = false;
@@ -2850,7 +2900,11 @@ static void translate(uint32_t n)
 				cur = -1;
 				break;
 			}
-			bool is_tall = c->b && c->b <= 640 && rdp_targets_tall(c->b, lh) &&
+			/* Fuera de la RDRAM (rdp_cimg_impossible, con el blindaje): ni
+			 * destino, ni reparto de rellenos, ni copias del PPE, ni reciclar
+			 * una ranura por ella. */
+			bool outside = rdp.rsx_safe && rdp.rdram_size && c->a >= rdp.rdram_size;
+			bool is_tall = !outside && c->b && c->b <= 640 && rdp_targets_tall(c->b, lh) &&
 				       fills_only(s, off + c->size, res->cmd_bytes);
 			rdp.at = "destinos";
 			if (rdp.cimg_task != rdp.tg.task) {
@@ -2865,7 +2919,7 @@ static void translate(uint32_t n)
 					     c->a, c->b);
 					break;
 				}
-			if (!is_tall && c->b && c->b <= 640 && lh <= 480) {
+			if (!outside && !is_tall && c->b && c->b <= 640 && lh <= 480) {
 				/* La ranura va a ser de otra imagen (la recicla este destino o
 				 * crece): lo que el RDP dibujó en ella hasta ahora, si es una
 				 * imagen auxiliar chica, se copia con SU dirección y SU alto
@@ -2884,8 +2938,8 @@ static void translate(uint32_t n)
 			rdp.at = "dibujos";
 			/* Más alta que 480 (sin superficie): los rectángulos de copia van
 			 * a la RDRAM con el PPE (ppe_copy). */
-			ppe_img.on = cur < 0 && !is_tall && siz == 2u && c->b && c->b <= 640 && lh > 480 && rdp.rdram &&
-				     rdp.fbfx >= 2;
+			ppe_img.on = cur < 0 && !outside && !is_tall && siz == 2u && c->b && c->b <= 640 && lh > 480 &&
+				     rdp.rdram && rdp.fbfx >= 2;
 			ppe_img.addr = c->a;
 			ppe_img.width = c->b;
 			if (cur >= 0 && rdp.last_get.fresh) {
@@ -3675,12 +3729,60 @@ uint32_t salsa64_rdp_translating(const char **stage)
 	return t;
 }
 
+void salsa64_rdp_diag_log(void (*log)(const char *fmt, ...))
+{
+	uint32_t have = diag.n < DIAG_LEN ? diag.n : DIAG_LEN;
+	for (uint32_t i = 0; i < have; i++)
+		log("gfx reciente %u/%u: %s", i + 1, have, diag.line[(diag.n - have + i) % DIAG_LEN]);
+	int b = rdp.bound_t;
+	if (b >= 0 && b < RDP_TARGETS_MAX) {
+		const struct rdp_target *t = &rdp.tg.t[b];
+		log("gfx ligado: ranura %d, destino %06x/%u de %u × %u a %u×, profundidad %06x de %u × %u", b, t->addr, t->width,
+		    t->lw, t->lh, rdp.surf_scale[b], rdp.bound_d ? rdp.bound_d->addr : 0, rdp.bound_d ? rdp.bound_d->w : 0,
+		    rdp.bound_d ? rdp.bound_d->h : 0);
+	}
+	for (int i = 0; i < RDP_TARGETS_MAX; i++) {
+		const struct rdp_target *t = &rdp.tg.t[i];
+		if (t->used)
+			log("gfx ranura %d: %06x/%u, %u × %u a %u×, superficie %s, dibujada hace %u tareas", i, t->addr, t->width,
+			    t->lw, t->lh, rdp.surf_scale[i], rdp.surf[i] ? "sí" : "no", rdp.tg.task - t->last_task);
+	}
+	for (int i = 0; i < MAX_DEPTHS; i++) {
+		const struct depth *d = &rdp.depths[i];
+		if (d->used)
+			log("gfx profundidad %d: %06x de %u × %u, cargada desde la RDRAM en la tarea %u", i, d->addr, d->w, d->h,
+			    d->fed_task);
+	}
+}
+
+/* El volcado de la tarea `s` con su resultado `r` (gfxdump.c). */
+static bool dump_set(const struct set *s, const struct gfx_result *r, const char *path);
+
+bool salsa64_rdp_dump_current(const char *path, uint32_t *task)
+{
+	if (!rdp.ready)
+		return false;
+	uint32_t n = rdp.in_task;
+	if (!n) {
+		if (task)
+			*task = rdp.translated ? rdp.translated - 1 : 0;
+		return salsa64_rdp_dump(path);
+	}
+	if (task)
+		*task = n - 1;
+	const struct set *s = &rdp.sets[(n - 1) % SETS];
+	return s->res.cmd_bytes && dump_set(s, &s->res, path);
+}
+
 bool salsa64_rdp_dump(const char *path)
 {
 	if (!rdp.ready || !rdp.last_res.cmd_bytes)
 		return false;
-	const struct set *s = &rdp.sets[rdp.last_set];
-	const struct gfx_result *r = &rdp.last_res;
+	return dump_set(&rdp.sets[rdp.last_set], &rdp.last_res, path);
+}
+
+static bool dump_set(const struct set *s, const struct gfx_result *r, const char *path)
+{
 	struct gfx_dump_src src = { s->cmd, r->cmd_bytes, s->vtx, r->vtx_bytes, s->tex, r->tex_bytes,
 				    rdp.cache, CACHE_BYTES, rdp.rdram, rdp.rdram_size };
 	/* El armado (gfxdump.c) es el mismo de la caja negra; aquí, con

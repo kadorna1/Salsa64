@@ -223,6 +223,17 @@ static int choose(const struct rdp_targets *s, uint32_t addr, uint32_t width, ui
 	return i;
 }
 
+enum rdp_cimg_bad rdp_cimg_impossible(uint32_t addr, uint32_t width, uint32_t min_lh, uint32_t rdram_size)
+{
+	if (!width || width > 640)
+		return RDP_CIMG_WIDTH;
+	if (min_lh > 480)
+		return RDP_CIMG_HEIGHT;
+	if (rdram_size && addr >= rdram_size)
+		return RDP_CIMG_RDRAM;
+	return RDP_CIMG_OK;
+}
+
 int rdp_targets_recycled(const struct rdp_targets *s, uint32_t addr, uint32_t width, uint32_t siz, uint32_t min_lh)
 {
 	int kind;
