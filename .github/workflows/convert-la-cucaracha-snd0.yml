@@ -1,0 +1,266 @@
+name: Convert La Cucaracha N64 to PS3 XMB SND0.AT3
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/convert-la-cucaracha-snd0.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: convert-la-cucaracha-snd0-main
+  cancel-in-progress: false
+
+jobs:
+  convert-and-commit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install conversion dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake curl ffmpeg libsndfile1-dev python3 python3-pip
+
+      - name: Retrieve audio from the supplied public Suno share
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://suno.com/s/yuS9oAdT7NaJ57L1'
+          TMP="$RUNNER_TEMP/suno-audio"
+          mkdir -p "$TMP" build/conversion
+          echo "SUNO_AUDIO_DIR=$TMP" >> "$GITHUB_ENV"
+          python3 -m pip install --user --upgrade yt-dlp || true
+          export PATH="$HOME/.local/bin:$PATH"
+
+          # Use yt-dlp first when the public share is directly supported.
+          yt-dlp --no-playlist --no-progress --no-warnings -f 'bestaudio/best' \
+            -o "$TMP/yt-dlp.%(ext)s" "$URL" || true
+          SOURCE=''
+          for candidate in "$TMP"/yt-dlp.*; do
+            [ -f "$candidate" ] || continue
+            if ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
+                -of default=nw=1:nk=1 "$candidate" >/dev/null 2>&1; then
+              SOURCE="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$SOURCE" ]; then
+            # Suno share links usually redirect to a song page with the CDN URL
+            # in server-rendered metadata. Probe only public media URLs.
+            curl -fsSL --retry 2 --max-redirs 10 \
+              -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36' \
+              -w '%{url_effective}' -o "$TMP/song.html" "$URL" > "$TMP/effective-url.txt"
+            EFFECTIVE_URL="$(cat "$TMP/effective-url.txt")"
+            python3 - "$TMP/song.html" "$EFFECTIVE_URL" "$TMP/candidates.txt" <<'PY'
+          import html
+          import re
+          import sys
+          from urllib.parse import urlsplit
+
+          page = open(sys.argv[1], "r", encoding="utf-8", errors="ignore").read()
+          effective = sys.argv[2]
+          decoded = html.unescape(page).replace(r"\/", "/")
+          for src, dst in ((r"\u0026", "&"), (r"\u003d", "="), (r"\u002f", "/"), (r"\u002F", "/")):
+              decoded = decoded.replace(src, dst)
+
+          candidates, seen = [], set()
+          for url in re.findall(r"https?://[^\s\"'<>\)]+", decoded):
+              url = url.rstrip(".,;]}|")
+              lower = url.lower()
+              host = (urlsplit(url).hostname or "").lower()
+              if "suno" not in host and "suno" not in lower:
+                  continue
+              if not re.search(r"\.(mp3|m4a|wav)(?:[?#]|$)", lower):
+                  continue
+              if url not in seen:
+                  seen.add(url)
+                  candidates.append(url)
+
+          song_ids = re.findall(r"/song/([0-9a-fA-F-]{36})(?:[/?#]|$)", effective + "\n" + decoded)
+          for song_id in song_ids:
+              for host in ("cdn1.suno.ai", "cdn2.suno.ai"):
+                  url = f"https://{host}/{song_id}.mp3"
+                  if url not in seen:
+                      seen.add(url)
+                      candidates.append(url)
+
+          with open(sys.argv[3], "w", encoding="utf-8") as f:
+              for url in candidates:
+                  f.write(url + "\n")
+          print("Resolved page: " + effective)
+          print("Public audio URL candidates: " + str(len(candidates)))
+          PY
+
+            while IFS= read -r candidate; do
+              [ -n "$candidate" ] || continue
+              if curl -fLsS --retry 1 --referer "$URL" "$candidate" -o "$TMP/candidate.bin" \
+                  && ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
+                     -of default=nw=1:nk=1 "$TMP/candidate.bin" >/dev/null 2>&1; then
+                SOURCE="$TMP/candidate.bin"
+                break
+              fi
+            done < "$TMP/candidates.txt"
+          fi
+
+          if [ -z "$SOURCE" ]; then
+            echo "Could not retrieve a playable media file from the public Suno share." >&2
+            exit 1
+          fi
+          cp "$SOURCE" "$TMP/source-audio"
+          ffprobe -v error -show_entries format=duration,size:stream=codec_name,sample_rate,channels,bit_rate \
+            -of json "$TMP/source-audio" | tee build/conversion/source-info.json
+          sha256sum "$TMP/source-audio" | tee build/conversion/source.sha256
+
+      - name: Build the pinned open-source ATRAC3 encoder
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$SUNO_AUDIO_DIR"
+          curl -fL --retry 3 \
+            https://github.com/dcherednik/atracdenc/releases/download/0.2.3/atracdenc-0.2.3.tar.xz \
+            -o "$TMP/atracdenc-0.2.3.tar.xz"
+          echo "c2668c2cefb20722341f4a03370f4c7e8fe196c6b0e0c5ef7ab13fc5ffe6ae1a  $TMP/atracdenc-0.2.3.tar.xz" | sha256sum -c -
+          tar -xJf "$TMP/atracdenc-0.2.3.tar.xz" -C "$TMP"
+          cmake -S "$TMP/atracdenc-0.2.3" -B "$TMP/atracdenc-build" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$TMP/atracdenc-build" --parallel 2 --target atracdenc
+          test -x "$TMP/atracdenc-build/src/atracdenc"
+
+      - name: Encode ATRAC3 LP4 and build a looped XMB RIFF
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$SUNO_AUDIO_DIR"
+          ffmpeg -y -v error -i "$TMP/source-audio" -ar 44100 -ac 2 -sample_fmt s16 "$TMP/source.wav"
+          "$TMP/atracdenc-build/src/atracdenc" -e atrac3_lp4 -i "$TMP/source.wav" -o "$TMP/encoded.oma"
+          ffmpeg -y -v error -i "$TMP/encoded.oma" -c:a copy -f wav "$TMP/remux.wav"
+          python3 - "$TMP/source.wav" "$TMP/remux.wav" build/conversion/SND0.AT3 <<'PY'
+          import hashlib
+          import json
+          import struct
+          import sys
+          import wave
+          from pathlib import Path
+
+          source_wav, remux_wav, output = map(Path, sys.argv[1:])
+
+          def chunks(blob):
+              if len(blob) < 12 or blob[:4] != b"RIFF" or blob[8:12] != b"WAVE":
+                  raise ValueError("not RIFF/WAVE")
+              if struct.unpack_from("<I", blob, 4)[0] + 8 != len(blob):
+                  raise ValueError("RIFF size field does not match file length")
+              result = []
+              offset = 12
+              while offset + 8 <= len(blob):
+                  tag = blob[offset:offset + 4]
+                  size = struct.unpack_from("<I", blob, offset + 4)[0]
+                  start, end = offset + 8, offset + 8 + size
+                  if end > len(blob):
+                      raise ValueError(f"{tag!r} chunk exceeds RIFF bounds")
+                  result.append((tag, blob[start:end]))
+                  offset = end + (size & 1)
+              if offset != len(blob):
+                  raise ValueError("trailing or truncated RIFF bytes")
+              return result
+
+          with wave.open(str(source_wav), "rb") as wav:
+              if wav.getnchannels() != 2 or wav.getframerate() != 44100 or wav.getsampwidth() != 2:
+                  raise ValueError("input PCM must be stereo, 44100 Hz, 16-bit")
+              pcm_samples = wav.getnframes()
+
+          encoded_chunks = dict(chunks(remux_wav.read_bytes()))
+          fmt, encoded = encoded_chunks.get(b"fmt "), encoded_chunks.get(b"data")
+          if not fmt or not encoded or len(fmt) < 16:
+              raise ValueError("ATRAC3 WAV remux lacks fmt or data chunks")
+          tag, channels, rate = struct.unpack_from("<HHI", fmt, 0)
+          block_align = struct.unpack_from("<H", fmt, 12)[0]
+          if tag != 0x0270 or channels != 2 or rate != 44100 or block_align <= 0:
+              raise ValueError(f"unexpected ATRAC3 fmt: tag={tag:#x}, ch={channels}, rate={rate}, align={block_align}")
+          if len(encoded) % block_align:
+              raise ValueError("ATRAC3 data is not a whole number of frames")
+
+          frames = len(encoded) // block_align
+          samples_per_frame, delay, tail_padding = 1024, 1024, 368
+          capacity = frames * samples_per_frame - delay - tail_padding
+          if capacity <= 0:
+              raise ValueError("encoded audio is too short after ATRAC3 delay and tail padding")
+          fact_samples = min(pcm_samples, capacity)
+
+          # 60-byte WAVE sampler chunk with one forward loop spanning the track.
+          smpl = bytearray(60)
+          struct.pack_into("<I", smpl, 8, round(1_000_000_000 / rate))
+          struct.pack_into("<I", smpl, 12, 60)
+          struct.pack_into("<I", smpl, 28, 1)
+          struct.pack_into("<I", smpl, 32, 24)
+          struct.pack_into("<6I", smpl, 36, 0, 0, delay, delay + fact_samples - 1, 0, 0)
+
+          def riff_chunk(name, payload):
+              return name + struct.pack("<I", len(payload)) + payload + (b"\0" if len(payload) & 1 else b"")
+
+          body = (
+              riff_chunk(b"fmt ", fmt)
+              + riff_chunk(b"fact", struct.pack("<II", fact_samples, delay))
+              + riff_chunk(b"smpl", bytes(smpl))
+              + riff_chunk(b"data", encoded)
+          )
+          result = b"RIFF" + struct.pack("<I", len(body) + 4) + b"WAVE" + body
+          if len(result) > 2_400_000:
+              raise ValueError(f"SND0.AT3 is {len(result)} bytes, above the XMB size budget")
+          if fact_samples + delay + tail_padding > frames * samples_per_frame:
+              raise ValueError("fact samples plus delay/tail padding exceed encoded capacity")
+
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_bytes(result)
+          print(json.dumps({
+              "output": str(output),
+              "size_bytes": len(result),
+              "frames": frames,
+              "block_align": block_align,
+              "bit_rate_bps": block_align * 8 * rate // samples_per_frame,
+              "duration_seconds": round(fact_samples / rate, 3),
+              "fact_samples": fact_samples,
+              "delay_samples": delay,
+              "tail_padding_samples": tail_padding,
+              "loop_samples": [delay, delay + fact_samples - 1],
+              "sha256": hashlib.sha256(result).hexdigest(),
+          }, indent=2))
+          PY
+          ffmpeg -v error -i build/conversion/SND0.AT3 -f null -
+          ffprobe -v error -show_entries format=duration,size:stream=codec_name,sample_rate,channels,bit_rate \
+            -of json build/conversion/SND0.AT3 | tee build/conversion/final-info.json
+          sha256sum build/conversion/SND0.AT3 | tee build/conversion/SND0.AT3.sha256
+
+      - name: Commit converted audio to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git pull --rebase origin main
+          install -m 0644 build/conversion/SND0.AT3 assets/ps3/SND0.AT3
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/ps3/SND0.AT3
+          if git diff --cached --quiet; then
+            echo "SND0.AT3 already matches the converted track."
+            exit 0
+          fi
+          git commit -m "Update XMB audio to La Cucaracha N64"
+          git push origin HEAD:main
+
+      - name: Upload conversion diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: la-cucaracha-snd0-conversion
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
+          path: |
+            build/conversion/
