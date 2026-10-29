@@ -3047,52 +3047,6 @@ static void profile_pending_invalidate_box(int i, const struct rdp_box *box)
 		memset(rdp.profile_pending[i] + (size_t)y * t->width + x0, 0, x1 - x0);
 }
 
-static void profile_pending_invalidate_draw(int i, const struct set *s, const struct gfx_draw *g)
-{
-	if (i < 0 || i >= RDP_TARGETS_MAX || !s || !g || g->h.b < 3 ||
-	    !rdp.copy_color_from_rdram || !rdp.profile_pending[i])
-		return;
-	/* Do not guess which side survives hardware culling. UI/framebuffer draws
-	 * that need late CPU pixels normally use no culling; a culled draw must not
-	 * consume the overlay. */
-	if (g->cull != GFX_CULL_NONE)
-		return;
-	const struct rdp_target *t = &rdp.tg.t[i];
-	if (!t->used || t->bpp != 2 || !t->lw || !t->lh)
-		return;
-	const struct gfx_vertex *v = (const struct gfx_vertex *)s->vtx + g->h.a;
-	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
-	if (scale > RDP_SCALE_MAX)
-		scale = RDP_SCALE_MAX;
-
-	for (uint32_t k = 0; k + 2 < g->h.b; k += 3) {
-		if (!(v[k].w > 0.0f) || !(v[k + 1].w > 0.0f) || !(v[k + 2].w > 0.0f))
-			continue;
-		float ax = v[k].x / v[k].w, ay = v[k].y / v[k].w;
-		float bx = v[k + 1].x / v[k + 1].w, by = v[k + 1].y / v[k + 1].w;
-		float cx = v[k + 2].x / v[k + 2].w, cy = v[k + 2].y / v[k + 2].w;
-		float x0 = ax < bx ? ax : bx, x1 = ax > bx ? ax : bx;
-		float y0 = ay < by ? ay : by, y1 = ay > by ? ay : by;
-		if (cx < x0) x0 = cx;
-		if (cx > x1) x1 = cx;
-		if (cy < y0) y0 = cy;
-		if (cy > y1) y1 = cy;
-		struct rdp_box box = { 0, 0, 0, 0 };
-		rdp_box_add(&box, x0, y0, x1, y1, true, g->scissor, t->lw, t->lh);
-		if (rdp_box_empty(&box))
-			continue;
-
-		for (uint32_t y = box.y0; y < box.y1; y++) {
-			uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
-			for (uint32_t x = box.x0; x < box.x1; x++) {
-				if (pending_row[x] &&
-				    profile_pending_triangle_hits_pixel(ax, ay, bx, by, cx, cy, x, y, scale))
-					pending_row[x] = 0;
-			}
-		}
-	}
-}
-
 /* Borra con `color` el rectángulo (xa, ya)–(xb, yb) (píxeles lógicos) del
  * destino `i`, como un FILLRECT del RDP, y lo cuenta como dibujado en la
  * tarea. false si no hay nada que borrar o no se pudo ligar. */
