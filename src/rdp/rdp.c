@@ -1689,7 +1689,7 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 					bool is_covered = (raw_span[px * 2u + 1] & 1u) != 0;
 					if (is_covered)
 						pending_row[x] = 1;
-					else if (was_covered || pending_row[x] == 1 || pending_row[x] == 3)
+					else if (was_covered || pending_row[x] == 1)
 						pending_row[x] = 2;
 				}
 			}
@@ -1770,16 +1770,15 @@ static uint32_t prime_profile_pending_spans(int i)
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
 
 		/* A live overlay whose coverage bit goes low becomes a transparent
-		 * erase marker. Mode 3 survives one further presentation only while
-		 * the source remains covered; it must not become a persistent latch. */
+		 * erase marker. Covered spans are consumed after this VI's final blit;
+		 * they are not retained as a cross-field replay latch. */
 		for (uint32_t px = 0; px < t->lw; px++) {
 			if (!pending_row[px])
 				continue;
 			bool covered = (ram_row[px * 2u + 1] & 1u) != 0;
 			if (covered) {
-				if (pending_row[px] != 3)
-					pending_row[px] = 1;
-			} else if (pending_row[px] == 1 || pending_row[px] == 3) {
+				pending_row[px] = 1;
+			} else if (pending_row[px] == 1) {
 				pending_row[px] = 2;
 			}
 		}
