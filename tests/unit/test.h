@@ -132,6 +132,7 @@ void t_suite_vmatch(void);
 void t_suite_raster(void);
 void t_suite_gfxcheck(void);
 void t_suite_fpgen(void);
+void t_suite_sifm(void);
 void t_suite_menu(void);
 void t_suite_crt(void);
 void t_suite_seda(void);

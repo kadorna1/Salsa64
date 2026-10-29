@@ -67,6 +67,7 @@ uint32_t raster_field;
 int raster_fbfx = 2;
 bool raster_q5 = true;
 bool raster_aa_edges = false;
+bool raster_rsx_safe = true;
 float raster_edge_width = 1.5f;  /* como rdp.c: 1,5 píxeles de la N64 */
 float raster_edge_factor = 8.0f, raster_edge_units = 64.0f;  /* su desplazamiento de polígono (rsxkit) */
 static struct rdp_vi_ring vi_ring;
@@ -109,10 +110,17 @@ static int get_target(const struct gfx_job *job, uint32_t addr, uint32_t width, 
 	bool fresh;
 	*created = false;
 	/* Como rdp.c: una color image imposible no toca la tabla. */
-	if (!width || width > 640 || min_lh > 480) {
-		if (raster_trace_fb)
+	enum rdp_cimg_bad bad = rdp_cimg_impossible(addr, width, min_lh, raster_rsx_safe ? job->rdram_size : 0);
+	if (bad != RDP_CIMG_OK) {
+		if (bad == RDP_CIMG_RDRAM) {
+			static unsigned said;
+			if (said++ < 10)
+				fprintf(stderr, "fb: campo %u tarea %u: color image %06x/%u fuera de la RDRAM (%u KB; alto pedido %u): "
+					"se ignora\n", raster_field, task_no, addr, width, job->rdram_size >> 10, min_lh);
+		} else if (raster_trace_fb) {
 			fprintf(stderr, "fb: campo %u tarea %u: color image imposible %06x/%u (alto %u): se ignora\n", raster_field,
 				task_no, addr, width, min_lh);
+		}
 		return -1;
 	}
 	int i = rdp_targets_get(&tg, addr, width, siz, min_lh, &fresh);
@@ -847,10 +855,13 @@ void raster_task(const struct gfx_job *job, const struct gfx_result *res)
 				frame_start = c->a != first_cimg;
 				first_cimg = c->a;
 			}
-			bool is_tall = c->b && c->b <= 640 && rdp_targets_tall(c->b, lh) &&
+			/* Fuera de la RDRAM (rdp_cimg_impossible): ni destino, ni reparto
+			 * de rellenos, ni reciclar una ranura por ella (como rdp.c). */
+			bool outside = raster_rsx_safe && job->rdram_size && c->a >= job->rdram_size;
+			bool is_tall = !outside && c->b && c->b <= 640 && rdp_targets_tall(c->b, lh) &&
 				       fills_only(cmd, off + c->size, res->cmd_bytes);
 			bool created;
-			if (!is_tall && c->b && c->b <= 640 && lh <= 480) {
+			if (!outside && !is_tall && c->b && c->b <= 640 && lh <= 480) {
 				int v = rdp_targets_recycled(&tg, c->a, c->b, siz, lh);
 				if (v >= 0 && drawn[v])
 					flush_recycled(job, v, &drawn_box[v]);

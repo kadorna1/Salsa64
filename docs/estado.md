@@ -1,5 +1,40 @@
 # Estado
 
+## 2026-10-29 — Indiana Jones: el RSX dejó de avanzar tras una color image fuera de la RDRAM; blindaje y datos de un cuelgue (rama `indy-rsx`)
+
+- En la PS3 real, tras once minutos de juego, al salir por segunda vez de
+  una cascada: la HLE pidió el destino 900000/455 (fuera de los 8 MB de
+  RDRAM; 341 = alto por omisión, 44 = tijeras), el PPE quedó esperando la
+  barrera que `zfeed` pone tras una carga de la z (GET en 0, PUT 0x3dde4)
+  y a los 12 s el cierre forzado dejó la consola congelada. Análisis y lo
+  que queda como hipótesis en docs/rsx-notes.md: lo único mandado entre lo
+  último que el RSX terminó y esa barrera fue, a lo sumo, la carga de la z
+  de 455 × 341 a 2× (la primera de ancho impar de la sesión; las 121
+  anteriores, de alto impar y ancho par, pasaron).
+- Blindaje (encendido; `rsx-sin-blindaje` lo apaga, `SALSA64_RSX_SIN_BLINDAJE`
+  en el host): las color images que empiezan fuera de la RDRAM no tienen
+  destino (`rdp_cimg_impossible`, también en `raster.c`) y
+  `rsxkit_depth_load` usa anchos de entrada pares (`lib/rsxkit/src/sifm.c`).
+- Si el RSX se queda igual: aviso de excepciones del sistema
+  (`gcmSetGraphicsHandler`, al log desde el latido), y a los 2 s registros,
+  barreras, búfer de comandos alrededor de GET y de PUT, rastro de las
+  últimas 64 operaciones de rsxkit con su offset y lo último de destinos,
+  profundidades y cargas de la z; antes de salir, `rsx-colgado-<campo>/`
+  con `fifo.bin`, `gfxdump.bin` (la tarea en traducción) y `caja.s4bb` (la
+  caja negra, sin comprimir), con fsync; después rsxkit abandona el RSX
+  (PUT = GET, sin esperas ni vaciados). `rsx-colgado` = `reinicio` o
+  `reinicio-directo` reinicia la consola en vez de volver al XMB
+  (experimental).
+- Pruebas: unitarias en Docker 789, 0 fallos (suite nueva `sifm`: tramos
+  iguales a los de antes con anchos pares, el caso 455 × 341, sin lugar en
+  el pitch, `rdp_cimg_impossible`); en `cpu-tests` (PPU) `test_sifm.c` y
+  `sifm.c` compilan, y el programa no se arma por un error que ya trae main
+  (`test_raster.c`: `CLOCK_MONOTONIC`, de 0d4a19d); escenas del host
+  (SM64, Zelda OoT, Indiana Jones, F-Zero X, Rogue Squadron, 1500 campos con
+  START/A, imágenes cada 250 campos): 34 de 34 idénticas a main y las mismas
+  tareas. Falta la PS3: Indiana Jones en la cascada, y `colgar-rsx` para ver
+  qué deja la consola usable al salir.
+
 ## 2026-10-28 — Yoshi's Story: camino rápido de layer8 (el genérico costaba 1 µs por píxel en el PPE)
 
 - En la consola (`build/yoshi-rdp/ps3/yoshi3.log`) las esperas bajaron a 0,

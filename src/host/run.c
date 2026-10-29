@@ -3836,6 +3836,10 @@ int main(int argc, char **argv)
 		default:  usage(stderr); return 3;
 		}
 	}
+	/* Como /dev_hdd0/salsa64/rsx-sin-blindaje en la PS3: las color images
+	 * fuera de la RDRAM vuelven a tener destino (para comparar). */
+	if (getenv("SALSA64_RSX_SIN_BLINDAJE") && atoi(getenv("SALSA64_RSX_SIN_BLINDAJE")))
+		raster_rsx_safe = false;
 	if (dump_path)
 		return raster_dump(dump_path, gfx_path);
 	if (stop_field && !cycles_set)

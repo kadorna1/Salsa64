@@ -232,6 +232,11 @@ void salsa64_rdp_set_big8_prime(bool prime);
  * pasan por el RSX ni por su copia; `false` (bandera gfx-capas8-rsx) vuelve
  * a dibujarlas en el RSX y a esperar la copia. */
 void salsa64_rdp_set_layer8(bool on);
+/* Blindaje del RSX (encendido por omisión; `false` con la bandera
+ * rsx-sin-blindaje): una color image que empieza fuera de la RDRAM no tiene
+ * destino (rdp_cimg_impossible: Indiana Jones pidió una vez 900000/455 y el
+ * RSX se colgó en esa tarea). */
+void salsa64_rdp_set_rsx_safe(bool on);
 /* Interruptor por juego: cada borrado de z espera al próximo destino que se
  * liga. LEGO Racers emite el borrado antes de cambiar de color image y
  * alterna una auxiliar de 32 x 32 y el framebuffer de 320 x 240 con la misma
@@ -414,5 +419,14 @@ uint32_t salsa64_rdp_translating(const char **stage);
  * con las texturas de la caché copiadas al arena (el volcado no depende de
  * la caché). Espera al RSX. Para depurar. */
 bool salsa64_rdp_dump(const char *path);
+/* Lo mismo con la tarea que se está traduciendo (la de un RSX colgado), o la
+ * última si no hay ninguna; *task: su número. No espera al RSX ni lo toca:
+ * se puede llamar desde el gancho de las esperas o desde otro hilo con la
+ * traducción quieta. */
+bool salsa64_rdp_dump_current(const char *path, uint32_t *task);
+/* Al log, para un RSX colgado: los últimos destinos creados o reciclados,
+ * profundidades y cargas de la z (con su tarea), lo ligado y las tablas de
+ * destinos y profundidades. Solo lee. */
+void salsa64_rdp_diag_log(void (*log)(const char *fmt, ...));
 
 #endif

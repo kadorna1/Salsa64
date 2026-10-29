@@ -57,6 +57,10 @@ extern bool raster_q5;
  * aristas como líneas antes de los triángulos (experimental, apagadas por
  * omisión; SALSA64_AA_EDGES=1 las pone). */
 extern bool raster_aa_edges;
+/* Como el blindaje del RSX de la PS3 (rsx-sin-blindaje lo apaga): una color
+ * image que empieza fuera de la RDRAM no tiene destino (rdp_cimg_impossible).
+ * SALSA64_RSX_SIN_BLINDAJE=1 lo apaga. */
+extern bool raster_rsx_safe;
 extern float raster_edge_width;  /* ancho de esas líneas, en píxeles */
 extern float raster_edge_factor, raster_edge_units;  /* su desplazamiento hacia atrás */
 /* Cada campo con imagen: el origen y ancho del VI (como salsa64_rdp_vi). */
