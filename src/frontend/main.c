@@ -932,6 +932,7 @@ static bool gfx_affine_chain;
 static bool gfx_s2dex_old_modes;
 static bool gfx_s2dex_bg_old;
 static bool gfx_no_yuv;
+static bool gfx_blend_old;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -943,6 +944,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_S2DEX_BG_OLD;
 	if (gfx_no_yuv)
 		job->flags |= GFX_JOB_NO_YUV;
+	if (gfx_blend_old)
+		job->flags |= GFX_JOB_BLEND_OLD;
 	if (gfx_s2dex_old_modes)
 		job->flags |= GFX_JOB_S2DEX_OLD_MODES;
 }
@@ -5456,6 +5459,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		    gfx_s2dex_bg_old ? "antiguo" : "limitado");
 	gfx_no_yuv = file_exists(SALSA64_DATA_DIR "/sin-yuv");
 	salsa64_log("gfx: conversión YUV %s (sin-yuv)", gfx_no_yuv ? "apagada" : "encendida");
+	gfx_blend_old = file_exists(SALSA64_DATA_DIR "/mezclas-viejas");
+	salsa64_log("gfx: modos del blender %s (mezclas-viejas)", gfx_blend_old ? "los cuatro de antes" : "completos");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);
@@ -5488,6 +5493,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		gfx_ppe.backend.acclaim = acclaim;
 		gfx_ppe.backend.eurocom = eurocom;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_ppe.backend);
+	}
 	}
 	/* Killer Instinct Gold (y otros) dibuja con listas del RDP que el CPU
 	 * escribe por DPC_START/DPC_END, sin RSP, y espera la interrupción del

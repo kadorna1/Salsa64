@@ -14,6 +14,15 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Vigilante 8: 2nd Offense: explosions, smoke and the sun glare drew as
+  black squares.** The game paints each of them twice with the same quad: a
+  `MEM·A_IN` pass that darkens the background through the texture and an
+  additive `IN·A_FOG + MEM` pass (`G_RM_ADD`) with the colour texture. Both
+  were approximated as `IN·α + MEM·(1 − α)`, which with the opaque texture
+  alpha of the second pass left a black square. The RDP blender products the
+  RSX can do directly (`dst·α`, `src + dst·α`, `src·(1 − α) + dst·α`,
+  `src + dst`) now go through as such; `mezclas-viejas` restores the previous
+  classification for comparison. PS3 check pending.
 - **Command & Conquer** (#38): limit oversized S2DEX backgrounds to their
   scaled image; `s2dex-marco-viejo` restores the previous repetition.
   Validated with synthetic lists and the real microcode; PS3 check pending.

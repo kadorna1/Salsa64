@@ -176,47 +176,70 @@ static uint32_t fill_rgba(const struct gfx_state *g)
 	return r << 24 | gr << 16 | b << 8 | ((p & 1) ? 0xFF : 0);
 }
 
-/* Factor del blender como k + ka·α (α = alfa del color que entra). */
+/* Factor del blender como k + ka·α (α = alfa del color que entra): k en
+ * 255avos (0, 255 o el alfa de la niebla) y ka en {−1, 0, 1}. Enteros: en
+ * el SPE las comparaciones con flotantes y sus constantes pesaban ~900 bytes
+ * de código. */
 struct bl_factor {
-	float k, ka;
+	int k, ka;
 };
 
-static bool bl_eq(struct bl_factor f, float k, float ka)
+static bool bl_eq(struct bl_factor f, int k, int ka)
 {
-	return f.k > k - 1e-3f && f.k < k + 1e-3f && f.ka > ka - 1e-3f && f.ka < ka + 1e-3f;
+	return f.k == k && f.ka == ka;
 }
 
 /* P·A + M·B (n64brew.dev: Set Other Modes) llevado a lo que hace el RSX:
- * se suman los factores del color que entra (IN) y del de la memoria (MEM).
- * A_SHADE se toma como el alfa que entra; MEM_A como 1; los colores
- * constantes (blend, fog) en P los pone blend_constant, en M se ignoran. */
-static uint8_t classify_blend(unsigned p, unsigned a, unsigned m, unsigned b, uint32_t fog)
+ * se suman los factores del color que entra (IN) y del de la memoria (MEM)
+ * y se elige el modo de gfx_blend que los calcula tal cual. A_SHADE se toma
+ * como el alfa que entra; MEM_A como 1; los colores constantes (blend, fog)
+ * en P los pone blend_constant, en M se ignoran. IN·k + MEM con k el alfa
+ * de la niebla (G_RM_ADD) es la suma con el color escalado por k: lo escala
+ * blend_constant. Lo que no cabe en ningún modo sale como IN·α + MEM·(1 −
+ * α), que antes era la salida de todo lo que no fuera opaco, solo z o
+ * aditivo (GFX_JOB_BLEND_OLD vuelve a eso para comparar). */
+static uint8_t classify_blend(const struct gfx_state *g, unsigned p, unsigned a, unsigned m, unsigned b, uint32_t fog)
 {
-	struct bl_factor fa = { 0.0f, 0.0f }, fb = { 0.0f, 0.0f };
+	struct bl_factor fa = { 0, 0 }, fb = { 0, 0 };
 	switch (a) {
 	case BA_IN:
-	case BA_SHADE: fa.ka = 1.0f; break;
-	case BA_FOG:   fa.k = (fog & 0xFF) / 255.0f; break;
+	case BA_SHADE: fa.ka = 1; break;
+	case BA_FOG:   fa.k = (int)(fog & 0xFF); break;
 	default:       break;
 	}
 	switch (b) {
-	case BB_1MA: fb.k = 1.0f - fa.k, fb.ka = -fa.ka; break;
+	case BB_1MA: fb.k = 255 - fa.k, fb.ka = -fa.ka; break;
 	case BB_MEM:
-	case BB_ONE: fb.k = 1.0f; break;
+	case BB_ONE: fb.k = 255; break;
 	default:     break;
 	}
-	struct bl_factor in = { 0.0f, 0.0f }, mem = { 0.0f, 0.0f };
+	struct bl_factor in = { 0, 0 }, mem = { 0, 0 };
 	if (p == BL_IN) in.k += fa.k, in.ka += fa.ka;
 	if (p == BL_MEM) mem.k += fa.k, mem.ka += fa.ka;
 	if (m == BL_IN) in.k += fb.k, in.ka += fb.ka;
 	if (m == BL_MEM) mem.k += fb.k, mem.ka += fb.ka;
 
-	if (bl_eq(mem, 0.0f, 0.0f))
+	if (bl_eq(mem, 0, 0))
 		return GFX_BLEND_OFF;                 /* p. ej. IN·0 + IN·1 */
-	if (bl_eq(in, 0.0f, 0.0f) && bl_eq(mem, 1.0f, 0.0f))
+	if (bl_eq(in, 0, 0) && bl_eq(mem, 255, 0))
 		return GFX_BLEND_KEEP;                /* solo profundidad */
-	if (bl_eq(in, 0.0f, 1.0f) && bl_eq(mem, 1.0f, 0.0f))
+	if (bl_eq(in, 0, 1) && bl_eq(mem, 255, 0))
 		return GFX_BLEND_ADD;
+	if (g->job->flags & GFX_JOB_BLEND_OLD)
+		return GFX_BLEND_ALPHA;
+	/* Lo que el RDP multiplica por el alfa que entra, o por su complemento,
+	 * el RSX lo hace con los mismos factores. Vigilante 8 pinta cada
+	 * explosión, humo y resplandor en dos pasadas: MEM·A_IN con el color en
+	 * negro (oscurece el fondo según la textura) y encima IN + MEM con la
+	 * textura de color; vistas como IN·α + MEM·(1 − α) eran cuadros negros. */
+	if (bl_eq(in, 0, 0) && bl_eq(mem, 0, 1))
+		return GFX_BLEND_MUL;                 /* MEM·α */
+	if (bl_eq(in, 255, 0) && bl_eq(mem, 0, 1))
+		return GFX_BLEND_ADD_MUL;             /* IN + MEM·α */
+	if (bl_eq(in, 255, -1) && bl_eq(mem, 0, 1))
+		return GFX_BLEND_ALPHA_INV;           /* IN·(1 − α) + MEM·α */
+	if (in.ka == 0 && in.k > 0 && bl_eq(mem, 255, 0))
+		return GFX_BLEND_ADD_ONE;             /* IN·k + MEM: k lo aplica blend_constant */
 	return GFX_BLEND_ALPHA;                       /* IN·α + MEM·(1 − α) y parecidos */
 }
 
@@ -236,7 +259,7 @@ static void blend_state(const struct gfx_state *g, struct gfx_draw *d)
 		p = c1p, a = c1a, m = c1m, b = c1b;
 	}
 
-	d->blend = !(ol & FORCE_BL) ? GFX_BLEND_OFF : classify_blend(p, a, m, b, g->fog);
+	d->blend = !(ol & FORCE_BL) ? GFX_BLEND_OFF : classify_blend(g, p, a, m, b, g->fog);
 	/* G_RM_VISCVG: IM_RD | FORCE_BL y el blender IN·0 + BL·A_MEM. */
 	if ((ol & (IM_RD | FORCE_BL)) == (IM_RD | FORCE_BL) && p == BL_IN && a == BA_ZERO && m == BL_BL && b == BB_MEM)
 		d->viscvg = 1;
@@ -297,6 +320,17 @@ static void blend_constant(const struct gfx_state *g, struct gfx_draw *d)
 	unsigned sh = d->cycle == G_CYC_2CYCLE ? 0 : 2;  /* el ciclo que escribe */
 	unsigned p = (ol >> (28 + sh)) & 3, a = (ol >> (24 + sh)) & 3;
 	unsigned m = (ol >> (20 + sh)) & 3, b = (ol >> (16 + sh)) & 3;
+	float fa = (float)(g->fog & 0xFF) / 255.0f;
+	/* IN·A_FOG + MEM (G_RM_ADD): la suma con el color ya escalado por el
+	 * alfa de la niebla (con 255, tal cual). */
+	if (p == BL_IN) {
+		if (d->blend == GFX_BLEND_ADD_ONE && a == BA_FOG && fa < 1.0f)
+			for (int k = 0; k < GFX_K_TERMS; k++)
+				for (int j = 0; j < 3; j++)
+					for (int l = 0; l < 3; l++)
+						d->k[k][j][l] *= fa;
+		return;
+	}
 	if (p != BL_FOG && p != BL_BL)
 		return;
 	/* Sin escritura de color (solo z, como la máscara de la Lente de la
@@ -315,7 +349,6 @@ static void blend_constant(const struct gfx_state *g, struct gfx_draw *d)
 	uint32_t c = p == BL_FOG ? g->fog : g->blend;
 	float rgb[3] = { (float)(c >> 24) / 255.0f, (float)((c >> 16) & 0xFF) / 255.0f,
 			 (float)((c >> 8) & 0xFF) / 255.0f };
-	float fa = (float)(g->fog & 0xFF) / 255.0f;
 	if (toward) {
 		for (int k = 0; k < GFX_K_TERMS; k++)
 			for (int j = 0; j < 3; j++)
@@ -338,7 +371,7 @@ static void blend_constant(const struct gfx_state *g, struct gfx_draw *d)
 		d->k[one][2][3] = 1.0f;
 	d->fog = 0;
 	if (force)
-		d->blend = classify_blend(BL_IN, a, m, b, g->fog);
+		d->blend = classify_blend(g, BL_IN, a, m, b, g->fog);
 }
 
 static float shift_scale(unsigned shift)

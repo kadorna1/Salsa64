@@ -185,6 +185,9 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
 #define GFX_JOB_NO_YUV 0x4000u
 /* Diagnóstico: fondos escalados con el marco sin limitar a la imagen. */
 #define GFX_JOB_S2DEX_BG_OLD 0x8000u
+/* Diagnóstico: el blender solo con los cuatro modos de antes (todo lo demás
+ * como IN·α + MEM·(1 − α)); los productos nuevos de gfx_blend no salen. */
+#define GFX_JOB_BLEND_OLD 0x10000u
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 
@@ -358,10 +361,18 @@ enum { GFX_F_NONE = 0, GFX_F_T0, GFX_F_T0A, GFX_F_T1, GFX_F_T1A, GFX_F_C, GFX_F_
 
 /* Modo de mezcla con el framebuffer. */
 enum gfx_blend {
-	GFX_BLEND_OFF = 0,  /* opaco */
-	GFX_BLEND_ALPHA,    /* src * a + dst * (1 - a) */
-	GFX_BLEND_ADD,      /* src * a + dst */
-	GFX_BLEND_KEEP,     /* no escribe color (solo profundidad) */
+	GFX_BLEND_OFF = 0,   /* opaco */
+	GFX_BLEND_ALPHA,     /* src * a + dst * (1 - a) */
+	GFX_BLEND_ADD,       /* src * a + dst */
+	GFX_BLEND_KEEP,      /* no escribe color (solo profundidad) */
+	/* Los demás productos del blender del RDP que el RSX hace tal cual
+	 * (rdp.c, classify_blend): un juego oscurece lo dibujado con una
+	 * pasada MEM·A_IN y suma el color encima con otra IN + MEM (las
+	 * explosiones, el humo y el resplandor del sol de Vigilante 8). */
+	GFX_BLEND_MUL,       /* dst * a */
+	GFX_BLEND_ADD_MUL,   /* src + dst * a */
+	GFX_BLEND_ALPHA_INV, /* src * (1 - a) + dst * a */
+	GFX_BLEND_ADD_ONE,   /* src + dst */
 };
 
 #define GFX_DEPTH_TEST   0x01u

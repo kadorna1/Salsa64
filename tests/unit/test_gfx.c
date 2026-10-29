@@ -324,6 +324,74 @@ static void gfx_blender_fog_color(void)
 	}
 }
 
+/* Los productos del blender que el RSX hace tal cual. Vigilante 8 dibuja
+ * cada explosión, humo y resplandor del sol en dos pasadas con el mismo
+ * cuadrilátero: MEM·A_IN con el color en negro (oscurece el fondo según la
+ * textura) y encima IN·A_FOG + MEM·1 (G_RM_ADD) con la textura de color;
+ * clasificadas como IN·α + MEM·(1 − α) salían como cuadros negros. Con
+ * GFX_JOB_BLEND_OLD vuelven a la clasificación de antes. */
+static void gfx_blender_products(void)
+{
+	enum { P_IN = 0, P_MEM = 1, P_BL = 2, P_FOG = 3 };
+	enum { A_IN = 0, A_FOG = 1, A_SHADE = 2, A_ZERO = 3 };
+	enum { B_1MA = 0, B_MEM = 1, B_ONE = 2, B_ZERO = 3 };
+#define BLW(p, a, m, b)                                                                                     \
+	((uint32_t)(p) << 30 | (uint32_t)(a) << 26 | (uint32_t)(m) << 22 | (uint32_t)(b) << 18 |          \
+	 (uint32_t)(p) << 28 | (uint32_t)(a) << 24 | (uint32_t)(m) << 20 | (uint32_t)(b) << 16 | 0x4040u)
+	static const struct {
+		uint32_t ol, fog;
+		uint32_t flags;
+		uint8_t blend;
+		float rgb;   /* el término constante esperado (color PRIM 0x80, escalado) */
+		float alpha; /* y su alfa (PRIM 0xC0 o el de la niebla) */
+	} c[] = {
+		{ BLW(P_MEM, A_IN, P_IN, B_ZERO), 0xFFFFFFFF, 0, GFX_BLEND_MUL, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_MEM, A_IN, P_IN, B_1MA), 0xFFFFFFFF, 0, GFX_BLEND_ALPHA_INV, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_MEM, A_IN, P_IN, B_MEM), 0xFFFFFFFF, 0, GFX_BLEND_ADD_MUL, 0x80 / 255.0f, 0xC0 / 255.0f },
+		/* G_RM_ADD: con el alfa de la niebla en 255, la suma tal cual; con
+		 * 128, el color escalado a la mitad. */
+		{ BLW(P_IN, A_FOG, P_MEM, B_ONE), 0xFFFFFFFF, 0, GFX_BLEND_ADD_ONE, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_IN, A_FOG, P_MEM, B_ONE), 0xFFFFFF80, 0, GFX_BLEND_ADD_ONE, 0x80 / 255.0f * 0x80 / 255.0f,
+		  0xC0 / 255.0f },
+		/* Los de siempre no cambian. */
+		{ BLW(P_IN, A_IN, P_MEM, B_1MA), 0xFFFFFFFF, 0, GFX_BLEND_ALPHA, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_IN, A_IN, P_MEM, B_MEM), 0xFFFFFFFF, 0, GFX_BLEND_ADD, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_IN, A_ZERO, P_IN, B_ONE), 0xFFFFFFFF, 0, GFX_BLEND_OFF, 0x80 / 255.0f, 0xC0 / 255.0f },
+		/* El interruptor: todo lo que no sea opaco, solo z o aditivo vuelve
+		 * a IN·α + MEM·(1 − α), sin escalar nada. */
+		{ BLW(P_MEM, A_IN, P_IN, B_ZERO), 0xFFFFFFFF, GFX_JOB_BLEND_OLD, GFX_BLEND_ALPHA, 0x80 / 255.0f,
+		  0xC0 / 255.0f },
+		{ BLW(P_IN, A_FOG, P_MEM, B_ONE), 0xFFFFFF80, GFX_JOB_BLEND_OLD, GFX_BLEND_ALPHA, 0x80 / 255.0f,
+		  0xC0 / 255.0f },
+	};
+#undef BLW
+	for (unsigned i = 0; i < sizeof c / sizeof c[0]; i++) {
+		start();
+		job_flags = c[i].flags;
+		set_cycle(G_CYC_1CYCLE);
+		set_combine(CC_A_ZERO, CC_ZERO, CC_C_ZERO, CC_PRIM, CC_ZERO, CC_ZERO, CC_ZERO, CC_PRIM);
+		dl(0xFA000000, 0x808080C0);                      /* G_SETPRIMCOLOR */
+		dl(0xF8000000, c[i].fog);                        /* G_SETFOGCOLOR */
+		dl(0xEF000000 | G_CYC_1CYCLE << 20, c[i].ol);     /* G_RDPSETOTHERMODE */
+		dl(0xE4000000 | (40 << 2) << 12 | (40 << 2), 0);  /* G_TEXRECT */
+		dl(0xE1000000, 0);
+		dl(0xF1000000, 0x04000400);
+		run();
+		const struct gfx_draw *d = draw_n(0);
+		CHECK(d != NULL);
+		if (!d)
+			continue;
+		CHECK_EQ(d->blend, c[i].blend);
+		float out[4] = { 0, 0, 0, 0 };
+		for (int k = 0; k < GFX_K_TERMS; k++)
+			for (int l = 0; l < 4; l++)
+				out[l] += d->k[k][0][l];  /* sin textura ni color de vértice: solo k0 */
+		for (int l = 0; l < 3; l++)
+			CHECK(fabsf(out[l] - c[i].rgb) < 1e-5f);
+		CHECK(fabsf(out[3] - c[i].alpha) < 1e-5f);
+	}
+}
+
 /* G_SETCONVERT: K5 entra al combiner (Conker: (SHADE − ENV)·K5 + PRIM en el
  * segundo ciclo, con K5 = 255; si se ignora, la cara sale negra) y persiste
  * en el estado del RDP. */
@@ -3234,6 +3302,7 @@ void t_suite_gfx(void)
 	RUN(gfx_aa_flag);
 	RUN(gfx_tile_clamp_mirror_mask);
 	RUN(gfx_blender_fog_color);
+	RUN(gfx_blender_products);
 	RUN(gfx_tile_mirror_once);
 	RUN(gfx_tile_clamp_mask_period);
 	RUN(gfx_tri_no_persp_half);

@@ -1305,6 +1305,8 @@ static void gfx_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_S2DEX_BG_OLD;
 	if (salsa64_host_env_on("SALSA64_NO_YUV"))
 		job->flags |= GFX_JOB_NO_YUV;
+	if (salsa64_host_env_on("SALSA64_BLEND_OLD"))
+		job->flags |= GFX_JOB_BLEND_OLD;
 #ifdef SALSA64_GFX_TRACE
 	salsa64_gfx_trace_now = trace_gfx_verbose && trace_gfx_left && n64.bus.vi.fields > (trace_from ? trace_from : 500);
 	trace_draw = trace_states = 0;

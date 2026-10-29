@@ -380,10 +380,15 @@ static void shade(const struct gfx_draw *d, const struct gfx_vertex *v, const st
 		return;
 	}
 	for (int l = 0; l < 3; l++) {
-		if (d->blend == GFX_BLEND_ALPHA)
-			out[l] = out[l] * out[3] + dst[l] * (1.0f - out[3]);
-		else if (d->blend == GFX_BLEND_ADD)
-			out[l] = clamp01(out[l] * out[3] + dst[l]);
+		switch (d->blend) {
+		case GFX_BLEND_ALPHA:     out[l] = out[l] * out[3] + dst[l] * (1.0f - out[3]); break;
+		case GFX_BLEND_ADD:       out[l] = clamp01(out[l] * out[3] + dst[l]); break;
+		case GFX_BLEND_MUL:       out[l] = dst[l] * out[3]; break;
+		case GFX_BLEND_ADD_MUL:   out[l] = clamp01(out[l] + dst[l] * out[3]); break;
+		case GFX_BLEND_ALPHA_INV: out[l] = out[l] * (1.0f - out[3]) + dst[l] * out[3]; break;
+		case GFX_BLEND_ADD_ONE:   out[l] = clamp01(out[l] + dst[l]); break;
+		default:                  break;
+		}
 	}
 	tg_rgb[idx] = channel(out[0], q5) << 16 | channel(out[1], q5) << 8 | channel(out[2], q5);
 	if ((d->depth & GFX_DEPTH_WRITE) && zb)

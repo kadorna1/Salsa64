@@ -105,7 +105,22 @@ static void task_tall_draw(uint32_t fb, uint32_t w, uint32_t lh, float x0, float
 }
 
 /* Una tarea que pinta toda la color image `fb` (`w` de ancho, 16 bits). */
-static void task_fill_w(uint32_t fb, uint32_t w, uint32_t r, uint32_t g, uint32_t b)
+static void run_cmd(void)
+{
+	struct gfx_job job;
+	struct gfx_result res;
+	memset(&job, 0, sizeof job);
+	memset(&res, 0, sizeof res);
+	job.rdram_ea = (uint64_t)(uintptr_t)ram;
+	job.rdram_size = sizeof ram;
+	job.vtx_ea = (uint64_t)(uintptr_t)vtx;
+	job.cmd_ea = (uint64_t)(uintptr_t)cmd;
+	res.cmd_bytes = sizeof cmd;  /* el último gfx_cmd queda en 0: GFX_OP_END */
+	raster_task(&job, &res);
+}
+
+/* Arma (sin correr) la tarea que pinta toda la color image `fb`. */
+static struct gfx_draw *build_fill_w(uint32_t fb, uint32_t w, uint32_t r, uint32_t g, uint32_t b)
 {
 	memset(cmd, 0, sizeof cmd);
 	struct gfx_cmd *t = (struct gfx_cmd *)cmd;
@@ -132,17 +147,13 @@ static void task_fill_w(uint32_t fb, uint32_t w, uint32_t r, uint32_t g, uint32_
 	set_vtx(&vtx[3], fw, 0);
 	set_vtx(&vtx[4], fw, fh);
 	set_vtx(&vtx[5], 0, fh);
+	return d;
+}
 
-	struct gfx_job job;
-	struct gfx_result res;
-	memset(&job, 0, sizeof job);
-	memset(&res, 0, sizeof res);
-	job.rdram_ea = (uint64_t)(uintptr_t)ram;
-	job.rdram_size = sizeof ram;
-	job.vtx_ea = (uint64_t)(uintptr_t)vtx;
-	job.cmd_ea = (uint64_t)(uintptr_t)cmd;
-	res.cmd_bytes = sizeof cmd;  /* el último gfx_cmd queda en 0: GFX_OP_END */
-	raster_task(&job, &res);
+static void task_fill_w(uint32_t fb, uint32_t w, uint32_t r, uint32_t g, uint32_t b)
+{
+	build_fill_w(fb, w, r, g, b);
+	run_cmd();
 }
 
 static void task_fill(uint32_t fb, uint32_t r, uint32_t g, uint32_t b)
@@ -316,6 +327,60 @@ static void raster_tall_fill(void)
 	task_tall_draw(FB_A, W, 459, 0, 0, (float)W, 459, 100, 110, 120);
 	const uint32_t *t = raster_image(FB_A + 250 * LINE, &bw);
 	CHECK(t && t != b);
+	raster_reset();
+}
+
+/* Un dibujo de 1 ciclo que pinta toda la color image `fb` con el color
+ * constante (r, g, b, a) y el modo de mezcla `blend`. */
+static void task_blend(uint32_t fb, uint8_t blend, uint32_t r, uint32_t g, uint32_t b, uint32_t a)
+{
+	struct gfx_draw *d = build_fill_w(fb, W, r, g, b);
+	d->blend = blend;
+	d->k[GFX_K_ONE][0][3] = a / 255.0f;
+	run_cmd();
+}
+
+/* El canal como lo guarda la imagen de 16 bits: 5 bits extendidos a 8. */
+static uint32_t q5(uint32_t v)
+{
+	return (v >> 3) << 3 | (v >> 3) >> 2;
+}
+
+static int near_rgb(uint32_t have, uint32_t r, uint32_t g, uint32_t b)
+{
+	int dr = (int)(have >> 16 & 0xFF) - (int)q5(r), dg = (int)(have >> 8 & 0xFF) - (int)q5(g),
+	    db = (int)(have & 0xFF) - (int)q5(b);
+	return dr >= -3 && dr <= 3 && dg >= -3 && dg <= 3 && db >= -3 && db <= 3;
+}
+
+/* Los productos del blender sobre un fondo (128, 64, 32) con el color
+ * (64, 32, 16) y alfa 1/2: los mismos que la PS3 hace con los factores de
+ * mezcla del RSX. */
+static void raster_blend_products(void)
+{
+	static const struct { uint8_t blend; uint32_t r, g, b; } c[] = {
+		{ GFX_BLEND_OFF, 64, 32, 16 },
+		{ GFX_BLEND_ALPHA, 96, 48, 24 },      /* 64·½ + 128·½ */
+		{ GFX_BLEND_ADD, 160, 80, 40 },       /* 64·½ + 128 */
+		{ GFX_BLEND_KEEP, 128, 64, 32 },
+		{ GFX_BLEND_MUL, 64, 32, 16 },        /* 128·½ */
+		{ GFX_BLEND_ADD_MUL, 128, 64, 32 },   /* 64 + 128·½ */
+		{ GFX_BLEND_ALPHA_INV, 96, 48, 24 },  /* 64·½ + 128·½ */
+		{ GFX_BLEND_ADD_ONE, 192, 96, 48 },   /* 64 + 128 */
+	};
+	raster_reset();
+	memset(ram, 0, sizeof ram);
+	for (unsigned i = 0; i < sizeof c / sizeof c[0]; i++) {
+		task_fill(FB_A, 128, 64, 32);
+		task_blend(FB_A, c[i].blend, 64, 32, 16, 128);
+		uint32_t w = 0;
+		const uint32_t *a = raster_image(FB_A, &w);
+		CHECK(a != NULL);
+		if (!a)
+			continue;
+		CHECK(near_rgb(a[10 * W + 10], c[i].r, c[i].g, c[i].b));
+		CHECK(near_rgb(a[(H - 1) * W + (W - 1)], c[i].r, c[i].g, c[i].b));
+	}
 	raster_reset();
 }
 
@@ -587,6 +652,7 @@ void t_suite_raster(void)
 	RUN(raster_recycled_slot_big);
 	RUN(raster_copy_inside_scissor);
 	RUN(raster_tall_fill);
+	RUN(raster_blend_products);
 	RUN(raster_tall_fill_first);
 	RUN(raster_mirror_after_dma);
 	RUN(raster_frame_mirror_sm64);
