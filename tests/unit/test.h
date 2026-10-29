@@ -137,6 +137,7 @@ void t_suite_crt(void);
 void t_suite_seda(void);
 void t_suite_cartucho(void);
 void t_suite_state(void);
+void t_suite_states_frontend(void);
 void t_suite_lz(void);
 void t_suite_gfxdump(void);
 void t_suite_blackbox(void);
