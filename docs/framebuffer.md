@@ -275,6 +275,22 @@ RGBA5551 con alfa 1, les ponía a 1 el bit bajo de cada media palabra: el
 juego se colgaba ~4 s después. El espejo del framebuffer usa la caja
 acumulada desde el último espejo (`rdp_target.box`).
 
+**El alfa en las copias (2026-10-29).** Los destinos de render a textura
+con alfa (`salsa64_rdp_target_alpha`: los de 16 bits que no son del ancho
+del VI) se copian a la RDRAM desde una lectura ARGB8888 del RSX
+(`rsxkit_target_read` con `RSXKIT_ARGB8888`) y su alfa va al bit de
+RGBA5551, como lo deja el RDP; antes la copia pasaba por RGB565 y el bit
+salía siempre 1. Importa cuando la textura se lee de la RDRAM porque el
+destino ya es viejo (`RDP_TARGETS_FRESH`): LEGO Racers dibuja cada auto
+lejano en una imagen de 32 × 32 borrada con 0x0000 (en la RDRAM de ares el
+fondo de esas imágenes es 0x0000 y el auto lleva alfa 1) y la usa con
+prueba de alfa; leída de la copia con alfa 1, el auto salía dentro de un
+cuadro (#34). Un framebuffer que nació con alfa (antes del primer campo no
+se sabe el ancho del VI) se sigue copiando como antes. `copia-sin-alfa`
+vuelve a la copia en RGB565. El host (`src/host/raster.c`) lleva el mismo
+alfa en el byte alto de cada imagen (`SALSA64_SIN_ALFA_DESTINOS`,
+`SALSA64_COPIA_SIN_ALFA`).
+
 **Lo que rompía a Link en la PS3** (y que el host no reproducía porque
 copiaba todos los destinos de cada tarea sin llamar a
 `rdp_targets_present`; ya lo llama): `rsxkit` admitía 8 superficies y la

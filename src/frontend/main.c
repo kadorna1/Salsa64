@@ -3671,6 +3671,7 @@ static void stats(uint64_t now)
 		uint32_t tppe = rs.tex_ppe - sw.rdp0.tex_ppe, tppel = rs.tex_ppe_lost - sw.rdp0.tex_ppe_lost;
 		uint32_t talpha = rs.targets_alpha - sw.rdp0.targets_alpha, xalpha = rs.tex_alpha - sw.rdp0.tex_alpha;
 		uint32_t falpha = rs.alpha_fills - sw.rdp0.alpha_fills;
+		uint32_t calpha = rs.alpha_copies - sw.rdp0.alpha_copies;
 		if (rb || rbw || mir || mirs || fmir || dmas || trsx || trd || tself || primes || lost || tfail || tabs ||
 		    bfail || tppe || tppel)
 			salsa64_log("gfx: framebuffer: %u copias a la RDRAM (%.2f ms c/u en presentación), la emulación "
@@ -3683,10 +3684,10 @@ static void stats(uint64_t now)
 				    rbw ? (rs.us_readback_wait - sw.rdp0.us_readback_wait) / 1e3 / rbw : 0.0,
 				    rs.readback_late - sw.rdp0.readback_late, mir, mirs, fmir, dmas, trsx, trd, tself, tppe,
 				    tppel, primes, pwaits, lost, tfail, tabs, bfail);
-		if (talpha || xalpha || falpha)
+		if (talpha || xalpha || falpha || calpha)
 			salsa64_log("gfx: alfa en los destinos: %u destinos con alfa creados, %u texturas leídas de uno "
-				    "de ellos, %u rellenos o copias con su alfa",
-				    talpha, xalpha, falpha);
+				    "de ellos, %u rellenos o copias con su alfa, %u copias a la RDRAM con su alfa",
+				    talpha, xalpha, falpha, calpha);
 		if (rs.big8_sync != sw.rdp0.big8_sync || rs.big8_nosync != sw.rdp0.big8_nosync ||
 		    rs.big8_primes != sw.rdp0.big8_primes)
 			salsa64_log("gfx: copias big8: %u esperadas, %u sin esperar; %u hechas, cambiaron %u píxeles de la "
@@ -5586,6 +5587,14 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (file_exists(SALSA64_DATA_DIR "/gfx-capas8-rsx")) {
 		salsa64_rdp_set_layer8(false);
 		salsa64_log("capas de 8 bits (big8): en el RSX con copia a la RDRAM (gfx-capas8-rsx)");
+	}
+	/* Las copias a la RDRAM de los destinos con alfa llevan su alfa al bit de
+	 * RGBA5551; `copia-sin-alfa` vuelve a copiarlas con alfa 1 (para comparar). */
+	{
+		bool copy_alpha = !file_exists(SALSA64_DATA_DIR "/copia-sin-alfa");
+		salsa64_rdp_set_copy_alpha(copy_alpha);
+		if (!copy_alpha)
+			salsa64_log("gfx: copias a la RDRAM de los destinos con alfa sin su alfa (copia-sin-alfa)");
 	}
 	{
 		bool big8_prime = !file_exists(SALSA64_DATA_DIR "/gfx-big8-sin-cebar");

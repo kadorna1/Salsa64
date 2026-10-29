@@ -3896,6 +3896,8 @@ int main(int argc, char **argv)
 		raster_fbfx = atoi(getenv("SALSA64_FBFX"));
 	if (getenv("SALSA64_AA_EDGES"))
 		raster_aa_edges = atoi(getenv("SALSA64_AA_EDGES")) != 0;
+	raster_target_alpha = !salsa64_host_env_on("SALSA64_SIN_ALFA_DESTINOS");
+	raster_copy_alpha = !salsa64_host_env_on("SALSA64_COPIA_SIN_ALFA");
 	if (getenv("SALSA64_AA_EDGE_OFFSET"))
 		sscanf(getenv("SALSA64_AA_EDGE_OFFSET"), "%f,%f", &raster_edge_factor, &raster_edge_units);
 	const struct salsa64_gfx_sink sink = { NULL, gfx_acquire, gfx_done };

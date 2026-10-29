@@ -10,6 +10,13 @@ el [radar de compatibilidad](compatibilidad/index.html). Sus datos están en
 
 Las entradas antiguas conservan sus métodos de prueba como historia.
 
+## 2026-10-29 — Reportes #57 y #34 (rama gh-worms-lego, sin probar en la PS3)
+
+| Juego | Estado | Notas |
+|---|---|---|
+| Worms Armageddon | imagen derecha en el host, idéntica al microcódigo real en logos, título y menú de idioma | los fondos de S2DEX declaran `imageW` una columna más ancho que la fila; el paso de las filas ya es el del microcódigo (`s2dex-paso-viejo` vuelve al de antes) |
+| LEGO Racers | sin el cuadro alrededor de los autos lejanos en el host | las copias a la RDRAM de los destinos con alfa llevan su alfa (`copia-sin-alfa` vuelve a alfa 1); falta confirmarlo en la PS3 |
+
 ## 2026-10-22 — Candidata de la v0.2.10 (microcódigos)
 
 | Juego | Estado | Notas |

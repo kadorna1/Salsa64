@@ -360,6 +360,7 @@ static struct {
 	 * barrera se convierte a la RDRAM (readbacks_finish). */
 	struct mirror {
 		bool used;
+		bool argb;  /* el búfer es ARGB8888 con el alfa del destino (rb_argb) */
 		uint32_t addr, width, lw, rows, fence, bpp;
 		struct rdp_box box;  /* lo que se escribe en la RDRAM (rows = box.y1) */
 		uint32_t task;  /* la tarea que dibujó lo copiado (rdp_dma_since) */
@@ -389,6 +390,9 @@ static struct {
 	bool big8_prime;
 	/* Si las capas big8 las dibuja el PPE en la RDRAM (gfx-capas8-rsx lo apaga). */
 	bool layer8_on;
+	/* Si las copias a la RDRAM de un destino con alfa llevan su alfa al bit
+	 * de RGBA5551 (copia-sin-alfa lo apaga: alfa 1, como antes). */
+	bool copy_alpha;
 	bool zclear_target;          /* el borrado pertenece a la próxima color image */
 	uint32_t rb_prev_n[RB_HISTORY];
 	uint32_t rb_prev_i;
@@ -518,6 +522,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.fbfx = 2;
 	rdp.big8_prime = true;
 	rdp.layer8_on = true;
+	rdp.copy_alpha = true;
 	layer8_clock = tb_now;
 	rdp.aa_edges = false;  /* experimental: engordaba los modelos en la PS3 */
 	rdp.ready = true;
@@ -1042,6 +1047,29 @@ static inline uint32_t rb_pitch(uint32_t bpp, uint32_t lw)
 	return big8(bpp, lw) ? (lw * 4 + 63) & ~63u : RB_PITCH;
 }
 
+/* Bytes por fila de una copia en ARGB8888 (rb_argb). */
+static inline uint32_t argb_pitch(uint32_t lw)
+{
+	return (lw * 4 + 63) & ~63u;
+}
+
+/* ¿La copia a la RDRAM de esta ranura lleva el alfa del destino? Las de 16
+ * bits con superficie con alfa (alpha_wanted): el RDP deja en el bit de
+ * alfa de RGBA5551 lo que escribió (la cobertura de lo dibujado, el bit del
+ * color de un relleno), y una textura que el juego lee de ahí cuando el
+ * destino ya es viejo (RDP_TARGETS_FRESH) se decodifica de la RDRAM. Con la
+ * copia en RGB565 ese bit salía siempre 1: LEGO Racers dibuja cada auto
+ * lejano en una imagen de 32 × 32 borrada con alfa 0 y la usa con prueba de
+ * alfa; leída de la RDRAM, el auto salía dentro de un cuadro (#34). */
+static inline bool rb_argb(int slot)
+{
+	const struct rdp_target *t = &rdp.tg.t[slot];
+	/* Un framebuffer que nació con alfa (antes del primer campo del VI no se
+	 * sabe su ancho) se sigue copiando como antes. */
+	return rdp.copy_alpha && t->bpp == 2 && !t->presented && t->width != rdp.tg.vi_width && rdp.surf[slot] &&
+	       rsxkit_target_has_alpha(rdp.surf[slot]);
+}
+
 /* ---- Guarda contra el CPU y vigilante (rdp_guard, targets.h) ---- */
 
 /* `guard`: 512 KB en el BSS (docs/memory-budget.md), declarada arriba. */
@@ -1189,13 +1217,14 @@ static void late_log(const char *who, uint32_t addr, uint32_t width, uint32_t bp
 }
 
 /* Escribe en la RDRAM, como RGBA5551, la caja `b` (rdp_box: lo que el RDP
- * pudo escribir, nunca filas enteras) de una copia RGB565 de `lw` píxeles
+ * pudo escribir, nunca filas enteras) de una copia RGB565 (o ARGB8888 con
+ * `argb`: el bit de alfa sale del alfa del destino) de `lw` píxeles
  * por fila con paso `pitch` que empieza en la fila 0 del destino. Las líneas
  * de 128 bytes que algo que no es el RDP cambió desde que terminó la tarea
  * no se escriben (rdp_guard, targets.h). `who` y `task` (la tarea que lo
  * dibujó) son para el log de la guarda y del vigilante. */
 static void to_rdram(const uint8_t *src, uint32_t pitch, uint32_t addr, uint32_t width, uint32_t lw,
-		     const struct rdp_box *b, uint32_t bpp, const char *who, uint32_t task)
+		     const struct rdp_box *b, uint32_t bpp, bool argb, const char *who, uint32_t task)
 {
 	uint64_t t0 = tb_now();
 	uint32_t x1 = b->x1 < lw ? b->x1 : lw;
@@ -1217,6 +1246,11 @@ static void to_rdram(const uint8_t *src, uint32_t pitch, uint32_t addr, uint32_t
 	if (big8(bpp, lw)) {
 		pitch = rb_pitch(bpp, lw);
 		rdp.stats.big8_copies++;
+	}
+	argb = argb && bpp == 2;
+	if (argb) {
+		pitch = argb_pitch(lw);
+		rdp.stats.alpha_copies++;
 	}
 	/* El RSX escribió el búfer a espaldas de la caché del PPE: soltar las
 	 * líneas que pudieran quedar de la lectura anterior. */
@@ -1264,6 +1298,18 @@ static void to_rdram(const uint8_t *src, uint32_t pitch, uint32_t addr, uint32_t
 				uint8_t *dst = rdp.rdram + rowa;
 				for (uint32_t x = px0; x < px1; x++)
 					dst[x] = (uint8_t)((row[x] >> 8 & 0xF8) | (row[x] >> 13));
+			} else if (argb) {
+				/* ARGB8888 (bytes A, R, G, B): 5 bits por canal y el alfa,
+				 * filtrado al reducir, al bit de alfa por la mitad. */
+				const uint8_t *px = src + y * pitch;
+				uint8_t *dst = rdp.rdram + rowa;
+				for (uint32_t x = px0; x < px1; x++) {
+					const uint8_t *q = px + 4 * x;
+					uint32_t v = (uint32_t)(q[1] >> 3) << 11 | (uint32_t)(q[2] >> 3) << 6 |
+						     (uint32_t)(q[3] >> 3) << 1 | (q[0] >= 0x80);
+					dst[2 * x] = (uint8_t)(v >> 8);
+					dst[2 * x + 1] = (uint8_t)v;
+				}
 			} else {
 				rsxkit_pixels_565_to_5551((uint16_t *)(rdp.rdram + rowa) + px0, row + px0, px1 - px0);
 			}
@@ -1280,7 +1326,7 @@ static void readbacks_finish(bool wait)
 	struct mirror *f = &rdp.frame;
 	if (f->used && (wait ? (fence_wait(f->fence), true) : rsxkit_fence_done(f->fence))) {
 		if (!dma_newer(f->addr, f->width * 2 * f->rows, f->task)) {
-			to_rdram(rdp.rb + FRAME_SLOT * RB_SLOT, RB_PITCH, f->addr, f->width, f->lw, &f->box, 2,
+			to_rdram(rdp.rb + FRAME_SLOT * RB_SLOT, RB_PITCH, f->addr, f->width, f->lw, &f->box, 2, false,
 				 "espejo del framebuffer", f->task);
 			rdp.stats.frames_mirrored++;
 		}
@@ -1291,7 +1337,7 @@ static void readbacks_finish(bool wait)
 		if (m->used && (wait ? (fence_wait(m->fence), true) : rsxkit_fence_done(m->fence))) {
 			uint32_t bpp = m->bpp ? m->bpp : 2;
 			if (!dma_newer(m->addr, m->width * bpp * m->rows, m->task)) {
-				to_rdram(rdp.rb + k * RB_SLOT, RB_PITCH, m->addr, m->width, m->lw, &m->box, bpp,
+				to_rdram(rdp.rb + k * RB_SLOT, RB_PITCH, m->addr, m->width, m->lw, &m->box, bpp, m->argb,
 					 "copia grande sin esperar", m->task);
 				rdp.stats.mirrors++;
 			}
@@ -1309,7 +1355,7 @@ static void readbacks_finish(bool wait)
 		uint32_t pitch = (m->lw * 2 + 63) & ~63u, bpp = m->bpp ? m->bpp : 2;
 		if (!dma_newer(m->addr, m->width * bpp * m->rows, m->task)) {
 			to_rdram(rdp.rb + (RB_SLOTS + 2) * RB_SLOT + k * MIRROR_SLOT, pitch, m->addr, m->width, m->lw, &m->box,
-				 bpp, "copia espejo", m->task);
+				 bpp, m->argb, "copia espejo", m->task);
 			rdp.stats.mirrors++;
 		}
 		m->used = false;
@@ -2369,6 +2415,11 @@ void salsa64_rdp_set_big8_wait(bool wait)
 	rdp.big8_wait = wait;
 }
 
+void salsa64_rdp_set_copy_alpha(bool on)
+{
+	rdp.copy_alpha = on;
+}
+
 void salsa64_rdp_set_big8_prime(bool prime)
 {
 	rdp.big8_prime = prime;
@@ -2660,14 +2711,19 @@ static int mirror_small(int i, const struct rdp_box *box, uint32_t n, uint32_t l
 		rdp.stats.mirrors_skipped++;
 		return -1;
 	}
+	/* Con el alfa del destino, si la copia de 32 bits cabe en el búfer. */
+	bool argb = rb_argb(i) && argb_pitch(t->lw) * rows <= MIRROR_SLOT;
+	if (argb)
+		pitch = argb_pitch(t->lw);
 	rsxkit_rect src = surface_rect(i, 0, 0, t->lw, rows);
 	if (rsxkit_target_read(rdp.surf[i], &src, rdp.rb_off + (RB_SLOTS + 2) * RB_SLOT + k * MIRROR_SLOT, pitch, t->lw,
-			       rows, RSXKIT_RGB565) != RSXKIT_OK)
+			       rows, argb ? RSXKIT_ARGB8888 : RSXKIT_RGB565) != RSXKIT_OK)
 		return -1;
 	rdp.bound_t = -1;
 	rdp.rb_task[i] = rdp.tg.task;
 	struct mirror *m = &rdp.mirrors[k];
 	m->used = true;
+	m->argb = argb;
 	m->addr = t->addr;
 	m->width = t->width;
 	m->lw = t->lw;
@@ -2955,7 +3011,7 @@ static void translate(uint32_t n)
 	rdp.at = "copias a la RDRAM";
 	/* Copias a la RDRAM que pidió done: el RSX reduce cada destino a su
 	 * búfer y, pasada la barrera, el PPE lo convierte y lo escribe. */
-	struct { int slot; uint32_t buf, rows; struct rdp_box box; } rb[RB_SLOTS];
+	struct { int slot; uint32_t buf, rows; struct rdp_box box; bool argb; } rb[RB_SLOTS];
 	uint32_t nrb = 0;
 	bool sync_rb[RDP_TARGETS_MAX] = { false };
 	uint32_t big_used = 0;  /* búferes grandes tomados en esta tarea */
@@ -3001,7 +3057,7 @@ static void translate(uint32_t n)
 						if (dma_newer(tj->addr, tj->width * tj->bpp * rb[j].rows, n + 1))
 							continue;
 						to_rdram(rdp.rb + rb[j].buf * RB_SLOT, RB_PITCH, tj->addr, tj->width, tj->lw, &rb[j].box,
-							 tj->bpp, "copia de la tarea", n + 1);
+							 tj->bpp, rb[j].argb, "copia de la tarea", n + 1);
 						rdp.stats.readbacks++;
 					}
 					nrb = 0;
@@ -3018,9 +3074,12 @@ static void translate(uint32_t n)
 			/* El RSX reduce a 1× desde la escala de este destino. */
 			rsxkit_rect src = surface_rect(i, 0, 0, t->lw, rows);
 			bool x8 = big8(t->bpp, t->lw);
-			if (rb_pitch(t->bpp, t->lw) * rows > RB_SLOT ||
-			    rsxkit_target_read(rdp.surf[i], &src, rdp.rb_off + buf * RB_SLOT, rb_pitch(t->bpp, t->lw), t->lw, rows,
-					       x8 ? RSXKIT_XRGB8888 : RSXKIT_RGB565) != RSXKIT_OK) {
+			/* Con el alfa del destino (rb_argb), si la copia de 32 bits cabe. */
+			bool argb = !x8 && rb_argb(i) && argb_pitch(t->lw) * rows <= RB_SLOT;
+			uint32_t pitch = argb ? argb_pitch(t->lw) : rb_pitch(t->bpp, t->lw);
+			if (pitch * rows > RB_SLOT ||
+			    rsxkit_target_read(rdp.surf[i], &src, rdp.rb_off + buf * RB_SLOT, pitch, t->lw, rows,
+					       x8 ? RSXKIT_XRGB8888 : argb ? RSXKIT_ARGB8888 : RSXKIT_RGB565) != RSXKIT_OK) {
 				LOGN(10, "gfx: copia a la RDRAM de %06x/%u: rsxkit_target_read falló", t->addr, t->width);
 				continue;
 			}
@@ -3036,6 +3095,7 @@ static void translate(uint32_t n)
 			if (s->rb_sync[k]) {
 				rb[nrb].slot = i;
 				rb[nrb].buf = buf;
+				rb[nrb].argb = argb;
 				rb[nrb].rows = rows;
 				rb[nrb].box = drawn_box[i];
 				rb[nrb].box.y1 = (uint16_t)rows;
@@ -3043,6 +3103,7 @@ static void translate(uint32_t n)
 			} else {
 				struct mirror *m = &rdp.big[buf];
 				m->used = true;
+				m->argb = argb;
 				m->addr = t->addr;
 				m->width = t->width;
 				m->lw = t->lw;
@@ -3103,7 +3164,7 @@ static void translate(uint32_t n)
 			if (dma_newer(t->addr, t->width * t->bpp * rb[k].rows, n + 1))
 				continue;
 			to_rdram(rdp.rb + rb[k].buf * RB_SLOT, RB_PITCH, t->addr, t->width, t->lw, &rb[k].box, t->bpp,
-				 "copia de la tarea", n + 1);
+				 rb[k].argb, "copia de la tarea", n + 1);
 			rdp.stats.readbacks++;
 		}
 		readbacks_finish(false);  /* pasó la barrera: los espejos también */

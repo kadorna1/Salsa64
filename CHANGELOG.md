@@ -28,6 +28,14 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   the whole screen leaned. Measured against the real microcode: the logos,
   title and language menu are now identical. `s2dex-paso-viejo` in
   `/dev_hdd0/salsa64/` restores the old row step for comparison.
+- **LEGO Racers: flickering box around distant cars** (#34). The game draws
+  each distant car into a 32 × 32 image cleared with alpha 0 and pastes it
+  with an alpha test. When that image was a few frames old it was decoded
+  from RAM, and the emulator's RSX → RAM copies always set the alpha bit, so
+  the car came with its square background (often at the start of a race).
+  Copies of render-to-texture images now carry the RSX alpha into the
+  RGBA5551 alpha bit, as the RDP does; `copia-sin-alfa` in
+  `/dev_hdd0/salsa64/` restores the old copies for comparison.
 - **Yoshi's Story: camera stutter when walking fast.** The game draws its
   8-bit background layers with the RDP and reads them back from RAM in the
   next task, so the emulator waited for the RSX to draw and copy them back on

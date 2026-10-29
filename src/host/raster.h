@@ -57,6 +57,11 @@ extern bool raster_q5;
  * aristas como líneas antes de los triángulos (experimental, apagadas por
  * omisión; SALSA64_AA_EDGES=1 las pone). */
 extern bool raster_aa_edges;
+/* Como la PS3: alfa en los destinos de render a textura de 16 bits que no
+ * son del ancho del VI (salsa64_rdp_target_alpha; SALSA64_SIN_ALFA_DESTINOS=1
+ * lo apaga) y su bit en las copias a la RDRAM (salsa64_rdp_set_copy_alpha;
+ * SALSA64_COPIA_SIN_ALFA=1 vuelve a copiar con alfa 1). */
+extern bool raster_target_alpha, raster_copy_alpha;
 extern float raster_edge_width;  /* ancho de esas líneas, en píxeles */
 extern float raster_edge_factor, raster_edge_units;  /* su desplazamiento hacia atrás */
 /* Cada campo con imagen: el origen y ancho del VI (como salsa64_rdp_vi). */

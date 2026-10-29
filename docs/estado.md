@@ -1,5 +1,51 @@
 # Estado
 
+## 2026-10-29 — #34, LEGO Racers: el cuadro alrededor de los autos lejanos (alfa en las copias a la RDRAM)
+
+- Reporte (v0.2.14): los autos se ven bien casi siempre, pero al empezar una
+  carrera y a veces en juego aparece un cuadro que parpadea alrededor de
+  ellos. ROM del log igual al respaldo propio (CRC-32 `39407C9F`).
+- Datos: el juego dibuja cada auto lejano en una imagen de 32 × 32 (o 64 ×
+  64) que borra con un relleno 0x0000 (alfa 0) y la pega en el cuadro como
+  textura RGBA16 con prueba de alfa (dos triángulos, `atest 1/1`). En la
+  RDRAM de un volcado de ares de la carrera (de la rama del 2026-10-26) el
+  fondo de las cinco imágenes es 0x0000 (814–908 de 1024 píxeles con alfa 0)
+  y el auto lleva alfa 1. En el log del usuario, «texturas desde un
+  destino: … de la RDRAM» llega a 532 (423 decodificadas en el PPE) en los
+  5 s de cada salida y a 47–228 en algunas ventanas de la carrera: cuando
+  una de esas imágenes lleva más de `RDP_TARGETS_FRESH` tareas sin
+  redibujarse, la textura se decodifica de la RDRAM.
+- Causa: las copias del RSX a la RDRAM (espejos de imágenes chicas, copias
+  de la tarea) pasaban por RGB565 y `rsxkit_pixels_565_to_5551` pone el bit
+  de alfa en 1: leída de la RDRAM, la imagen salía opaca con su fondo negro.
+  El canal alfa de los destinos (1d30178) ya hacía bien el camino del RSX.
+  No es el arreglo de mezclas de Vigilante 8 ni la profundidad del
+  2026-10-26.
+- Arreglo: `rsxkit_target_read` acepta `RSXKIT_ARGB8888` (el alfa del
+  destino, filtrado como el color; 1 si no tiene) y `src/rdp/rdp.c` copia así
+  los destinos con alfa que no son framebuffer (`rb_argb`), con el bit de
+  alfa por la mitad; si la copia de 32 bits no cabe en su búfer, la de
+  antes. Interruptor `copia-sin-alfa` (`salsa64_rdp_set_copy_alpha`); el log
+  de cada 5 s suma «copias a la RDRAM con su alfa».
+- Host: el rasterizador no tenía alfa en los destinos (el auto lejano salía
+  siempre en su cuadro). Ahora lo lleva como rsxkit, en el byte alto de cada
+  imagen (`RGB_TRANSP`), y lo copia a la RDRAM igual que la PS3
+  (`SALSA64_SIN_ALFA_DESTINOS=1`, `SALSA64_COPIA_SIN_ALFA=1`). Con el pad de
+  la rama del 2026-10-26 hasta la carrera: main saca el cuadro en cada
+  cuadro con un auto lejano; con la rama, sin cuadro; con
+  `SALSA64_COPIA_SIN_ALFA=1`, el cuadro vuelve solo en los campos en que la
+  textura sale de la RDRAM (2810, 2870–2890: 0,07–0,14 % de la imagen), que
+  es lo que veía la PS3.
+- Sin regresiones: escenas del host (SM64, Banjo, Zelda título y casa, DK64,
+  PD, GoldenEye, MK64, Kirby, F-Zero X en dos escenas) idénticas byte a byte
+  a main; solo cambian Worms y LEGO Racers. Unitarias en Docker 790, 0
+  fallidas; prueba `raster_alpha_copy` (fondo 0x0000 con alfa, 0x0001 con
+  los dos interruptores, y el cebado que conserva el bit). `--lle-check-gfx`
+  pasa el color sin el byte del alfa.
+- Falta la PS3: el costo de la copia ARGB8888 (el doble de bytes y la
+  conversión en el PPE; en LEGO Racers son imágenes de 2–8 KB) y que el
+  cuadro no vuelva al empezar la carrera.
+
 ## 2026-10-29 — #57, Worms Armageddon inclinado: el paso de las filas de los fondos de S2DEX
 
 - Reporte (PAL y USA, v0.2.14): el logo de inicio y todo el texto salen con

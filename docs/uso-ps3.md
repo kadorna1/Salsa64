@@ -768,6 +768,7 @@ se crean por FTP.
 | `aristas-aa` | Basta con que exista | Experimental: la pasada de aristas de los dibujos con antialiasing, líneas que tapan las grietas de las uniones en T (las líneas azules del piso del túnel de Dam en GoldenEye). Apagada por omisión: a escala alta hace que los polígonos de los modelos se superpongan en las uniones (docs/rsx-notes.md) |
 | `sin-alfa-destinos` | Basta con que exista | Apaga el canal de alfa de los destinos de render a textura de 16 bits (transparencia de lo que el juego dibuja en una imagen y usa después como textura: Mario Tennis, logos de Rogue Squadron). Encendido por omisión; para comparar |
 | `s2dex-paso-viejo` | Basta con que exista | Worms Armageddon (#57): los fondos de S2DEX vuelven a avanzar las filas de la imagen por `imageW` entero en vez de redondearlo a palabras de 64 bits como el microcódigo; la imagen vuelve a salir inclinada. Para comparar |
+| `copia-sin-alfa` | Basta con que exista | LEGO Racers (#34): las copias a la RDRAM de los destinos de render a textura con alfa vuelven a hacerse en RGB565 con el bit de alfa en 1 (los autos lejanos salen dentro de un cuadro cuando su imagen se lee de la RDRAM). Sin el archivo, el bit lleva el alfa del destino, como el RDP. Para comparar |
 | `zclear-inmediato` | Basta con que exista | LEGO Racers: restaura el borrado de profundidad inmediato anterior, que podía recortarse al destino auxiliar de 32/64 píxeles. Sin el archivo, el borrado espera al destino que le sigue. |
 
 La carpeta también puede tener `covers/` (carátulas), `cheats/` (trucos y
