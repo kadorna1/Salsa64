@@ -1,5 +1,31 @@
 # Estado
 
+## 2026-10-29 — Pila del SPE 0 tras unir F-Zero X afín y Vigilante 8 (rama pila-spe0)
+
+- Con las dos ramas unidas (main 19f4cfa) el paquete no se armaba: holgura 800 / 1024 / 12944 /
+  1824 / 608 / 3296 / 1280 bytes en las imágenes 0–5 y fase 8 (mínimo 1536; cada rama sola,
+  2704 / 2672 / 14480 / 3360 / 2144 / 5216 / 2928 y 2848 / 2688 / 15216 / 4096 / 2656 / 5344 /
+  2816). La cadena más honda no creció: fue código, ~2 KB por imagen de cada rama. De Vigilante 8
+  en la imagen 0: YUV16 ~1,35 KB (`gfx_tile_texture` +880, `gfx_load_tile` +256,
+  `gfx_load_block` +216), fondos escalados de S2DEX +272, blender +200, K0–K3 +132 en
+  `gfx_rdp_command` (y −120 en `gfx_rdp_reset`).
+- Todas las cadenas terminan en `begin_prim → gfx_combine 2288 → run_cycle 816 → p_mul 464` y
+  empiezan con `main 736`. Combiner: `p_mul` sin polinomio temporal, `run_cycle` con dos
+  polinomios en vez de cuatro (mismas operaciones, mismo orden) y `build_terms` aparte con
+  `struct need` de 8 bytes: −1152 de cadena. Envoltura: `src/spu/gfx/main.c` con
+  `-fno-move-loop-invariants -fno-tree-loop-im` (del bucle de `spukit_run` GCC sacaba constantes
+  a 44 registros que `main` guardaba en la pila): `main` 736 → 224, −224 de código.
+- Holgura: **2592 / 2832 / 14608 / 3488 / 2400 / 4960 / 3120**. Nada cambia por vértice, por
+  triángulo ni por texel; una llamada más por combiner calculado y unas 10 operaciones más por
+  trabajo del SPE.
+- Descartado con números: sacar la conversión YUV de `texel()` a una función por fila (+1,2 KB de
+  código), `bg_draw` con `noinline` (la cadena sube 272), `build_terms` sin `needs[]` (−224 de
+  cadena, +232 de código).
+- Verificado: 3 millones de combiners al azar idénticos byte a byte con el código anterior;
+  806 pruebas unitarias sin fallos; 14 escenas del host idénticas a main (las 9 de
+  `tools/escenas-host.sh`, F-Zero X en los campos 3000 y 4500, Luigi Raceway, Dam y el castillo de
+  SM64). Falta la PS3.
+
 ## 2026-10-29 — rsxkit unificada con SalsaDS (rama rsxkit-unificar)
 
 - `lib/rsxkit` es ahora la misma biblioteca, byte a byte, en Salsa64 y en
