@@ -1615,7 +1615,9 @@ static bool profile_cpu_rows_changed(int i)
 /* Upload contiguous runs of changed 16-bit pixels only. Uploading the entire
  * 128-byte hash line used by the older implementation replaced up to 63
  * neighboring pixels that had been rendered only on the RSX, causing trails
- * and corruption across the rest of the screen. */
+ * and corruption across the rest of the screen. With copyToRDRAM disabled,
+ * GLideN64 also consumes alpha-marked CPU overlays after composition instead
+ * of feeding the same stale pixels back into successive VI frames. */
 static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_to_vi)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
@@ -1640,7 +1642,7 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 
 	for (uint32_t y = 0; y < t->lh; y++) {
 		uint32_t row_off = y * row_bytes;
-		const uint8_t *ram_row = rdp.rdram + t->addr + row_off;
+		uint8_t *ram_row = rdp.rdram + t->addr + row_off;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + row_off;
 		if (!memcmp(ram_row, shadow_row, visible_bytes))
 			continue;
@@ -1691,8 +1693,16 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 						pending_row[x] = 2;
 				}
 			}
-			/* Commit the exact RDRAM bytes; the coverage bit must remain intact. */
+			/* Commit the bytes uploaded to RSX. At the final VI pass, the
+			 * alpha overlay is one-shot when copyToRDRAM is disabled (the
+			 * GLideN64 Dr. Mario profile): consume the source pixels so stale
+			 * coverage cannot be composited again on a later field. Deferred
+			 * pre-draw uploads are consumed after their late presentation replay. */
 			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
+			if (!defer_to_vi && !rdp.copy_color_to_rdram) {
+				memset(ram_row + x0 * 2u, 0, w * 2u);
+				memset(shadow_row + x0 * 2u, 0, w * 2u);
+			}
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
@@ -1756,7 +1766,7 @@ static uint32_t prime_profile_pending_spans(int i)
 
 	for (uint32_t y = 0; y < t->lh; y++) {
 		uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
-		const uint8_t *ram_row = rdp.rdram + t->addr + (uint64_t)y * row_bytes;
+		uint8_t *ram_row = rdp.rdram + t->addr + (uint64_t)y * row_bytes;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
 
 		/* A live overlay whose coverage bit goes low becomes a transparent
@@ -1788,13 +1798,16 @@ static uint32_t prime_profile_pending_spans(int i)
 			if (!w)
 				continue;
 
-			/* A coverage-zero delta means the CPU overlay is gone. RDP has
-			 * already rendered the scene for this presentation; copying the raw
-			 * transparent pixel opaquely now can paint its stale RGB over Mario
-			 * or the background and recreate the trail. Consume the erase marker
-			 * without drawing: preserve the current RSX scene beneath it. */
+			/* A coverage-zero delta is already transparent. Do not paint its
+			 * stale RGB over the RSX scene; consume the source span and its
+			 * shadow so it cannot be mistaken for an outstanding CPU overlay. */
 			if (mode == 2) {
-				memcpy(shadow_row + x0 * 2u, ram_row + x0 * 2u, w * 2u);
+				if (!rdp.copy_color_to_rdram) {
+					memset(ram_row + x0 * 2u, 0, w * 2u);
+					memset(shadow_row + x0 * 2u, 0, w * 2u);
+				} else {
+					memcpy(shadow_row + x0 * 2u, ram_row + x0 * 2u, w * 2u);
+				}
 				memset(pending_row + x0, 0, w);
 				continue;
 			}
@@ -1814,14 +1827,16 @@ static uint32_t prime_profile_pending_spans(int i)
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
-			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
-			/* Allow exactly one additional VI replay for a newly changed covered
-			 * pixel to bridge alternating-target timing. This is intentionally
-			 * finite: stale coverage must not resurrect old pills indefinitely. */
-			if (mode == 1)
-				memset(pending_row + x0, 3, w);
-			else
-				memset(pending_row + x0, 0, w);
+			/* The late VI blit is the final composite for this one-shot
+			 * CPU overlay. Consume it now instead of scheduling a second replay:
+			 * the source and its stable baseline both return to transparent. */
+			if (!rdp.copy_color_to_rdram) {
+				memset(ram_row + x0 * 2u, 0, w * 2u);
+				memset(shadow_row + x0 * 2u, 0, w * 2u);
+			} else {
+				memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
+			}
+			memset(pending_row + x0, 0, w);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
