@@ -3026,10 +3026,38 @@ static void interp_task(struct set *s, const struct gfx_result *res, uint32_t ta
 }
 
 /* Traduce la salida de la tarea n a comandos del RSX. */
-/* Once a later RDP draw touches pixels that were queued for late CPU
- * replay, the RDP draw wins those pixels. Otherwise the VI replay can resurrect
- * a stale CPU sprite over later scene/UI rendering (Dr. Mario's Game Over menu).
- * Use the conservative draw bounds, matching the dirty-box bookkeeping below. */
+/* A later RDP primitive supersedes a pending CPU pixel only when it
+ * actually covers that pixel. The bounding box of an entire gfx_draw can
+ * include large empty gaps between unrelated triangles; clearing those gaps
+ * makes CPU-rendered falling pills disappear while they are still in flight. */
+static bool profile_pending_triangle_hits_pixel(float ax, float ay, float bx, float by,
+						float cx, float cy, uint32_t x, uint32_t y,
+						uint32_t scale)
+{
+	float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+	if (area > -0.000001f && area < 0.000001f)
+		return false;
+
+	/* Test the centers of the actual RSX subpixels represented by this N64
+	 * pixel. This also handles edges at the 3x/4x/5x render-target scales. */
+	const float eps = 0.0001f;
+	for (uint32_t sy = 0; sy < scale; sy++) {
+		float py = (float)y + ((float)sy + 0.5f) / (float)scale;
+		for (uint32_t sx = 0; sx < scale; sx++) {
+			float px = (float)x + ((float)sx + 0.5f) / (float)scale;
+			float e0 = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+			float e1 = (cx - bx) * (py - by) - (cy - by) * (px - bx);
+			float e2 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx);
+			if (area > 0.0f ? e0 >= -eps && e1 >= -eps && e2 >= -eps
+					: e0 <= eps && e1 <= eps && e2 <= eps)
+				return true;
+		}
+	}
+	return false;
+}
+
+/* Rectangular clears are exact boxes; ordinary draws are handled per triangle
+ * below because a batch's union bounding box is much too broad for CPU pixels. */
 static void profile_pending_invalidate_box(int i, const struct rdp_box *box)
 {
 	if (i < 0 || i >= RDP_TARGETS_MAX || !box || rdp_box_empty(box) ||
@@ -3045,6 +3073,52 @@ static void profile_pending_invalidate_box(int i, const struct rdp_box *box)
 		return;
 	for (uint32_t y = y0; y < y1; y++)
 		memset(rdp.profile_pending[i] + (size_t)y * t->width + x0, 0, x1 - x0);
+}
+
+static void profile_pending_invalidate_draw(int i, const struct set *s, const struct gfx_draw *g)
+{
+	if (i < 0 || i >= RDP_TARGETS_MAX || !s || !g || g->h.b < 3 ||
+	    !rdp.copy_color_from_rdram || !rdp.profile_pending[i])
+		return;
+	/* Do not guess which side survives hardware culling. UI/framebuffer draws
+	 * that need late CPU pixels normally use no culling; a culled draw must not
+	 * consume the overlay. */
+	if (g->cull != GFX_CULL_NONE)
+		return;
+	const struct rdp_target *t = &rdp.tg.t[i];
+	if (!t->used || t->bpp != 2 || !t->lw || !t->lh)
+		return;
+	const struct gfx_vertex *v = (const struct gfx_vertex *)s->vtx + g->h.a;
+	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
+	if (scale > RDP_SCALE_MAX)
+		scale = RDP_SCALE_MAX;
+
+	for (uint32_t k = 0; k + 2 < g->h.b; k += 3) {
+		if (!(v[k].w > 0.0f) || !(v[k + 1].w > 0.0f) || !(v[k + 2].w > 0.0f))
+			continue;
+		float ax = v[k].x / v[k].w, ay = v[k].y / v[k].w;
+		float bx = v[k + 1].x / v[k + 1].w, by = v[k + 1].y / v[k + 1].w;
+		float cx = v[k + 2].x / v[k + 2].w, cy = v[k + 2].y / v[k + 2].w;
+		float x0 = ax < bx ? ax : bx, x1 = ax > bx ? ax : bx;
+		float y0 = ay < by ? ay : by, y1 = ay > by ? ay : by;
+		if (cx < x0) x0 = cx;
+		if (cx > x1) x1 = cx;
+		if (cy < y0) y0 = cy;
+		if (cy > y1) y1 = cy;
+		struct rdp_box box = { 0, 0, 0, 0 };
+		rdp_box_add(&box, x0, y0, x1, y1, true, g->scissor, t->lw, t->lh);
+		if (rdp_box_empty(&box))
+			continue;
+
+		for (uint32_t y = box.y0; y < box.y1; y++) {
+			uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
+			for (uint32_t x = box.x0; x < box.x1; x++) {
+				if (pending_row[x] &&
+				    profile_pending_triangle_hits_pixel(ax, ay, bx, by, cx, cy, x, y, scale))
+					pending_row[x] = 0;
+			}
+		}
+	}
 }
 
 /* Borra con `color` el rectángulo (xa, ya)–(xb, yb) (píxeles lógicos) del
@@ -3350,7 +3424,7 @@ static void translate(uint32_t n)
 				const struct rdp_target *t = &rdp.tg.t[cur];
 				struct rdp_box r = { 0, 0, 0, 0 };
 				rdp_box_add(&r, x0, y0, x1, y1, front, g->scissor, t->lw, t->lh);
-				profile_pending_invalidate_box(cur, &r);
+				profile_pending_invalidate_draw(cur, s, g);
 				rdp_box_union(&drawn_box[cur], &r);
 				rdp_box_union(&rdp.tg.t[cur].box, &r);
 			if (d && (g->depth & GFX_DEPTH_WRITE))
