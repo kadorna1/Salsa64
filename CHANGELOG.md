@@ -14,6 +14,15 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Yoshi's Story: camera stutter when walking fast.** The game draws its
+  8-bit background layers with the RDP and reads them back from RAM in the
+  next task, so the emulator waited for the RSX to draw and copy them back on
+  every such task (8–13 ms each, the whole RSX queue and the CRT filter in
+  front). Those layers are now rasterised directly into RAM by the PPE (1:1
+  CI8 tiles, no filter, no blending; anything else falls back to the RSX for
+  that task), so there is nothing to wait for. `gfx-capas8-rsx` in
+  `/dev_hdd0/salsa64/` restores the RSX path; the log line "capas de 8 bits en
+  el PPE" counts tasks, pixels, time and waits avoided.
 - **Yoshi's Story: coloured dots on the edges of the background layers.** The
   RSX copied those 8-bit layers to RAM with a linear filter at 1:1, which on
   this hardware blends a fraction of the neighbouring pixel; the red channel is

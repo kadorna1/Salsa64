@@ -67,6 +67,11 @@ struct salsa64_rdp_stats {
 	uint32_t readbacks, readback_waits, readback_late;
 	uint32_t big8_sync, big8_nosync;  /* copias big8 pedidas con y sin espera */
 	uint32_t big8_primes;             /* capas big8 cebadas desde la RDRAM (índices de 8 bits) */
+	/* Capas de 8 bits dibujadas en la RDRAM por el PPE (layer8.h): tareas,
+	 * dibujos, píxeles, esperas por la copia que se evitaron, destinos que
+	 * quedaron para el RSX y el tiempo (timebase). */
+	uint32_t layer8_tasks, layer8_draws, layer8_pixels, layer8_waits_avoided, layer8_refused;
+	uint64_t tb_layer8;
 	uint32_t big8_copies, big8_changed;  /* copias big8 hechas y píxeles de la RDRAM que cambiaron */
 	uint64_t us_readback, us_readback_wait;
 	uint32_t mirrors, mirrors_skipped;  /* copias espejo (sin esperar) y las que no cupieron */
@@ -220,6 +225,10 @@ void salsa64_rdp_set_big8_wait(bool wait);
  * cuando su superficie es nueva o quedó vieja, como las de 16 bits; `false`
  * (bandera gfx-big8-sin-cebar) vuelve a dejarlas con lo que tuviera el RSX. */
 void salsa64_rdp_set_big8_prime(bool prime);
+/* Las capas de 8 bits (big8) las dibuja el PPE en la RDRAM (layer8.h) y no
+ * pasan por el RSX ni por su copia; `false` (bandera gfx-capas8-rsx) vuelve
+ * a dibujarlas en el RSX y a esperar la copia. */
+void salsa64_rdp_set_layer8(bool on);
 /* Interruptor por juego: cada borrado de z espera al próximo destino que se
  * liga. LEGO Racers emite el borrado antes de cambiar de color image y
  * alterna una auxiliar de 32 x 32 y el framebuffer de 320 x 240 con la misma

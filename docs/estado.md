@@ -1,5 +1,32 @@
 # Estado
 
+## 2026-10-28 — Yoshi's Story: las capas de 8 bits las dibuja el PPE en la RDRAM (saltos de cámara)
+
+- Medido en la consola (`build/yoshi-rdp/ps3/yoshi2*.log`): con las capas en
+  el RSX, «la emulación esperó 59–106 tareas por 5 s, 7,4–9,7 ms c/u» sin
+  filtro (hasta 13,5 ms con el CRT), 120–130 copias big8 por 5 s. Cada
+  tarea que dibuja una capa esperaba a que el RSX la dibujara y la copiara
+  (toda la cola por delante): peor campo 19–46 ms, cuadros saltados y audio
+  estirado. Techo: 0,7–0,9 s de cada 5 s de emulación (15–18 %), concentrado
+  en los campos que tocan una capa.
+- Arreglo: `src/rdp/layer8.c` (portable) rasteriza en el PPE, directo en la
+  RDRAM y dentro de `done` (hilo de emulación, antes de que la tarea
+  siguiente las lea), los dibujos a una color image de 8 bits de más de 128
+  de ancho que quepan en su semántica (tiles 1:1 sin filtro ni mezcla ni z,
+  prueba de alfa, relleno constante, cualquier triángulo con w = 1); si un
+  dibujo no cabe, ese destino va entero al RSX en esa tarea. Esos destinos
+  no se copian ni se dibujan en el RSX (translate los salta y anota la
+  escritura para que get_target cebe la superficie si otra tarea la lleva al
+  RSX). Coste estimado en el PPE: una tira de 16 × 256 ≈ 0,05 ms; una capa
+  entera (86 016 px) ≈ 1–2 ms, solo al cambiar de página.
+- Prueba `raster_layer8_equals_host`: layer8 contra el rasterizador del host
+  byte a byte (tiles 1:1, prueba de alfa, wrap, relleno, triángulo) y el
+  rechazo con mezcla. Unitarias 783 (2 fallos previos de `test_cover`),
+  `raster` 9 de 9. El host no cambia (raster.c intacto): escenas iguales.
+- Bandera `gfx-capas8-rsx` (vuelve a lo de antes); línea de log «gfx: capas
+  de 8 bits en el PPE: tareas, dibujos, píxeles, ms por tarea, esperas
+  evitadas, destinos que quedaron para el RSX». Falta la PS3.
+
 ## 2026-10-28 — Yoshi's Story: los puntos de las capas de fondo eran la copia lineal a 1:1
 
 - Cuatro cajas negras de la consola con el paquete «Salsa64 Yoshi»: las tiras

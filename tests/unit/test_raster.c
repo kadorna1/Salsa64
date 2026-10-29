@@ -685,8 +685,145 @@ static void raster_big8_primed(void)
 	raster_fbfx = fbfx;
 }
 
+/* layer8 (src/rdp/layer8.c, lo que el PPE hace en la PS3 con las capas de
+ * 8 bits) contra el rasterizador del host, byte a byte: tiles CI8 de 16 ×
+ * 16 (RGBA8888 con el índice en el rojo) copiados 1:1 sin filtro, un
+ * triángulo, un tile con prueba de alfa y uno repetido (wrap), sobre una
+ * capa de 336 de ancho con contenido previo. */
+#include "rdp/layer8.h"
+#define L8T_N 7
+static uint8_t cmd8[sizeof(struct gfx_cmd) + L8T_N * sizeof(struct gfx_draw) + sizeof(struct gfx_cmd)]
+	__attribute__((aligned(16)));
+static struct gfx_vertex vtx8[6 * L8T_N] __attribute__((aligned(16)));
+static uint8_t tex8[3][16 * 64] __attribute__((aligned(128)));
+static uint8_t ram8[sizeof ram] __attribute__((aligned(16)));
+
+static void quad_st(struct gfx_vertex *v, float x0, float y0, float x1, float y1, float s1, float t1)
+{
+	quad(v, x0, y0, x1, y1);
+	v[1].s = v[3].s = v[4].s = v[5].s = s1;
+	v[2].t = v[3].t = v[4].t = v[5].t = t1;
+}
+
+static void l8_draw(struct gfx_draw *d, uint32_t v0, uint32_t n, int tex, unsigned wraps, uint8_t atest, uint8_t aref)
+{
+	memset(d, 0, sizeof *d);
+	d->h.op = GFX_OP_DRAW;
+	d->h.size = sizeof *d;
+	d->h.a = (uint16_t)v0;
+	d->h.b = (uint16_t)n;
+	d->scissor[2] = (uint16_t)(672 * 4);
+	d->scissor[3] = (uint16_t)(256 * 4);
+	d->atest = atest;
+	d->aref = aref;
+	if (tex < 0) {
+		d->k[GFX_K_ONE][0][0] = 77 / 255.0f;
+		d->k[GFX_K_ONE][0][3] = 1.0f;
+		return;
+	}
+	d->ntex = 1;
+	d->k[GFX_K_T0][0][0] = d->k[GFX_K_T0][0][1] = d->k[GFX_K_T0][0][2] = 1.0f;
+	d->k[GFX_K_T0A][0][3] = 1.0f;
+	d->tex[0].offset = (uint32_t)tex * sizeof tex8[0];
+	d->tex[0].width = d->tex[0].height = 16;
+	d->tex[0].pitch = 64;
+	d->tex[0].flags = (uint8_t)wraps;
+	d->tex[0].xf[0] = d->tex[0].xf[1] = 1.0f / 16;
+}
+
+static void raster_layer8_equals_host(void)
+{
+	int fbfx = raster_fbfx;
+	raster_reset();
+	raster_fbfx = 2;
+	for (int i = 0; i < 3; i++)
+		for (int y = 0; y < 16; y++)
+			for (int x = 0; x < 16; x++) {
+				uint8_t *p = &tex8[i][y * 64 + x * 4];
+				p[0] = (uint8_t)(i * 50 + x * 7 + y * 13);
+				p[1] = p[2] = 0;
+				p[3] = (uint8_t)((x + y) & 1 ? 255 : 0);
+			}
+	for (uint32_t y = 0; y < L8_H; y++)
+		for (uint32_t x = 0; x < L8_W; x++)
+			ram[L8 + y * L8_W + x] = (uint8_t)(x * 3 + y * 5);
+	task_fill(FB_A, 0, 0, 255);
+	field(FB_A);
+	memset(cmd8, 0, sizeof cmd8);
+	struct gfx_cmd *t = (struct gfx_cmd *)cmd8;
+	t->op = GFX_OP_TARGET;
+	t->size = sizeof *t;
+	t->a = L8;
+	t->b = L8_W;
+	t->c = 2u << 8 | 1u;
+	struct gfx_draw *d = (struct gfx_draw *)(cmd8 + sizeof *t);
+	/* Tiles 1:1 contiguos, uno con prueba de alfa, uno repetido dos veces
+	 * a lo ancho (wrap), un relleno constante y un triángulo. */
+	quad_st(&vtx8[0], 0, 0, 16, 16, 16, 16);
+	l8_draw(&d[0], 0, 6, 0, 0, 0, 0);
+	quad_st(&vtx8[6], 16, 0, 32, 16, 16, 16);
+	l8_draw(&d[1], 6, 6, 1, 0, 0, 0);
+	quad_st(&vtx8[12], 16, 16, 32, 32, 16, 16);
+	l8_draw(&d[2], 12, 6, 2, 0, GFX_ATEST_GEQUAL, 128);
+	quad_st(&vtx8[18], 40, 40, 72, 56, 32, 16);
+	l8_draw(&d[3], 18, 6, 0, GFX_WRAP_REPEAT | GFX_WRAP_MIRROR << 2, 0, 0);
+	quad_st(&vtx8[24], 100, 100, 140, 120, 0, 0);
+	l8_draw(&d[4], 24, 6, -1, 0, 0, 0);
+	set_vtx(&vtx8[30], 200, 30);
+	set_vtx(&vtx8[31], 250, 37);
+	set_vtx(&vtx8[32], 210, 90);
+	vtx8[31].s = 16;
+	vtx8[32].t = 16;
+	l8_draw(&d[5], 30, 3, 1, 0, 0, 0);
+	/* Fuera de los 320 × 240 del host: no se compara, pero tampoco debe
+	 * salirse de la capa (x hasta 336, y hasta 256). */
+	quad_st(&vtx8[36], 320, 240, 336, 256, 16, 16);
+	l8_draw(&d[6], 36, 6, 2, 0, 0, 0);
+
+	memcpy(ram8, ram, sizeof ram);
+	struct gfx_job job;
+	struct gfx_result res;
+	memset(&job, 0, sizeof job);
+	memset(&res, 0, sizeof res);
+	job.rdram_ea = (uint64_t)(uintptr_t)ram;
+	job.rdram_size = sizeof ram;
+	job.vtx_ea = (uint64_t)(uintptr_t)vtx8;
+	job.cmd_ea = (uint64_t)(uintptr_t)cmd8;
+	job.tex_ea = (uint64_t)(uintptr_t)tex8;
+	res.cmd_bytes = sizeof cmd8;
+	raster_task(&job, &res);
+
+	struct layer8_result lr;
+	layer8_run(ram8, sizeof ram8, cmd8, sizeof cmd8, vtx8, (const uint8_t *)tex8, NULL, 128, &lr);
+	CHECK_EQ(lr.n, 1);
+	CHECK_EQ(lr.addr[0], L8);
+	CHECK_EQ(lr.draws, L8T_N);
+	CHECK_EQ(lr.refused, 0);
+	CHECK(lr.pixels > 16 * 16 * 4);
+	unsigned bad = 0, drawn = 0;
+	for (uint32_t y = 0; y < 240; y++)
+		for (uint32_t x = 0; x < 320; x++) {
+			bad += ram[L8 + y * L8_W + x] != ram8[L8 + y * L8_W + x];
+			drawn += ram8[L8 + y * L8_W + x] != (uint8_t)(x * 3 + y * 5);
+		}
+	CHECK_EQ(bad, 0);
+	CHECK(drawn > 16 * 16 * 3);
+	/* El tile de la esquina llegó entero a la capa de 336 × 256. */
+	CHECK_EQ(ram8[L8 + 255 * L8_W + 335], tex8[2][15 * 64 + 15 * 4]);
+	/* Un dibujo con mezcla deja el destino entero para el RSX. */
+	d[3].blend = GFX_BLEND_ALPHA;
+	memcpy(ram8, ram, sizeof ram);
+	layer8_run(ram8, sizeof ram8, cmd8, sizeof cmd8, vtx8, (const uint8_t *)tex8, NULL, 128, &lr);
+	CHECK_EQ(lr.n, 0);
+	CHECK_EQ(lr.refused, 1);
+	CHECK_EQ(lr.draws, 0);
+	raster_reset();
+	raster_fbfx = fbfx;
+}
+
 void t_suite_raster(void)
 {
+	RUN(raster_layer8_equals_host);
 	RUN(raster_big8_primed);
 	RUN(raster_recycled_slot);
 	RUN(raster_recycled_slot_big);

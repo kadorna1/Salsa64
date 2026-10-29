@@ -19,6 +19,7 @@
  * sus texturas).
  */
 #include "rdp/rdp.h"
+#include "rdp/layer8.h"
 
 #include <malloc.h>
 #include <stdio.h>
@@ -144,6 +145,9 @@ struct set {
 	 * (la misma imagen se pide en tareas seguidas: un efecto por cuadro
 	 * recibe el cuadro anterior, como la intro de Conker). */
 	uint32_t rb_addr[RB_PER_TASK], rb_width[RB_PER_TASK];
+	/* Capas de 8 bits que done dibujó en la RDRAM (layer8): sin copia y
+	 * sin dibujos en el RSX en esta tarea. */
+	uint32_t sw8_addr[LAYER8_MAX], sw8_width[LAYER8_MAX], sw8_n;
 	uint32_t rb_rep[RB_PER_TASK];  /* tareas seguidas en que se venía pidiendo */
 	bool rb_sync[RB_PER_TASK];
 	uint32_t rb_n, rb_nsync;
@@ -381,6 +385,8 @@ static struct {
 	bool big8_wait;
 	/* Si las capas big8 se ceban desde la RDRAM (gfx-big8-sin-cebar lo apaga). */
 	bool big8_prime;
+	/* Si las capas big8 las dibuja el PPE en la RDRAM (gfx-capas8-rsx lo apaga). */
+	bool layer8_on;
 	bool zclear_target;          /* el borrado pertenece a la próxima color image */
 	uint32_t rb_prev_n[RB_HISTORY];
 	uint32_t rb_prev_i;
@@ -509,6 +515,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.rb_off = rdp.cache_off + CACHE_BYTES;
 	rdp.fbfx = 2;
 	rdp.big8_prime = true;
+	rdp.layer8_on = true;
 	rdp.aa_edges = false;  /* experimental: engordaba los modelos en la PS3 */
 	rdp.ready = true;
 	return RSXKIT_OK;
@@ -1462,6 +1469,34 @@ static uint32_t ppe_written(uint32_t lo, uint32_t hi)
 	return t;
 }
 
+/* Anota una escritura del PPE en la RDRAM [lo, hi) en la tarea en curso
+ * (get_target ceba desde la RDRAM un destino que quedó atrás). */
+static void ppe_wr_note(uint32_t lo, uint32_t hi)
+{
+	unsigned k = 0;
+	while (k < 4 && !(rdp.ppe_wr[k].task == rdp.tg.task && rdp.ppe_wr[k].hi >= lo && rdp.ppe_wr[k].lo <= hi))
+		k++;
+	if (k == 4) {
+		k = rdp.ppe_wr_next;
+		rdp.ppe_wr_next = (k + 1) % 4;
+		rdp.ppe_wr[k].lo = lo;
+		rdp.ppe_wr[k].hi = hi;
+	} else {
+		rdp.ppe_wr[k].lo = lo < rdp.ppe_wr[k].lo ? lo : rdp.ppe_wr[k].lo;
+		rdp.ppe_wr[k].hi = hi > rdp.ppe_wr[k].hi ? hi : rdp.ppe_wr[k].hi;
+	}
+	rdp.ppe_wr[k].task = rdp.tg.task;
+}
+
+/* ¿done dibujó esta color image en la RDRAM en la tarea del juego `s`? */
+static bool set_sw8(const struct set *s, uint32_t addr, uint32_t width)
+{
+	for (uint32_t i = 0; i < s->sw8_n; i++)
+		if (s->sw8_addr[i] == addr && s->sw8_width[i] == width)
+			return true;
+	return false;
+}
+
 /* Un rectángulo en modo copia hacia una color image de 16 bits más alta
  * que 480 filas, que no tiene superficie (get_target la ignora): el PPE lo
  * copia en la RDRAM como el RDP. Resident Evil 2 copia así, con BG_COPY de
@@ -2336,6 +2371,11 @@ void salsa64_rdp_set_big8_prime(bool prime)
 	rdp.big8_prime = prime;
 }
 
+void salsa64_rdp_set_layer8(bool on)
+{
+	rdp.layer8_on = on;
+}
+
 void salsa64_rdp_zclear_target(bool on)
 {
 	rdp.zclear_target = on;
@@ -2392,7 +2432,8 @@ static void readbacks_wanted(struct set *s, const struct gfx_result *res)
 		 * el rojo, sea cual sea el formato; Conker la declara CI y la lee
 		 * como I8. */
 		if (c->op == GFX_OP_TARGET && (siz == 2u || siz == 1u) && c->b && c->b <= 640 &&
-		    rdp.vi_ring.n && (c->b != vi_w || !rdp_vi_ring_covers(&rdp.vi_ring, c->a, c->b))) {
+		    rdp.vi_ring.n && (c->b != vi_w || !rdp_vi_ring_covers(&rdp.vi_ring, c->a, c->b)) &&
+		    !set_sw8(s, c->a, c->b)) {
 			uint32_t k = 0;
 			while (k < s->rb_n && s->rb_addr[k] != c->a)
 				k++;
@@ -2466,7 +2507,28 @@ static void done(void *ctx, const struct gfx_job *job, const struct gfx_result *
 	struct set *s = &rdp.sets[n % SETS];
 	s->res = *res;
 	s->dpc_cont = (job->flags & GFX_JOB_DPC_CONT) != 0;
+	/* Las capas de 8 bits, en la RDRAM ya mismo (layer8.h): la tarea
+	 * siguiente las lee de ahí sin esperar al RSX. */
+	s->sw8_n = 0;
+	if (rdp.layer8_on && rdp.rdram && rdp.fbfx >= 2) {
+		uint64_t t0 = tb_now();
+		struct layer8_result lr;
+		layer8_run(rdp.rdram, rdp.rdram_size, s->cmd, res->cmd_bytes, (const struct gfx_vertex *)s->vtx, s->tex,
+			   rdp.cache, 128, &lr);
+		for (uint32_t i = 0; i < lr.n; i++) {
+			s->sw8_addr[i] = lr.addr[i];
+			s->sw8_width[i] = lr.width[i];
+		}
+		s->sw8_n = lr.n;
+		rdp.stats.layer8_tasks += lr.n > 0;
+		rdp.stats.layer8_draws += lr.draws;
+		rdp.stats.layer8_pixels += lr.pixels;
+		rdp.stats.layer8_refused += lr.refused;
+		rdp.stats.tb_layer8 += tb_now() - t0;
+	}
 	readbacks_wanted(s, res);
+	if (s->sw8_n && !s->rb_nsync)
+		rdp.stats.layer8_waits_avoided++;
 	guard_mark_task(s, res);
 	lwsync();
 	rdp.finished = n + 1;
@@ -2656,6 +2718,7 @@ static void translate(uint32_t n)
 		rsxkit_fp_get_stats(&fp0);
 	}
 	int cur = -1;
+	bool skip8 = false;  /* los dibujos de una capa que done ya puso en la RDRAM */
 	bool drawn[RDP_TARGETS_MAX] = { false };
 	rdp.at = "dibujos";
 	struct rdp_box drawn_box[RDP_TARGETS_MAX];  /* lo que tocaron los dibujos de la tarea */
@@ -2674,6 +2737,14 @@ static void translate(uint32_t n)
 		switch (c->op) {
 		case GFX_OP_TARGET: {
 			uint32_t lh = scissor_bottom(s, off + c->size, res->cmd_bytes), siz = c->c & 0xFF;
+			skip8 = set_sw8(s, c->a, c->b);
+			if (skip8) {
+				/* La capa ya está en la RDRAM: ni se dibuja ni se copia; si
+				 * otra tarea la lleva al RSX, get_target la ceba de ahí. */
+				ppe_wr_note(c->a, c->a + c->b * (lh ? lh : 240u));
+				cur = -1;
+				break;
+			}
 			bool is_tall = c->b && c->b <= 640 && rdp_targets_tall(c->b, lh) &&
 				       fills_only(s, off + c->size, res->cmd_bytes);
 			rdp.at = "destinos";
@@ -2743,6 +2814,8 @@ static void translate(uint32_t n)
 			break;
 		case GFX_OP_DRAW: {
 			const struct gfx_draw *g = (const struct gfx_draw *)c;
+			if (skip8)
+				break;
 			if (g->approx && perf_hook)
 				perf_approx(g);
 			if (cur < 0 && tall.rows && g->cycle == G_CYC_FILL && g->h.b >= 3) {

@@ -3688,6 +3688,14 @@ static void stats(uint64_t now)
 				    rs.big8_sync - sw.rdp0.big8_sync, rs.big8_nosync - sw.rdp0.big8_nosync,
 				    rs.big8_copies - sw.rdp0.big8_copies, rs.big8_changed - sw.rdp0.big8_changed,
 				    rs.big8_primes - sw.rdp0.big8_primes);
+		if (rs.layer8_tasks != sw.rdp0.layer8_tasks || rs.layer8_refused != sw.rdp0.layer8_refused) {
+			uint32_t l8t = rs.layer8_tasks - sw.rdp0.layer8_tasks;
+			salsa64_log("gfx: capas de 8 bits en el PPE: %u tareas, %u dibujos, %u píxeles, %.3f ms por tarea; "
+				    "%u esperas por la copia evitadas; %u destinos quedaron para el RSX (dibujo no soportado)",
+				    l8t, rs.layer8_draws - sw.rdp0.layer8_draws, rs.layer8_pixels - sw.rdp0.layer8_pixels,
+				    l8t ? (rs.tb_layer8 - sw.rdp0.tb_layer8) * 1e3 / spukit_tick_hz() / l8t : 0.0,
+				    rs.layer8_waits_avoided - sw.rdp0.layer8_waits_avoided, rs.layer8_refused - sw.rdp0.layer8_refused);
+		}
 		uint32_t gcop = rs.guard_copies - sw.rdp0.guard_copies, glin = rs.guard_lines - sw.rdp0.guard_lines;
 		uint64_t gtb = rs.tb_guard_mark - sw.rdp0.tb_guard_mark;
 		if (gcop || gtb)
@@ -5553,6 +5561,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (file_exists(SALSA64_DATA_DIR "/gfx-copia-lineal")) {
 		rsxkit_target_read_exact(0);
 		salsa64_log("copias del RSX a la RDRAM a 1:1 con filtro lineal (gfx-copia-lineal)");
+	}
+	/* Las capas de 8 bits las dibuja el PPE en la RDRAM (sin esperar la copia
+	 * del RSX); `gfx-capas8-rsx` vuelve a dibujarlas en el RSX. */
+	if (file_exists(SALSA64_DATA_DIR "/gfx-capas8-rsx")) {
+		salsa64_rdp_set_layer8(false);
+		salsa64_log("capas de 8 bits (big8): en el RSX con copia a la RDRAM (gfx-capas8-rsx)");
 	}
 	{
 		bool big8_prime = !file_exists(SALSA64_DATA_DIR "/gfx-big8-sin-cebar");
