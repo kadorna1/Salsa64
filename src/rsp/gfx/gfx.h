@@ -181,6 +181,10 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
  * cargados dentro de una tarea S2DEX. No escala G_MODIFYVTX. */
 #define GFX_JOB_AFFINE_CHAIN 0x1000u
 #define GFX_JOB_S2DEX_OLD_MODES 0x2000u
+/* Interruptor: no tomar como niebla la mezcla FOG·A_SHADE + IN·(1 − A) en
+ * un ciclo con FORCE_BL (la pista de F-Zero X; rdp.c blend_state). El PPE
+ * lo pone si existe sin-niebla-1ciclo en el directorio de datos. */
+#define GFX_JOB_NO_FOG_1CYCLE 0x4000u
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 

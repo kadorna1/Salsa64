@@ -929,6 +929,7 @@ static char version_text[64], build_text[160];
 static const struct salsa64_gfx_sink *rdp_sink;
 static bool gfx_affine_chain;
 static bool gfx_s2dex_old_modes;
+static bool gfx_no_fog_1cycle;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -938,6 +939,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_AFFINE_CHAIN;
 	if (gfx_s2dex_old_modes)
 		job->flags |= GFX_JOB_S2DEX_OLD_MODES;
+	if (gfx_no_fog_1cycle)
+		job->flags |= GFX_JOB_NO_FOG_1CYCLE;
 }
 
 /* DMA a la RDRAM (hilo de emulación): las copias del RDP no lo pisan. */
@@ -5426,6 +5429,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	/* HLE gráfica: en un SPE, o en el PPE si se pide. */
 	gfx_affine_chain = !file_exists(SALSA64_DATA_DIR "/sin-afin-cadena");
 	gfx_s2dex_old_modes = file_exists(SALSA64_DATA_DIR "/gfx-s2dex-modos-viejos");
+	gfx_no_fog_1cycle = file_exists(SALSA64_DATA_DIR "/sin-niebla-1ciclo");
+	salsa64_log("gfx: niebla del blender en un ciclo %s (sin-niebla-1ciclo)",
+		    gfx_no_fog_1cycle ? "apagada" : "activa");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);

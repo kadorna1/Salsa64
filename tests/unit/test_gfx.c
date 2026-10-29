@@ -1619,6 +1619,73 @@ static void gfx_f3dflx_alpha(void)
 	CHECK(fabsf(gs.vtx[2].s - 1023.0f) < 1.0f);  /* (1 + 1)·512 */
 }
 
+/* Niebla del blender en un solo ciclo: la pista de F-Zero X va con G_FOG,
+ * othermode L 0xFA006220 (FOG·A_SHADE + IN·(1 − A_SHADE) en los dos ciclos,
+ * FORCE_BL, ALPHA_CVG_SEL, Z_UPD) y el ciclo en 1CYCLE. El RDP mezcla en
+ * todos los píxeles (FORCE_BL) sin leer la memoria: es la misma niebla que
+ * G_RM_FOG_SHADE_A en dos ciclos. Un triángulo con el mismo blender sin
+ * FORCE_BL no es niebla (el interior escribe P), y la bandera
+ * GFX_JOB_NO_FOG_1CYCLE la apaga. */
+static void fog_1cycle_scene(uint32_t othermode_l, unsigned cycle, uint32_t flags)
+{
+	start();
+	job_flags = flags;
+	viewport_320x240();
+	load_mtx(ident, true);
+	load_mtx(ident, false);
+	/* (SHADE − T0)·T0a + T0, como la pista. */
+	set_combine(CC_SHADE, CC_T0, CC_C_T0A, CC_T0, CC_ZERO, CC_ZERO, CC_ZERO, CC_SHADE);
+	dl(0xD9000000, G_ZBUFFER | G_SHADE | G_CULL_BACK | G_FOG | G_SHADING_SMOOTH);
+	dl(0xDB080000, (uint32_t)0 << 16 | 100);  /* G_MW_FOG: factor 100 a cualquier z */
+	dl(0xEF000000 | cycle << 20, othermode_l);
+	dl(0xF8000000, 0xFAFFFFFF);              /* color de niebla */
+	dl(0xFF100000 | 319, 0x00100000);
+	const struct vtx v[3] = {
+		{ 0, 0, 0, 0, 0, { 0, 0, 0, 255 } },
+		{ 0, 1, 0, 0, 0, { 0, 0, 0, 255 } },
+		{ 1, 0, 0, 0, 0, { 0, 0, 0, 255 } },
+	};
+	dl(0x01000000 | 3 << 12 | 3 << 1, put_vertices(v, 3));
+	dl(0x05000000 | 0 << 16 | 1 << 9 | 2 << 1, 0);
+	run();
+}
+
+static void gfx_fog_1cycle_force_bl(void)
+{
+	fog_1cycle_scene(0xFA006220, G_CYC_1CYCLE, 0);
+	const struct gfx_draw *d = draw_n(0);
+	CHECK(d != NULL);
+	if (d) {
+		CHECK_EQ(d->cycle, G_CYC_1CYCLE);
+		CHECK_EQ(d->fog, 1);
+		CHECK_EQ(d->fog_color, 0xFAFFFFFF);
+		CHECK_EQ(d->blend, GFX_BLEND_OFF);
+		CHECK_EQ(d->depth, GFX_DEPTH_WRITE);
+		CHECK(d->nterms > 0 && d->factors[0][0] == GFX_F_NONE);  /* el término al que va fog·a */
+	}
+	CHECK_EQ(gs.vtx[0].c[3], 100);  /* el alfa del vértice es el factor de niebla */
+
+	/* Lo mismo en dos ciclos (G_RM_FOG_SHADE_A + un segundo ciclo opaco). */
+	fog_1cycle_scene(0xC8112078, G_CYC_2CYCLE, 0);
+	d = draw_n(0);
+	CHECK(d && d->fog == 1 && d->fog_color == 0xFAFFFFFF);
+
+	/* Sin FORCE_BL: el interior escribe P, no es niebla. */
+	fog_1cycle_scene(0xFA002220, G_CYC_1CYCLE, 0);
+	d = draw_n(0);
+	CHECK(d && d->fog == 0 && d->blend == GFX_BLEND_OFF);
+
+	/* El interruptor. */
+	fog_1cycle_scene(0xFA006220, G_CYC_1CYCLE, GFX_JOB_NO_FOG_1CYCLE);
+	d = draw_n(0);
+	CHECK(d && d->fog == 0 && d->blend == GFX_BLEND_OFF);
+
+	/* El blender opaco de siempre en un ciclo no cambia. */
+	fog_1cycle_scene(0x00552078, G_CYC_1CYCLE, 0);
+	d = draw_n(0);
+	CHECK(d && d->fog == 0);
+}
+
 /* ---- S2DEX2: fondos prerrenderizados (G_BG_COPY, G_BG_1CYC) ---- */
 
 /* G_LOAD_UCODE a un S2DEX2: los datos del microcódigo llevan el texto que
@@ -3078,6 +3145,7 @@ void t_suite_gfx(void)
 	RUN(gfx_load_ucode_same_generation);
 	RUN(gfx_ucode_kind_texts);
 	RUN(gfx_f3dflx_alpha);
+	RUN(gfx_fog_1cycle_force_bl);
 	RUN(gfx_s2dex_bg_copy);
 	RUN(gfx_s2dex_bg_wrap);
 	RUN(gfx_s2dex_bg_scaled);

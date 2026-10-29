@@ -14,6 +14,16 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **F-Zero X: distance fog on the track.** The game fogs the track with the
+  blender in 1-cycle mode (`FOG * shade alpha + input * (1 - shade alpha)` with
+  FORCE_BL, othermode L `0xFA006220`); the HLE only recognised that mix in
+  2-cycle mode, so the far track showed no fog and the course could be seen
+  building up at the horizon. Measured against the console (ares, demo races):
+  the far track went from 20-66 units darker than the console to within a few
+  units; the horizon haze still arrives later than on the console because the
+  shade (and the fog factor) is interpolated with perspective correction
+  instead of screen-linear as the RDP does. `sin-niebla-1ciclo` restores the
+  old behaviour.
 - **Donkey Kong 64 (USA): black screen with music halfway through the new-game
   intro** (#51). When the intro switches scene, the emulated CPU (faster than
   the real one) fit two game frames in the same video retrace; the game

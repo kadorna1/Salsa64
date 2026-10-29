@@ -226,13 +226,25 @@ static void blend_state(const struct gfx_state *g, struct gfx_draw *d)
 	unsigned c1p = (ol >> 28) & 3, c1a = (ol >> 24) & 3, c1m = (ol >> 20) & 3, c1b = (ol >> 16) & 3;
 	unsigned p = c0p, a = c0a, m = c0m, b = c0b;
 
+	bool fog_shade = c0p == BL_FOG && c0a == BA_SHADE && c0m == BL_IN && c0b == BB_1MA;
 	if (d->cycle == G_CYC_2CYCLE) {
 		/* Primer ciclo de niebla (G_RM_FOG_SHADE_A): fog·a_shade + in·(1−a). */
-		if (c0p == BL_FOG && c0a == BA_SHADE && c0m == BL_IN && c0b == BB_1MA) {
+		if (fog_shade) {
 			d->fog = 1;
 			d->fog_color = g->fog;
 		}
 		p = c1p, a = c1a, m = c1m, b = c1b;
+	} else if (d->cycle == G_CYC_1CYCLE && fog_shade && (ol & FORCE_BL) &&
+		   !(g->job->flags & GFX_JOB_NO_FOG_1CYCLE)) {
+		/* La misma mezcla en un solo ciclo con FORCE_BL (othermode L
+		 * 0xFA006220: la pista de F-Zero X, con G_FOG): el RDP la hace en
+		 * todos los píxeles, FOG·a + IN·(1 − a), y escribe sin leer la
+		 * memoria. Se clasificaba como «sin mezcla» y la pista lejana salía
+		 * sin niebla (en la consola se funde con el cielo). Sin FORCE_BL la
+		 * mezcla solo toca los bordes con AA y el interior escribe P: no es
+		 * niebla. */
+		d->fog = 1;
+		d->fog_color = g->fog;
 	}
 
 	d->blend = !(ol & FORCE_BL) ? GFX_BLEND_OFF : classify_blend(p, a, m, b, g->fog);
