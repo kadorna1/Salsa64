@@ -10,6 +10,10 @@
   de ares: 0,66 ms un control o un bloque del pak, 1,65 ms cuatro controles). `si-ritmo-viejo` vuelve a los 2 ms.
 - Cruis'n USA en el host con el ritmo nuevo: 694 tareas en 1500 campos (2 ms fijos: 687; inmediato: 1, el bloqueo).
   Unitarias: `si_dma_timing` y `cuelgue_avisa_siempre`; 782 pruebas, solo `cover` falla en macOS (en Docker pasa).
+- Toy Story 2 (USA): entra en 0x80006000, 0 tareas, 4,4 campos/s con ~6 M instrucciones por segundo en el
+  intérprete (7 por entrada al código generado): todo pasa por `rec_interp` (modo, segmento, evento o bloque sin
+  código); sin el respaldo no se sabe cuál. El latido no avisaba porque el juego nunca dio señales de vida:
+  `latido-siempre` lo hace avisar y volcar igual (pc, código, eventos, RDRAM) para ver dónde se queda.
 - Donald Duck (PAL, #16) desde el estado del usuario: los hilos no están bloqueados (el de SP/DP despierta en cada
   campo, lee el control y dibuja; los tres que esperan colas propias son los de carga, audio y reset); las 137,8
   tareas de audio por segundo son lo normal del motor (160 muestras por tarea; desde el arranque 128–138/s) y la

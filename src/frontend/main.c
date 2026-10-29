@@ -5868,7 +5868,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		rdp_scale_set(menu_scale_limit(video_cfg.scale, video_cfg.resolution), "vuelve la global");
 		return GAME_FAILED;
 	}
-	cuelgue_reset(&cuelgue);
+	cuelgue_reset(&cuelgue, file_exists(SALSA64_DATA_DIR "/latido-siempre"));
+	if (cuelgue.always)
+		salsa64_log("latido: avisa y vuelca también si el juego nunca leyó los controles ni dibujó (latido-siempre)");
 	emu_live = 1;
 	salsa64_log("hilos: emulación con prioridad %d, presentación con 1001", EMU_PRIO);
 	/* Avisos y atajos con SELECT (estados guardados, contador de FPS). */

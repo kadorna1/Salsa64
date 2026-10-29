@@ -14,6 +14,10 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   Games that talk to the Controller Pak a lot (Forsaken 64 at its title screen,
   #55) spent 4 ms per block and could run into their own timeouts. The file
   `si-ritmo-viejo` in `/dev_hdd0/salsa64/` restores the flat 2 ms.
+- **Heartbeat for games that never start:** the file `latido-siempre` in
+  `/dev_hdd0/salsa64/` makes the heartbeat report (pc, registers, last RCP
+  events, RDRAM dump) also for a game that never read the controller nor drew
+  anything, such as Toy Story 2 (#54).
 - **RetroAchievements Hardcore:** saving a state is now allowed in Hardcore
   (loading stays blocked everywhere); turning Hardcore on with a game open no
   longer switches the running game's mode: it applies from the next game.
