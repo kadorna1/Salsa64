@@ -1776,7 +1776,12 @@ static uint32_t prime_profile_pending_spans(int i)
 				continue;
 
 			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
-			memset(pending_row + x0, 0, w);
+			/* Keep the CPU-pixel mask latched for this target. A later RDP task
+			 * can cover these pixels without changing RDRAM, so clearing them
+			 * after a single VI replay makes CPU-drawn sprites flicker: the
+			 * next task hides them and no changed span re-arms the mask. RDRAM
+			 * changes still refresh the source bytes and shadow in the normal
+			 * span path; the mask is reset with this target/profile. */
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
