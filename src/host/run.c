@@ -4204,13 +4204,13 @@ int main(int argc, char **argv)
 	if (use_rec) {
 		salsa64_rec_diag_report(&rec, us ? (salsa64_rec_trace_now() - tb_start) * 1000000 / us : 0, true, save_log);
 		const struct salsa64_rec_stats *st = &rec.stats;
-		fprintf(stderr, "salsa64-run: recompilador: %llu bloques (%llu fuera de KSEG0, %llu desprendidos y %llu "
-			"enganchados en otra física, %u KB de caché), %llu solo intérprete, %llu entradas, %llu enlaces, "
+		fprintf(stderr, "salsa64-run: recompilador: %llu bloques (%llu fuera de KSEG0, %llu desprendidos, %llu "
+			"enganchados en otra física y %llu desprendidos matados por ids, %u KB de caché), %llu solo intérprete, %llu entradas, %llu enlaces, "
 			"%llu invalidados, %llu vaciados (ids %llu, enlaces %llu, RDRAM %llu, bucles %llu, ROM %llu, estado %llu, "
 			"otros %llu), %llu desalojos, %llu traducciones, %llu dependen de FR (%llu gemelos, %llu salidas por FR, %llu por CU1, %llu cortados por CU1), "
 			"%llu instr. interpretadas (%.1f %%), %llu llamadas al intérprete%s\n",
 			(unsigned long long)st->compiled, (unsigned long long)st->compiled_x, (unsigned long long)st->detached,
-			(unsigned long long)st->rekeyed, salsa64_rec_used(&rec) / 256,
+			(unsigned long long)st->rekeyed, (unsigned long long)st->reclaimed, salsa64_rec_used(&rec) / 256,
 			(unsigned long long)st->interp_only, (unsigned long long)st->entries,
 			(unsigned long long)st->linked, (unsigned long long)st->invalidated,
 			(unsigned long long)st->flushes, (unsigned long long)st->flushes_by[SALSA64_REC_FLUSH_IDS],
@@ -4222,6 +4222,9 @@ int main(int argc, char **argv)
 			(unsigned long long)st->cu1_exits, (unsigned long long)st->cu1_cuts,
 			(unsigned long long)st->interp_steps, cycles ? 100.0 * (double)st->interp_steps / (double)cycles : 0.0,
 			(unsigned long long)st->exec_calls, lockstep ? "; --lockstep sin diferencias" : "");
+		fprintf(stderr, "salsa64-run: copias de bytes de los bloques mapeados: %u KB repartidos de %u, %u desprendidos vivos\n",
+			rec.x.copy_used >> 10, (rec.opts & (SALSA64_REC_OPT_LEGACY | SALSA64_REC_DBG_NO_COPY_FREE)
+						 ? SALSA64_REC_X_COPY_OLD_BYTES : SALSA64_REC_X_COPY_BYTES) >> 10, rec.x.ndetached);
 		if (rec.opts & SALSA64_REC_OPT_JTC_STATS)
 			fprintf(stderr, "salsa64-run: caché de destinos de JR: %u aciertos, %u fallos (%.1f %%)\n", rec.jtc_ctr[0], rec.jtc_ctr[1],
 				rec.jtc_ctr[0] + rec.jtc_ctr[1] ? 100.0 * rec.jtc_ctr[0] / ((double)rec.jtc_ctr[0] + rec.jtc_ctr[1]) : 0.0);

@@ -3759,11 +3759,12 @@ static void stats(uint64_t now)
 	}
 	if (use_rec) {
 		const struct salsa64_rec_stats *st = &rec.stats;
-		salsa64_log("recompilador: %llu bloques (%llu fuera de KSEG0), %u KB de caché, %llu entradas, "
+		salsa64_log("recompilador: %llu bloques (%llu fuera de KSEG0, %llu desprendidos, %llu enganchados, %llu matados por ids), %u KB de caché, %llu entradas, "
 			    "%llu enlaces, %llu invalidados, %llu vaciados (ids %llu, enlaces %llu, RDRAM %llu, bucles %llu, "
 			    "ROM %llu, estado %llu, otros %llu), %llu desalojos, %llu traducciones, %llu dependen de FR "
 			    "(%llu gemelos, %llu salidas por FR, %llu por CU1, %llu cortados por CU1), %llu instr. interpretadas",
-			    (unsigned long long)st->compiled, (unsigned long long)st->compiled_x,
+			    (unsigned long long)st->compiled, (unsigned long long)st->compiled_x, (unsigned long long)st->detached,
+			    (unsigned long long)st->rekeyed, (unsigned long long)st->reclaimed,
 			    salsa64_rec_used(&rec) / 256, (unsigned long long)st->entries,
 			    (unsigned long long)st->linked, (unsigned long long)st->invalidated,
 			    (unsigned long long)st->flushes, (unsigned long long)st->flushes_by[SALSA64_REC_FLUSH_IDS],
@@ -5656,6 +5657,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		rec.opts |= SALSA64_REC_OPT_JTC;
 	if (salsa64_ps3_rec_jtc_stats_wanted())
 		rec.opts |= SALSA64_REC_OPT_JTC_STATS;
+	if (salsa64_ps3_rec_old_copy_wanted())
+		rec.opts |= SALSA64_REC_DBG_NO_COPY_FREE;
 	rec.prof = salsa64_ps3_rec_prof_wanted() ? &rec_prof : NULL;
 	/* Perfilado (perfilado_ps3.h): la sesión y rec.trace, antes de iniciar
 	 * el recompilador (su preámbulo depende de rec.trace). */
@@ -5687,7 +5690,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		salsa64_log("páginas: RDRAM %u KB, rec %u KB, n64 %u KB, caché de código %u KB, pila %u KB (0 = sin dato)",
 			    page_kb(rdram), page_kb(&rec), page_kb(&n64), page_kb(salsa64_ps3_rec_cache()),
 			    page_kb(__builtin_frame_address(0)));
-		salsa64_log("recompilador activo: caché de %u MB en %p, llamadas a C %s, opciones 0x%x%s%s%s%s%s%s%s%s%s%s",
+		salsa64_log("recompilador activo: caché de %u MB en %p, llamadas a C %s, opciones 0x%x%s%s%s%s%s%s%s%s%s%s%s",
 			    SALSA64_REC_CACHE_BYTES >> 20, salsa64_ps3_rec_cache(), rec.calls_near ? "con bl" : "por mtctr",
 			    rec.opts, rec.prof ? ", con perfil" : "",
 			    rec.opts & SALSA64_REC_OPT_LEGACY ? ", camino viejo (jit-viejo)" : "",
@@ -5698,7 +5701,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 			    rec.fastmem ? ", fastmem (jit-fastmem)" : rec.opts & SALSA64_REC_OPT_FASTMEM ? ", fastmem APAGADO" : "",
 			    rec.opts & SALSA64_REC_OPT_NO_GROUP ? ", sin base en caché (jit-sin-grupos)" : "",
 			    rec.opts & SALSA64_REC_OPT_JTC ? (rec.opts & SALSA64_REC_OPT_JTC_STATS ? ", caché de destinos con cuentas (jit-destinos-cuentas)" : ", caché de destinos") : ", sin caché de destinos (jit-sin-destinos)",
-			    rec.opts & SALSA64_REC_OPT_FPU_INLINE ? ", FPU en línea (jit-fpu-en-linea)" : rec.fpu_rtn_ok ? "" : ", FPU en línea (las rutinas no cupieron)");
+			    rec.opts & SALSA64_REC_OPT_FPU_INLINE ? ", FPU en línea (jit-fpu-en-linea)" : rec.fpu_rtn_ok ? "" : ", FPU en línea (las rutinas no cupieron)",
+			    rec.opts & SALSA64_REC_DBG_NO_COPY_FREE ? ", copias sin liberar (jit-copias-viejas)" : ", copias en ranuras");
 	}
 	profile_open(rom);
 	sample_open();
