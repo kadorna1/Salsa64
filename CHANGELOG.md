@@ -14,6 +14,22 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   stutters). Copies now live in 64/128/256-byte slots (4 MB) freed when the
   block dies; detached blocks are reclaimed before a full cache flush. The
   flag file `jit-copias-viejas` restores the old behaviour for A/B tests.
+- **Serial Interface timing:** a PIF RAM write DMA now takes about 65 µs and
+  the read DMA what the PIF needs for the joybus exchanges it carries (0.66 ms
+  for one controller or one Controller Pak block, 1.65 ms for four controllers;
+  constants measured by the ares project), instead of a flat 2 ms each way.
+  The file `si-ritmo-viejo` in `/dev_hdd0/salsa64/` restores the flat 2 ms.
+- **Data cache write-back cost:** the emulated CPU does not model the VR4300
+  caches, so writing back the whole data cache (`osWritebackDCacheAll`, or
+  `osWritebackDCache`/`osInvalDCache` of 8 KB or more) took 2,000 cycles
+  instead of the console's ~20 cycles per dirty line. Each full sweep now costs
+  10,240 cycles (half of the 512 lines dirty, 40 cycles each, as measured by the
+  ares project). The file `sin-barrido-cache` in `/dev_hdd0/salsa64/` makes it
+  free again.
+- **Heartbeat for games that never start:** the file `latido-siempre` in
+  `/dev_hdd0/salsa64/` makes the heartbeat report (pc, registers, last RCP
+  events, RDRAM dump) also for a game that never read the controller nor drew
+  anything, such as Toy Story 2 (#54).
 - **RetroAchievements Hardcore:** saving a state is now allowed in Hardcore
   (loading stays blocked everywhere); turning Hardcore on with a game open no
   longer switches the running game's mode: it applies from the next game.
@@ -56,6 +72,14 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   shade (and the fog factor) is interpolated with perspective correction
   instead of screen-linear as the RDP does. `sin-niebla-1ciclo` restores the
   old behaviour.
+- **Forsaken 64 (USA): black screen after the intro** (#55). Right after the
+  intro the main thread writes back the data cache and sends a request to its
+  controller thread, which at that moment is waiting for the Serial Interface
+  to finish a write; libultra takes the request as the end of that write, the
+  request is lost and the main thread waits for its answer forever. On the
+  console the write-back of ~480 dirty cache lines takes long enough for the
+  write to finish first; with the data cache write-back cost above (and the
+  new Serial Interface timing) it does here too.
 - **Donkey Kong 64 (USA): black screen with music halfway through the new-game
   intro** (#51). When the intro switches scene, the emulated CPU (faster than
   the real one) fit two game frames in the same video retrace; the game

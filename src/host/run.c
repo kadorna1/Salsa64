@@ -3876,6 +3876,10 @@ int main(int argc, char **argv)
 	salsa64_si_set_immediate(&n64.bus, si_immediate);
 	if (si_immediate)
 		fprintf(stderr, "salsa64-run: SI inmediato (SALSA64_SI_INMEDIATO)\n");
+	bool si_fixed = salsa64_host_env_on("SALSA64_SI_RITMO_VIEJO");
+	salsa64_si_set_fixed(&n64.bus, si_fixed);
+	if (si_fixed)
+		fprintf(stderr, "salsa64-run: SI con 2 ms fijos (SALSA64_SI_RITMO_VIEJO)\n");
 	const char *affine = getenv("SALSA64_GFX_AFFINE_CHAIN");
 	gfx_affine_chain = !affine || strcmp(affine, "0");
 	gfx_no_fog_1cycle = salsa64_host_env_on("SALSA64_SIN_NIEBLA_1CICLO");
@@ -3886,6 +3890,12 @@ int main(int argc, char **argv)
 	if (getenv("SALSA64_AUDIO_CYCLES"))
 		n64.bus.rsp.audio_cycles = (uint32_t)strtoul(getenv("SALSA64_AUDIO_CYCLES"), NULL, 0);
 	salsa64_cpu_set_idle(&n64.cpu, idle);
+	/* SALSA64_SIN_BARRIDO_CACHE=1, como sin-barrido-cache en la PS3: los
+	 * barridos de la caché de datos gratis, como antes (vr4300.h). */
+	bool dcache_sweep = !salsa64_host_env_on("SALSA64_SIN_BARRIDO_CACHE");
+	salsa64_cpu_set_dcache_sweep(&n64.cpu, dcache_sweep);
+	if (!dcache_sweep)
+		fprintf(stderr, "salsa64-run: barridos de la caché de datos gratis (SALSA64_SIN_BARRIDO_CACHE)\n");
 	/* Efectos de framebuffer en el rasterizador, como fbfx.cfg en la PS3:
 	 * SALSA64_FBFX=0 los apaga, 1 solo render a textura, 2 todo. */
 	if (getenv("SALSA64_FBFX"))
@@ -4050,7 +4060,9 @@ int main(int argc, char **argv)
 			/* La referencia arranca igual; cada bloque vuelve a C para comparar. */
 			salsa64_n64_init(&ref, ref_rdram, ram);
 			salsa64_si_set_immediate(&ref.bus, si_immediate);
+			salsa64_si_set_fixed(&ref.bus, si_fixed);
 			salsa64_cpu_set_idle(&ref.cpu, idle);
+			salsa64_cpu_set_dcache_sweep(&ref.cpu, dcache_sweep);
 			salsa64_bus_set_isviewer(&ref.bus, ref_isv_buf, ref_isv_out, NULL);
 			if (rom_paged)
 				salsa64_bus_set_rom_paged(&ref.bus, rom, 4096, (uint32_t)rom_size, &rom_pg);
@@ -4198,6 +4210,9 @@ int main(int argc, char **argv)
 		reason_names[reason], (unsigned long long)cycles, cycles / 93.75e6, us / 1e6,
 		us ? (cycles - idle_cycles) / (double)us : 0.0,
 		cycles ? 100.0 * idle_cycles / cycles : 0.0, (unsigned long long)n64.cpu.pc);
+	if (n64.cpu.dcache_sweep_cycles)
+		fprintf(stderr, "salsa64-run: barridos de la caché de datos: %u (%u ciclos cada uno)\n", n64.cpu.dcache_sweeps,
+			n64.cpu.dcache_sweep_cycles);
 	if (salsa64_gamefix_name(&n64.bus))
 		fprintf(stderr, "salsa64-run: arreglo de juego: %s; aplicado %u veces\n", salsa64_gamefix_name(&n64.bus),
 			n64.bus.gamefix_applied);

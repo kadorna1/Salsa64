@@ -490,7 +490,11 @@ enum salsa64_si_reg {
 /* Estados transitorios observados durante cada sentido de la operación. */
 #define SALSA64_SI_STATUS_READ      0x0140u
 #define SALSA64_SI_STATUS_WRITE     0x0410u
-#define SALSA64_SI_DMA_CYCLES       187500u  /* aproximadamente 2 ms a 93,75 MHz */
+#define SALSA64_SI_DMA_CYCLES       187500u  /* ritmo fijo anterior: unos 2 ms a 93,75 MHz (si-ritmo-viejo) */
+/* RDRAM → PIF RAM: la copia de 64 bytes sola, unos 65 µs (ares: 4065 × 3 a 187,5 MHz).
+ * PIF RAM → RDRAM: la PIF ejecuta antes los intercambios joybus; lo estima
+ * salsa64_pif_read_cycles según lo que haya en la PIF RAM. */
+#define SALSA64_SI_DMA_WRITE_CYCLES 6098u
 
 #define SALSA64_RI_NREGS    8
 #define SALSA64_RDRAM_NREGS    16
@@ -596,5 +600,7 @@ void salsa64_si_write(struct salsa64_bus *bus, uint32_t reg, uint32_t value);
 void salsa64_si_init(struct salsa64_bus *bus, struct salsa64_sched *sched);
 void salsa64_si_reset(struct salsa64_bus *bus);
 void salsa64_si_set_immediate(struct salsa64_bus *bus, bool immediate);
+/* Las dos operaciones con el ritmo fijo anterior (SALSA64_SI_DMA_CYCLES). */
+void salsa64_si_set_fixed(struct salsa64_bus *bus, bool fixed);
 
 #endif

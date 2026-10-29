@@ -144,6 +144,52 @@
 - Lo que queda: el RDP interpola el sombreado (y con él el factor de niebla) lineal en pantalla; la HLE y el RSX con corrección de perspectiva, así que en los triángulos largos de la pista la bruma llega más tarde que en la consola. Experimento en el rasterizador (factor de niebla afín, sin commitear): r15 20,51 → 21,27 dB (25,55 → 27,90 en 4×4) y la pista lejana a ±6 de la consola. Para el RSX haría falta la mezcla de niebla en el fragment program con el factor por w en un texcoord (la misma obra que la sombra afín pendiente del 2026-10-14). La bruma del horizonte (fondo enorme con sombra 0/255) sigue siendo ese problema.
 - Paquete «Salsa64 F-Zero» (SLSA00212) para validar en la PS3: Mute City, recta con horizonte.
 
+## 2026-10-29 — Costo del barrido de la caché de datos (#55 Forsaken 64)
+- Reproducido en el host con el respaldo: 1100 tareas y después solo audio y VI, igual que en la PS3. El hilo
+  principal (pri 10) manda un pedido (tipo 0xD) a su hilo del SI (pri 125, cola 0x8008E600, la misma en la que
+  recibe el aviso del SI) y espera la respuesta en 0x8008E670. En ese momento el hilo del SI está dentro de
+  `osContStartReadData` esperando la escritura de la PIF RAM, con `osRecvMesg` sobre esa misma cola: toma el
+  pedido por el aviso del SI, el pedido se pierde y la respuesta no llega nunca. Hace falta que el juego haya
+  hablado con el pak (la escritura de la PIF RAM solo va cuando el último comando no fue leer el control): la
+  corrida «sin pak» de la PS3 mandó 161 comandos del pak; en el host con `--sin-pak` desde el arranque no manda
+  ninguno y pasa la intro.
+- Entre que el hilo del SI empieza a esperar y el pedido pasan 2355 ciclos en Salsa64: casi todo es
+  `osWritebackDCacheAll` (512 CACHE 0x01, 2048 instrucciones). Con un modelo de cachés al estilo ares (40 ciclos
+  por línea sucia escrita de vuelta, 40 por llenado, 48 por línea de instrucciones) ese tramo son 24 019 ciclos:
+  479 líneas sucias. La escritura dura 6098 (65 µs): en la consola termina antes del pedido. ares v148 pasa la
+  intro (logo del corazón y «PRESS START»). Con `SALSA64_SI_INMEDIATO` también pasa; con los 2 ms viejos no.
+- Arreglo: CACHE 0x01 sobre la línea 0 (inicio de un barrido entero) cobra 256 × 40 = 10 240 ciclos en el
+  intérprete y en el recompilador (a r29 en la sección fría; sale del bloque si ya no cabe antes del evento).
+  Medido con el modelo: 1–1,5 barridos por campo y 107 (GoldenEye) a 293 (Zelda) líneas sucias en promedio;
+  Forsaken hace ~5 por campo. `sin-barrido-cache` (host `SALSA64_SIN_BARRIDO_CACHE=1`) lo deja gratis.
+- Host, 1500 campos con y sin el costo: SM64 667, OoT 647, Cruis'n USA 694 y GoldenEye 1266 tareas iguales;
+  imágenes idénticas salvo OoT (el caballo un poco más adelante). Escenas del host: 6 idénticas, DK64 y la casa
+  de Link con la animación un cuadro corrida (una tarea menos). Forsaken: 1957 tareas en 4200 campos y el título.
+  Unitarias: `dcache_sweep_*` (cuatro); 786 pruebas en Docker, 0 fallidas.
+
+## 2026-10-28 — Ritmo del SI según la PIF (#55 Forsaken 64) y latido para juegos que no arrancan (#54)
+- Forsaken 64 (USA) se queda en negro tras la intro, dos corridas idénticas en la PS3: 1100 tareas, 490 consultas
+  de estado, 592 lecturas y 285 escrituras del Controller Pak (0 bloques cambiados: son los sondeos de 0x8000 del
+  Rumble Pak y datos iguales) y después el hilo ocioso; SP/DP emparejadas, SI libre sin evento, PI y audio vivos.
+  Lo que espera el juego es un mensaje del SI que ya no va a llegar. Sin el respaldo no se reproduce en el host.
+- Con los 2 ms fijos de cada DMA (desde Cruis'n USA, 2026-10-25) cada bloque del pak costaba 4 ms (877 bloques,
+  3,5 s). Ahora la escritura dura 65 µs y la lectura lo que la PIF tarda con lo que hay en la PIF RAM (constantes
+  de ares: 0,66 ms un control o un bloque del pak, 1,65 ms cuatro controles). `si-ritmo-viejo` vuelve a los 2 ms.
+- Cruis'n USA en el host con el ritmo nuevo: 694 tareas en 1500 campos (2 ms fijos: 687; inmediato: 1, el bloqueo).
+  Unitarias: `si_dma_timing` y `cuelgue_avisa_siempre`; 782 pruebas, solo `cover` falla en macOS (en Docker pasa).
+- Toy Story 2 (USA): entra en 0x80006000, 0 tareas, 4,4 campos/s con ~6 M instrucciones por segundo en el
+  intérprete (7 por entrada al código generado): todo pasa por `rec_interp` (modo, segmento, evento o bloque sin
+  código); sin el respaldo no se sabe cuál. El latido no avisaba porque el juego nunca dio señales de vida:
+  `latido-siempre` lo hace avisar y volcar igual (pc, código, eventos, RDRAM) para ver dónde se queda.
+- Donald Duck (PAL, #16) desde el estado del usuario: los hilos no están bloqueados (el de SP/DP despierta en cada
+  campo, lee el control y dibuja; los tres que esperan colas propias son los de carga, audio y reset); las 137,8
+  tareas de audio por segundo son lo normal del motor (160 muestras por tarea; desde el arranque 128–138/s) y la
+  consulta del pak 2 veces por campo también. Con el microcódigo real de audio (`--lle=all`, 500 campos) el
+  diálogo tampoco aparece: el audio no es la causa. Pero `--lle-check-audio` da 624 de 624 tareas distintas
+  (MK64: 0 de 387): la HLE de ABI1 deja sin escribir estados de RESAMPLE/ADPCM y escribe salidas corridas 2
+  bytes con los SETBUFF de este motor (in 0x004, cuentas 0x58/0x38); pendiente aparte. Hace falta un estado de
+  antes de hablar con el sobrino.
+
 ## 2026-10-27 — B3313: rangos de escritura del audio
 - El paginado no limita la escena: tras cargar hay 0–3 fallos/5 s (0–65 ms de disco).
 - La tabla de diez rangos del audio se llenaba y el último crecía hasta 6,4 MB; cada tarea invalidaba código intacto.

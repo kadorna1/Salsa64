@@ -5126,6 +5126,8 @@ static void game_close(void)
 		    n64.bus.vi.fields, emu_stats.fields, emu_stats.dropped, emu_stats.no_slot);
 	if (salsa64_gamefix_name(&n64.bus))
 		salsa64_log("cierre: arreglo de juego aplicado %u veces", n64.bus.gamefix_applied);
+	if (n64.cpu.dcache_sweep_cycles)
+		salsa64_log("cierre: %u barridos de la caché de datos", n64.cpu.dcache_sweeps);
 	savefile_close(&save_file);
 	mempakfile_close(&mempak_file);
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
@@ -5437,9 +5439,17 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	memset(rdram, 0, SALSA64_RDRAM_MAX);  /* cada juego arranca igual, venga después del que venga */
 	salsa64_n64_init(&n64, rdram, SALSA64_RDRAM_MAX);
 	bool si_immediate = file_exists(SALSA64_DATA_DIR "/sin-si-diferido");
+	bool si_fixed = file_exists(SALSA64_DATA_DIR "/si-ritmo-viejo");
 	salsa64_si_set_immediate(&n64.bus, si_immediate);
-	salsa64_log("SI: transferencia %s%s", si_immediate ? "inmediata" : "diferida",
-		    si_immediate ? " (sin-si-diferido)" : "");
+	salsa64_si_set_fixed(&n64.bus, si_fixed);
+	salsa64_log("SI: transferencia %s%s", si_immediate ? "inmediata (sin-si-diferido)"
+		    : si_fixed ? "diferida, 2 ms fijos (si-ritmo-viejo)"
+		    : "diferida: escritura 65 µs, lectura según la PIF", si_immediate ? "" : " (si-ritmo-viejo)");
+	/* Antes de que el recompilador compile nada: decide al compilar (vr4300.h). */
+	bool dcache_sweep = !file_exists(SALSA64_DATA_DIR "/sin-barrido-cache");
+	salsa64_cpu_set_dcache_sweep(&n64.cpu, dcache_sweep);
+	salsa64_log("CPU: barridos de la caché de datos %s (sin-barrido-cache)",
+		    dcache_sweep ? "con su costo" : "gratis");
 	states_init(SALSA64_RDRAM_MAX);  /* la foto de los estados y su hilo de escritura (docs/estados.md) */
 	cajanegra_init(&n64.bus);        /* el anillo de la caja negra, si hay archivo cajanegra (docs/cajanegra.md) */
 	n64.bus.rdram_written = front_rdram_written;
@@ -5913,7 +5923,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		rdp_scale_set(menu_scale_limit(video_cfg.scale, video_cfg.resolution), "vuelve la global");
 		return GAME_FAILED;
 	}
-	cuelgue_reset(&cuelgue);
+	cuelgue_reset(&cuelgue, file_exists(SALSA64_DATA_DIR "/latido-siempre"));
+	if (cuelgue.always)
+		salsa64_log("latido: avisa y vuelca también si el juego nunca leyó los controles ni dibujó (latido-siempre)");
 	emu_live = 1;
 	salsa64_log("hilos: emulación con prioridad %d, presentación con 1001", EMU_PRIO);
 	/* Avisos y atajos con SELECT (estados guardados, contador de FPS). */
