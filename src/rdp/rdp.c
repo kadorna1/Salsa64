@@ -1788,6 +1788,17 @@ static uint32_t prime_profile_pending_spans(int i)
 			if (!w)
 				continue;
 
+			/* A coverage-zero delta means the CPU overlay is gone. RDP has
+			 * already rendered the scene for this presentation; copying the raw
+			 * transparent pixel opaquely now can paint its stale RGB over Mario
+			 * or the background and recreate the trail. Consume the erase marker
+			 * without drawing: preserve the current RSX scene beneath it. */
+			if (mode == 2) {
+				memcpy(shadow_row + x0 * 2u, ram_row + x0 * 2u, w * 2u);
+				memset(pending_row + x0, 0, w);
+				continue;
+			}
+
 			uint32_t pitch = (w * 2u + 63u) & ~63u;
 			unsigned k = rdp.prime_next;
 			uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
@@ -1799,12 +1810,8 @@ static uint32_t prime_profile_pending_spans(int i)
 			memcpy(raw_span, ram_row + x0 * 2u, w * 2u);
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
 			uint32_t dx = x0 * scale, dy = y * scale;
-			int rc = mode == 2
-				? rsxkit_target_replace_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
-							     dx, dy, w * scale, scale, RSXKIT_RGBA5551)
-				: rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
-							  dx, dy, w * scale, scale, RSXKIT_RGBA5551);
-			if (rc != RSXKIT_OK)
+			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
 			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
