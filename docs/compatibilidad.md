@@ -10,6 +10,13 @@ el [radar de compatibilidad](compatibilidad/index.html). Sus datos están en
 
 Las entradas antiguas conservan sus métodos de prueba como historia.
 
+## 2026-10-29 — Reportes de Paper Mario y Mystical Ninja
+
+| Juego | Estado | Notas |
+|---|---|---|
+| Paper Mario | cuartos oscuros con la luz de Mario y de Watt (host; falta la PS3) | antes todo negro salvo el HUD; la máscara de luz (RGBA32 e I8 de 64 × 64 sobre el z-buffer) la dibuja el PPE (`gfx-mascara32-rsx` vuelve a lo de antes). Comparado contra ares en la cueva oscura del castillo de Bowser, con y sin el poder de Watt |
+| Mystical Ninja Starring Goemon (Undub) | créditos finales negros y sin música, también en la consola | la tabla de archivos del parche le da al archivo 1154 (créditos) 61 708 bytes comprimidos en vez de ~130: el descompresor del juego sigue leyendo basura sin fin. Con la ROM de EE. UU. sin parche, sin probar hasta el final |
+
 ## 2026-10-22 — Candidata de la v0.2.10 (microcódigos)
 
 | Juego | Estado | Notas |
