@@ -29,7 +29,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential cmake curl ffmpeg libsndfile1-dev python3 python3-pip
 
-      - name: Retrieve audio from the supplied public Suno share
+      - name: Retrieve and verify the full track from the public Suno share
         shell: bash
         run: |
           set -euo pipefail
@@ -40,31 +40,61 @@ jobs:
           python3 -m pip install --user --upgrade yt-dlp || true
           export PATH="$HOME/.local/bin:$PATH"
 
-          # Use yt-dlp first when the public share is directly supported.
+          # Reject CDN previews, short placeholder MP3s and error responses.
+          is_full_audio() {
+            python3 - "$1" <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          path = sys.argv[1]
+          try:
+              raw = subprocess.check_output([
+                  "ffprobe", "-v", "error", "-show_entries",
+                  "format=duration,size", "-show_entries",
+                  "stream=codec_type,codec_name", "-of", "json", path
+              ], stderr=subprocess.DEVNULL, text=True)
+              info = json.loads(raw)
+              duration = float(info.get("format", {}).get("duration", 0))
+              size = int(info.get("format", {}).get("size") or os.path.getsize(path))
+              audio = [s for s in info.get("streams", []) if s.get("codec_type") == "audio"]
+              if not audio or duration < 30.0 or size < 100_000:
+                  print(f"Rejected short/invalid source: duration={duration:.3f}s size={size} bytes", file=sys.stderr)
+                  raise SystemExit(1)
+              print(f"Accepted full audio: {duration:.3f}s, {size} bytes, codec={audio[0].get('codec_name')}")
+          except (subprocess.CalledProcessError, ValueError, KeyError, OSError) as exc:
+              print(f"Not a valid audio file: {exc}", file=sys.stderr)
+              raise SystemExit(1)
+          PY
+          }
+
+          SOURCE=''
           yt-dlp --no-playlist --no-progress --no-warnings -f 'bestaudio/best' \
             -o "$TMP/yt-dlp.%(ext)s" "$URL" || true
-          SOURCE=''
           for candidate in "$TMP"/yt-dlp.*; do
             [ -f "$candidate" ] || continue
-            if ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
-                -of default=nw=1:nk=1 "$candidate" >/dev/null 2>&1; then
+            if is_full_audio "$candidate"; then
               SOURCE="$candidate"
               break
             fi
           done
 
           if [ -z "$SOURCE" ]; then
-            # Suno share links usually redirect to a song page with the CDN URL
-            # in server-rendered metadata. Probe only public media URLs.
+            # Resolve only the UUID belonging to the canonical page. A Suno
+            # page contains related tracks; arbitrary page UUIDs are previews
+            # and must never be substituted for this song.
             curl -fsSL --retry 2 --max-redirs 10 \
               -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131 Safari/537.36' \
               -w '%{url_effective}' -o "$TMP/song.html" "$URL" > "$TMP/effective-url.txt"
             EFFECTIVE_URL="$(cat "$TMP/effective-url.txt")"
+            cp "$TMP/effective-url.txt" build/conversion/effective-url.txt
+            cp "$TMP/song.html" build/conversion/suno-page.html
             python3 - "$TMP/song.html" "$EFFECTIVE_URL" "$TMP/candidates.txt" <<'PY'
           import html
           import re
           import sys
-          from urllib.parse import urlsplit
+          from urllib.parse import urljoin
 
           page = open(sys.argv[1], "r", encoding="utf-8", errors="ignore").read()
           effective = sys.argv[2]
@@ -72,51 +102,71 @@ jobs:
           for src, dst in ((r"\u0026", "&"), (r"\u003d", "="), (r"\u002f", "/"), (r"\u002F", "/")):
               decoded = decoded.replace(src, dst)
 
-          candidates, seen = [], set()
-          for url in re.findall(r"https?://[^\s\"'<>\)]+", decoded):
-              url = url.rstrip(".,;]}|")
-              lower = url.lower()
-              host = (urlsplit(url).hostname or "").lower()
-              if "suno" not in host and "suno" not in lower:
-                  continue
-              if not re.search(r"\.(mp3|m4a|wav)(?:[?#]|$)", lower):
-                  continue
-              if url not in seen:
-                  seen.add(url)
+          page_urls = [effective]
+          for tag in re.findall(r"<link\b[^>]*>", decoded, re.I):
+              if re.search(r"\brel\s*=\s*['\"][^'\"]*canonical", tag, re.I):
+                  match = re.search(r"\bhref\s*=\s*['\"]([^'\"]+)", tag, re.I)
+                  if match:
+                      page_urls.append(urljoin(effective, html.unescape(match.group(1))))
+          for tag in re.findall(r"<meta\b[^>]*>", decoded, re.I):
+              if re.search(r"\b(?:property|name)\s*=\s*['\"]og:url['\"]", tag, re.I):
+                  match = re.search(r"\bcontent\s*=\s*['\"]([^'\"]+)", tag, re.I)
+                  if match:
+                      page_urls.append(urljoin(effective, html.unescape(match.group(1))))
+
+          song_id = None
+          for url in page_urls:
+              match = re.search(r"/song/([0-9a-fA-F-]{36})(?:[/?#]|$)", url)
+              if match:
+                  song_id = match.group(1)
+                  break
+
+          candidates = []
+          if song_id:
+              candidates.extend([
+                  f"https://cdn1.suno.ai/{song_id}.mp3",
+                  f"https://cdn2.suno.ai/{song_id}.mp3",
+              ])
+          for match in re.finditer(
+              r'["\'](?:audio_url|audioUrl|stream_url|streamUrl|download_url|downloadUrl)["\']\s*:\s*["\']([^"\']+)["\']',
+              decoded, re.I
+          ):
+              url = html.unescape(match.group(1)).replace(r"\u0026", "&")
+              if url.startswith("https://") and ("suno.ai" in url or "suno.com" in url):
                   candidates.append(url)
 
-          song_ids = re.findall(r"/song/([0-9a-fA-F-]{36})(?:[/?#]|$)", effective + "\n" + decoded)
-          for song_id in song_ids:
-              for host in ("cdn1.suno.ai", "cdn2.suno.ai"):
-                  url = f"https://{host}/{song_id}.mp3"
-                  if url not in seen:
-                      seen.add(url)
-                      candidates.append(url)
-
+          candidates = list(dict.fromkeys(candidates))
           with open(sys.argv[3], "w", encoding="utf-8") as f:
               for url in candidates:
                   f.write(url + "\n")
-          print("Resolved page: " + effective)
-          print("Public audio URL candidates: " + str(len(candidates)))
+          print("Effective page URL: " + effective)
+          print("Canonical song UUID found: " + ("yes" if song_id else "no"))
+          print("Candidate media URLs: " + str(len(candidates)))
           PY
 
+            : > "$TMP/candidate-hosts.txt"
             while IFS= read -r candidate; do
               [ -n "$candidate" ] || continue
+              python3 - "$candidate" >> "$TMP/candidate-hosts.txt" <<'PY'
+          import sys
+          from urllib.parse import urlsplit
+          print(urlsplit(sys.argv[1]).netloc)
+          PY
               if curl -fLsS --retry 1 --referer "$URL" "$candidate" -o "$TMP/candidate.bin" \
-                  && ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
-                     -of default=nw=1:nk=1 "$TMP/candidate.bin" >/dev/null 2>&1; then
+                  && is_full_audio "$TMP/candidate.bin"; then
                 SOURCE="$TMP/candidate.bin"
                 break
               fi
             done < "$TMP/candidates.txt"
+            cp "$TMP/candidate-hosts.txt" build/conversion/candidate-hosts.txt
           fi
 
           if [ -z "$SOURCE" ]; then
-            echo "Could not retrieve a playable media file from the public Suno share." >&2
+            echo "No full-length audio was retrieved from the Suno share; refusing to replace SND0.AT3." >&2
             exit 1
           fi
           cp "$SOURCE" "$TMP/source-audio"
-          ffprobe -v error -show_entries format=duration,size:stream=codec_name,sample_rate,channels,bit_rate \
+          ffprobe -v error -show_entries format=duration,size:format_tags=title,artist,album:stream=codec_name,sample_rate,channels,bit_rate \
             -of json "$TMP/source-audio" | tee build/conversion/source-info.json
           sha256sum "$TMP/source-audio" | tee build/conversion/source.sha256
 
@@ -187,6 +237,8 @@ jobs:
           if len(encoded) % block_align:
               raise ValueError("ATRAC3 data is not a whole number of frames")
 
+          if pcm_samples < 30 * 44100:
+              raise ValueError(f"source duration is only {pcm_samples / 44100:.3f}s; refusing to build SND0 from a preview")
           frames = len(encoded) // block_align
           samples_per_frame, delay, tail_padding = 1024, 1024, 368
           capacity = frames * samples_per_frame - delay - tail_padding
@@ -212,6 +264,8 @@ jobs:
               + riff_chunk(b"data", encoded)
           )
           result = b"RIFF" + struct.pack("<I", len(body) + 4) + b"WAVE" + body
+          if fact_samples < 30 * rate or len(result) < 100_000:
+              raise ValueError(f"encoded output is a short preview ({fact_samples / rate:.3f}s, {len(result)} bytes)")
           if len(result) > 2_400_000:
               raise ValueError(f"SND0.AT3 is {len(result)} bytes, above the XMB size budget")
           if fact_samples + delay + tail_padding > frames * samples_per_frame:
