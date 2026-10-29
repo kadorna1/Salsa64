@@ -672,7 +672,8 @@ static struct gfx_vertex *begin_prim(struct gfx_state *g, enum prim_kind kind, i
 }
 
 /* Punto de a→b a la fracción t: la salida es lineal en las coordenadas de
- * recorte, así que se interpola ya escrita. */
+ * recorte, así que se interpola ya escrita. Con GFX_JOB_INTERP, entre dos
+ * lugares del mismo grupo lleva la identidad del tramo (gfx.h); si no, 0. */
 static void lerp_vertex(struct gfx_vertex *o, const struct gfx_vertex *a, const struct gfx_vertex *b, float t)
 {
 	o->x = a->x + (b->x - a->x) * t;
@@ -685,7 +686,124 @@ static void lerp_vertex(struct gfx_vertex *o, const struct gfx_vertex *a, const 
 	o->g = (uint8_t)(a->g + (b->g - a->g) * t + 0.5f);
 	o->b = (uint8_t)(a->b + (b->b - a->b) * t + 0.5f);
 	o->a = (uint8_t)(a->a + (b->a - a->a) * t + 0.5f);
-	o->pad = 0;
+	uint32_t ia = a->pad, ib = b->pad;
+	o->pad = ia && ia < (1u << 25) && GFX_VGID_SERIAL(ia) == GFX_VGID_SERIAL(ib)
+		 ? GFX_VCLIP_ID(GFX_VGID_SERIAL(ia), GFX_VGID_INDEX(ia), GFX_VGID_INDEX(ib)) : 0;
+}
+
+/* El RSP recorta cada triángulo contra el plano cercano y contra la caja
+ * del clip ratio (el viewport agrandado r veces, clip_box) antes de
+ * mandarlo al RDP, y el RDP interpola el sombreado lineal en pantalla
+ * dentro de cada triángulo que recibe. Un triángulo con dos vértices cerca
+ * de la cámara y muy fuera de la pantalla (el fondo de las pistas de F-Zero
+ * X) llega a lo visible con la sombra del polígono recortado, no con la
+ * del triángulo entero corregida por perspectiva; para reproducirlo hace
+ * falta el mismo polígono y el mismo abanico que el microcódigo. Medido
+ * contra el microcódigo real (F3DEX2 fifo 2.03 en la LLE del host: 114 de
+ * 115 abanicos): Sutherland–Hodgman plano por plano; cada plano recorre el
+ * polígono desde su primer vértice con el anterior (la intersección sale
+ * antes que el vértice que entra); el plano izquierdo va al final; el
+ * polígono se dibuja en abanico desde su primer vértice y cada triángulo
+ * del abanico pasa por el rechazo trivial de los planos de la pantalla (los
+ * que quedan enteros fuera de un mismo plano no se dibujan). Las
+ * coordenadas de salida son píxeles por w: los planos son lineales en
+ * ellas. Cada plano agrega a lo más un vértice: 3 + 5 como máximo.
+ * GFX_JOB_NO_RSP_CLIP deja solo el plano cercano, como antes. */
+#define CLIP_MAX 9
+
+/* Un plano a·x + b·y + c·w ≥ 0 sobre el polígono src[0..n): deja el
+ * resultado en dst y devuelve sus vértices (0 si queda todo fuera). */
+static GFX_IMG1_COLD unsigned clip_plane(const struct gfx_vertex *src, unsigned n, float a, float b, float c,
+					  struct gfx_vertex *dst)
+{
+	float d[CLIP_MAX];
+	unsigned in = 0, m = 0;
+	for (unsigned i = 0; i < n; i++) {
+		d[i] = a * src[i].x + b * src[i].y + c * src[i].w;
+		in += d[i] >= 0.0f;
+	}
+	if (in == n) {
+		memcpy(dst, src, n * sizeof *src);
+		return n;
+	}
+	for (unsigned i = 0; i < n && m + 2 <= CLIP_MAX; i++) {
+		unsigned j = i ? i - 1 : n - 1;
+		bool ci = d[i] >= 0.0f, cj = d[j] >= 0.0f;
+		if (ci != cj) {
+			lerp_vertex(&dst[m], &src[j], &src[i], d[j] / (d[j] - d[i]));
+			dst[m++].pad = 0;  /* GFX_VCLIP_ID es solo del plano cercano (gfx.h) */
+		}
+		if (ci)
+			dst[m++] = src[i];
+	}
+	return m;
+}
+
+/* El polígono p[0..n) contra la caja del clip ratio, en el orden del
+ * microcódigo (derecha, abajo, arriba, izquierda); devuelve los vértices
+ * que quedan en p. */
+static GFX_IMG1_COLD unsigned clip_box_poly(const struct gfx_state *g, struct gfx_vertex *p, unsigned n)
+{
+	struct gfx_vertex q[CLIP_MAX];
+	float lim[4];
+	for (int i = 0; i < 2; i++) {
+		float r = g->clip_ratio[i] * (g->vscale[i] < 0.0f ? -g->vscale[i] : g->vscale[i]);
+		lim[2 * i] = g->vtrans[i] - r;
+		lim[2 * i + 1] = g->vtrans[i] + r;
+	}
+	n = clip_plane(p, n, -1.0f, 0.0f, lim[1], q);   /* x ≤ xhi·w */
+	n = clip_plane(q, n, 0.0f, -1.0f, lim[3], p);   /* y ≤ yhi·w */
+	n = clip_plane(p, n, 0.0f, 1.0f, -lim[2], q);   /* y ≥ ylo·w */
+	n = clip_plane(q, n, 1.0f, 0.0f, -lim[0], p);   /* x ≥ xlo·w */
+	return n;
+}
+
+/* ¿Algún vértice de p[0..n) fuera de la caja del clip ratio? */
+static inline bool outside_box(const struct gfx_state *g, const struct gfx_vertex *p, unsigned n)
+{
+	float r0 = g->clip_ratio[0] * (g->vscale[0] < 0.0f ? -g->vscale[0] : g->vscale[0]);
+	float r1 = g->clip_ratio[1] * (g->vscale[1] < 0.0f ? -g->vscale[1] : g->vscale[1]);
+	float xlo = g->vtrans[0] - r0, xhi = g->vtrans[0] + r0, ylo = g->vtrans[1] - r1, yhi = g->vtrans[1] + r1;
+	bool out = false;
+	for (unsigned i = 0; i < n; i++) {
+		float w = p[i].w;
+		out |= p[i].x < xlo * w || p[i].x > xhi * w || p[i].y < ylo * w || p[i].y > yhi * w;
+	}
+	return out;
+}
+
+/* Abanico desde p[0] de un polígono recortado: los triángulos enteros
+ * fuera de un plano de la pantalla no se dibujan (como el rechazo trivial
+ * del RSP con los vértices nuevos). */
+static GFX_IMG1_COLD void emit_fan(struct gfx_state *g, const struct gfx_vertex *p, unsigned n)
+{
+	float sx = g->vscale[0] < 0.0f ? -g->vscale[0] : g->vscale[0];
+	float sy = g->vscale[1] < 0.0f ? -g->vscale[1] : g->vscale[1];
+	float xlo = g->vtrans[0] - sx, xhi = g->vtrans[0] + sx, ylo = g->vtrans[1] - sy, yhi = g->vtrans[1] + sy;
+	unsigned flags[CLIP_MAX], keep = 0, count = 0;
+	for (unsigned i = 0; i < n; i++) {
+		float w = p[i].w;
+		flags[i] = (p[i].x < xlo * w) | (p[i].x > xhi * w) << 1 | (p[i].y < ylo * w) << 2 | (p[i].y > yhi * w) << 3;
+	}
+	for (unsigned i = 1; i + 1 < n; i++)
+		if (!(flags[0] & flags[i] & flags[i + 1])) {
+			keep |= 1u << i;
+			count++;
+		}
+	if (!count)
+		return;
+	struct gfx_vertex *o = begin_prim(g, PRIM_TRI, g->tex_tile, 3 * count);
+	if (!o)
+		return;
+	g->res->triangles++;
+	GFX_DETAIL(g, g->detail->triangles_ok++);
+	for (unsigned i = 1; i + 1 < n; i++)
+		if (keep & (1u << i)) {
+			o[0] = p[0];
+			o[1] = p[i];
+			o[2] = p[i + 1];
+			o += 3;
+		}
 }
 
 void gfx_triangle(struct gfx_state *g, uint32_t a, uint32_t b, uint32_t c)
@@ -700,7 +818,7 @@ void gfx_triangle(struct gfx_state *g, uint32_t a, uint32_t b, uint32_t c)
 		GFX_DETAIL(g, g->detail->triangles_common++);
 		goto detail_done;
 	}
-	struct gfx_vertex p[4];
+	struct gfx_vertex p[CLIP_MAX];
 	for (int i = 0; i < 3; i++)
 		gfx_vtx_out(g, v[i], &p[i]);
 	if (!(g->geom & G_SHADING_SMOOTH)) {
@@ -716,6 +834,7 @@ void gfx_triangle(struct gfx_state *g, uint32_t a, uint32_t b, uint32_t c)
 	 * dibuja y un triángulo que lo cruza sale como uno o dos. Sin esto, los
 	 * vértices con w ≈ 0 o negativa se proyectan lejísimos. */
 	unsigned n = 3;
+	bool clipped = false;
 	if (g->near_clip) {
 		float d[3];
 		unsigned behind = 0;
@@ -732,22 +851,28 @@ void gfx_triangle(struct gfx_state *g, uint32_t a, uint32_t b, uint32_t c)
 			struct gfx_vertex in[3] = { p[0], p[1], p[2] };
 			n = 0;
 			for (int i = 0; i < 3; i++) {
-				int j = i == 2 ? 0 : i + 1;
-				if (d[i] >= 0.0f)
+				int j = i ? i - 1 : 2;
+				bool ci = d[i] >= 0.0f, cj = d[j] >= 0.0f;
+				if (ci != cj)
+					lerp_vertex(&p[n++], &in[j], &in[i], d[j] / (d[j] - d[i]));
+				if (ci)
 					p[n++] = in[i];
-				if ((d[i] < 0.0f) != (d[j] < 0.0f)) {
-					lerp_vertex(&p[n], &in[i], &in[j], d[i] / (d[i] - d[j]));
-					/* GFX_JOB_INTERP: entre dos lugares del mismo grupo
-					 * (gfx.h); sin la bandera las identidades son 0. */
-					uint32_t a = in[i].pad, b = in[j].pad;
-					if (a && a < (1u << 25) && GFX_VGID_SERIAL(a) == GFX_VGID_SERIAL(b))
-						p[n].pad = GFX_VCLIP_ID(GFX_VGID_SERIAL(a), GFX_VGID_INDEX(a), GFX_VGID_INDEX(b));
-					n++;
-				}
 			}
+			clipped = true;
 		}
 	}
-	struct gfx_vertex *o = begin_prim(g, PRIM_TRI, g->tex_tile, 3 * (n - 2));
+	/* La caja del clip ratio: solo si algún vértice se sale de ella. */
+	if (!(g->job->flags & GFX_JOB_NO_RSP_CLIP) && outside_box(g, p, n)) {
+		GFX_DETAIL(g, g->detail->triangles_clipped++);
+		n = clip_box_poly(g, p, n);
+		clipped = true;
+	}
+	if (clipped) {
+		if (n >= 3)
+			emit_fan(g, p, n);
+		goto detail_done;
+	}
+	struct gfx_vertex *o = begin_prim(g, PRIM_TRI, g->tex_tile, 3);
 	if (!o)
 		goto detail_done;
 	g->res->triangles++;
@@ -755,11 +880,6 @@ void gfx_triangle(struct gfx_state *g, uint32_t a, uint32_t b, uint32_t c)
 	o[0] = p[0];
 	o[1] = p[1];
 	o[2] = p[2];
-	if (n == 4) {
-		o[3] = p[0];
-		o[4] = p[2];
-		o[5] = p[3];
-	}
 detail_done:
 	GFX_DETAIL(g, g->detail->t_triangle += gfx_io_clock() - td - (g->res->t_state - ts));
 }

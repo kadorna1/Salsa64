@@ -1686,6 +1686,111 @@ static void gfx_fog_1cycle_force_bl(void)
 	CHECK(d && d->fog == 0);
 }
 
+/* Recorte contra la caja del clip ratio, como el RSP (rdp.c gfx_triangle).
+ * Proyección diagonal 1/8 (x e y de los vértices en octavos de NDC) con el
+ * viewport de 320×240: la pantalla va de 0 a 320 y la caja (ratio 2) de
+ * −160 a 480 en x, de −120 a 360 en y. */
+static void box_scene(const struct vtx *v, uint32_t flags)
+{
+	static const float eighth[16] = { 0.125f, 0, 0, 0, 0, 0.125f, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+	start();
+	job_flags = flags;
+	viewport_320x240();
+	load_mtx(eighth, true);
+	load_mtx(ident, false);
+	dl(0xD9000000, G_SHADING_SMOOTH);
+	set_combine(CC_ZERO, CC_ZERO, CC_ZERO, CC_SHADE, CC_ZERO, CC_ZERO, CC_ZERO, CC_SHADE);  /* color = sombra */
+	dl(0xFF100000 | 319, 0x00100000);
+	dl(0x01000000 | 3 << 12 | 3 << 1, put_vertices(v, 3));
+	dl(0x05000000 | 0 << 16 | 1 << 9 | 2 << 1, 0);
+	run();
+}
+
+/* Píxel (x/w, y/w) del vértice n de la salida. */
+static void out_px(int n, float *x, float *y)
+{
+	*x = out_vtx[n].x / out_vtx[n].w;
+	*y = out_vtx[n].y / out_vtx[n].w;
+}
+
+static bool near_px(int n, float x, float y)
+{
+	float px, py;
+	out_px(n, &px, &py);
+	return fabsf(px - x) < 0.6f && fabsf(py - y) < 0.6f;
+}
+
+static void gfx_rsp_clip_box(void)
+{
+	/* Un vértice fuera de la caja por la derecha: el RSP recorre v0, v1, v2
+	 * con el anterior y deja [v0, I01, I12, v2]; abanico desde v0: dos
+	 * triángulos. La sombra se interpola a lo largo de la arista. */
+	const struct vtx tri[3] = {
+		{ 0, 0, 0, 0, 0, { 255, 0, 0, 255 } },     /* (160, 120) */
+		{ 24, 0, 0, 0, 0, { 0, 0, 255, 255 } },    /* (640, 120): fuera de 480 */
+		{ 0, 8, 0, 0, 0, { 0, 255, 0, 255 } },     /* (160, 0) */
+	};
+	box_scene(tri, 0);
+	CHECK_EQ(res.unknown_cmds, 0);
+	CHECK_EQ(res.triangles, 1);
+	CHECK_EQ(res.vtx_bytes / sizeof(struct gfx_vertex), 6u);
+	CHECK(near_px(0, 160, 120) && near_px(1, 480, 120) && near_px(2, 480, 80));
+	CHECK(near_px(3, 160, 120) && near_px(4, 480, 80) && near_px(5, 160, 0));
+	/* I01 a dos tercios de v0 a v1: (85, 0, 170). */
+	CHECK(out_vtx[1].r >= 84 && out_vtx[1].r <= 86 && out_vtx[1].g == 0 && out_vtx[1].b >= 169 && out_vtx[1].b <= 171);
+	/* En lo visible la sombra es la del polígono: en (320, 120), medio
+	 * camino de v0 a I01, 170 de rojo; el triángulo entero sin recortar
+	 * daría 170 también aquí (w constante): lo que cambia es el abanico. */
+
+	/* Con el interruptor queda el triángulo entero. */
+	box_scene(tri, GFX_JOB_NO_RSP_CLIP);
+	CHECK_EQ(res.triangles, 1);
+	CHECK_EQ(res.vtx_bytes / sizeof(struct gfx_vertex), 3u);
+	CHECK(near_px(1, 640, 120));
+
+	/* El fondo de F-Zero X: un vértice lejos y dos muy fuera de la
+	 * pantalla por abajo (w constante aquí: solo cuenta la geometría). El
+	 * polígono es [LB, RB, R, v0, L] y el abanico sale de la esquina LB;
+	 * (LB, v0, L) queda entero a la izquierda de la pantalla y no se
+	 * dibuja: dos triángulos, sin el vértice L (−160, 169). */
+	const struct vtx fondo[3] = {
+		{ -11, -1, 0, 0, 0, { 255, 255, 255, 255 } },   /* (−60, 135) */
+		{ -105, -46, 0, 0, 0, { 0, 0, 0, 255 } },        /* (−1940, 810) */
+		{ 109, 3, 0, 0, 0, { 0, 0, 0, 255 } },           /* (2340, 75) */
+	};
+	box_scene(fondo, 0);
+	CHECK_EQ(res.triangles, 1);
+	CHECK_EQ(res.vtx_bytes / sizeof(struct gfx_vertex), 6u);
+	CHECK(near_px(0, -160, 360) && near_px(1, 480, 360));
+	CHECK(near_px(3, -160, 360) && near_px(5, -60, 135));
+	float px, py;
+	out_px(2, &px, &py);
+	CHECK(fabsf(px - 480.0f) < 0.6f && py > 100.0f && py < 140.0f);   /* R, en la arista v0→v2 */
+	for (int n = 0; n < 6; n++) {
+		out_px(n, &px, &py);
+		CHECK(!(fabsf(px + 160.0f) < 0.6f && py < 300.0f));             /* L no aparece */
+	}
+	box_scene(fondo, GFX_JOB_NO_RSP_CLIP);
+	CHECK_EQ(res.vtx_bytes / sizeof(struct gfx_vertex), 3u);
+
+	/* Los tres dentro de la caja (aunque fuera de la pantalla): no se toca. */
+	const struct vtx dentro[3] = {
+		{ 0, 0, 0, 0, 0, { 255, 0, 0, 255 } },
+		{ 14, 0, 0, 0, 0, { 0, 0, 255, 255 } },    /* (440, 120): fuera de la pantalla, dentro de la caja */
+		{ 0, 8, 0, 0, 0, { 0, 255, 0, 255 } },
+	};
+	box_scene(dentro, 0);
+	CHECK_EQ(res.vtx_bytes / sizeof(struct gfx_vertex), 3u);
+	/* Los tres fuera del mismo plano de la pantalla: nada. */
+	const struct vtx fuera[3] = {
+		{ 20, 0, 0, 0, 0, { 255, 0, 0, 255 } },
+		{ 24, 0, 0, 0, 0, { 0, 0, 255, 255 } },
+		{ 20, 8, 0, 0, 0, { 0, 255, 0, 255 } },
+	};
+	box_scene(fuera, 0);
+	CHECK_EQ(res.triangles, 0);
+}
+
 /* ---- S2DEX2: fondos prerrenderizados (G_BG_COPY, G_BG_1CYC) ---- */
 
 /* G_LOAD_UCODE a un S2DEX2: los datos del microcódigo llevan el texto que
@@ -3146,6 +3251,7 @@ void t_suite_gfx(void)
 	RUN(gfx_ucode_kind_texts);
 	RUN(gfx_f3dflx_alpha);
 	RUN(gfx_fog_1cycle_force_bl);
+	RUN(gfx_rsp_clip_box);
 	RUN(gfx_s2dex_bg_copy);
 	RUN(gfx_s2dex_bg_wrap);
 	RUN(gfx_s2dex_bg_scaled);

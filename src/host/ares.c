@@ -223,6 +223,8 @@ static void run_task(const struct salsa64_task *t, enum salsa64_gbi gbi, struct 
 	job->done_task = 0;
 	if (raster_fbfx >= 1)
 		job->flags |= GFX_JOB_FBTEX;  /* como salsa64-run y la PS3 */
+	if (!raster_affine)
+		job->flags |= GFX_JOB_NO_RSP_CLIP;  /* SALSA64_SIN_SOMBRA_AFIN, como salsa64-run */
 	gfx_init(&st);
 	gfx_run(&st, job, res);
 }
@@ -834,6 +836,10 @@ int ares_main(int argc, char **argv)
 		sscanf(getenv("SALSA64_AA_EDGE_OFFSET"), "%f,%f", &raster_edge_factor, &raster_edge_units);
 	if (getenv("SALSA64_AA_EDGE_WIDTH"))
 		raster_edge_width = (float)atof(getenv("SALSA64_AA_EDGE_WIDTH"));
+	{
+		const char *e = getenv("SALSA64_SIN_SOMBRA_AFIN");  /* como salsa64_host_env_on */
+		raster_affine = !(e && *e && strcmp(e, "0"));
+	}
 	raster_q5 = q5;
 	int total = 0;
 	for (int i = optind; i < argc; i++) {

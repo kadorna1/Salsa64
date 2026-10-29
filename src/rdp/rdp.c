@@ -594,6 +594,11 @@ void salsa64_rdp_aa_edges(bool on)
 	rdp.aa_edges = on;
 }
 
+void salsa64_rdp_affine_shade(bool on)
+{
+	rsxkit_affine_shade(on);
+}
+
 bool salsa64_rdp_last_present(struct salsa64_rdp_present_info *out)
 {
 	if (rdp.last_p.slot < 0 || rdp.last_p.slot >= RDP_TARGETS_MAX)
