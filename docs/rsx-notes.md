@@ -434,9 +434,11 @@ Es un G_SETCIMG que la HLE leyó de algo que no es una lista válida (la de
 Indiana Jones corre listas secundarias de la DMEM, `do_sub_dlist`, y pasa
 al RDP cualquier palabra desde 0xC0) o uno que el juego manda sin efecto en
 la N64; sin el volcado de esa tarea no se puede decir cuál. En el host,
-con las entradas del log (`--pad`) y sin la partida del autor, el juego no
-llega a la cascada, y forzarlo no vale: el destino depende de una carrera
-(salió una de dos veces).
+con las entradas del log como `--pad` y sin la partida del autor, el juego
+se queda en el menú «SELECT GAME» (las pulsaciones no llevan al mismo
+lugar) y en 39 500 campos no pide ninguna color image fuera de la RDRAM; y
+no sale siempre (una de dos salidas de la cascada): hace falta el volcado
+de la consola.
 
 **Por qué el RSX se queda (lo que lo sostiene).**
 - La espera es la de `zfeed` (la única espera de barrera en la etapa
