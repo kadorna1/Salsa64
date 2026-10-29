@@ -98,7 +98,7 @@ jobs:
 
           page = open(sys.argv[1], "r", encoding="utf-8", errors="ignore").read()
           effective = sys.argv[2]
-          decoded = html.unescape(page).replace(r"\/", "/")
+          decoded = html.unescape(page).replace(r"\/", "/").replace(r'\"', '"')
           for src, dst in ((r"\u0026", "&"), (r"\u003d", "="), (r"\u002f", "/"), (r"\u002F", "/")):
               decoded = decoded.replace(src, dst)
 
