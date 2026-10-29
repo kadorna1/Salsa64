@@ -1674,6 +1674,8 @@ static struct {
 	 *   SALSA64_LLE_BISECT_NOP=1    en vez de cortar data_size, poner a cero los comandos que sobran
 	 *   SALSA64_LLE_BISECT_FROM=k   empezar en k comandos (el microcódigo de Zelda lee la lista por
 	 *                               bloques y con pocos comandos no se deja cortar)
+	 *   SALSA64_LLE_POKE=D=V[,…]    en el hijo de la bisección, escribir V (hex; 16 o 32 bits según los
+	 *                               dígitos) en la RDRAM D de los dos lados antes de la tarea
 	 *   SALSA64_LLE_SNAP=P[:N]      al arrancar la tarea N (1): la RDRAM en P.ram y la DMEM/IMEM
 	 *                               (8 KB, con la cabecera de la tarea y el arranque de libultra,
 	 *                               y el SP_PC con el que arrancó) en P.mem: son del juego, fuera del repositorio */
@@ -1950,6 +1952,28 @@ static bool shadow_bisect(struct aud_job *job, enum salsa64_abi abi)
 			} else {
 				salsa64_wr32(n64.bus.sp_mem + SALSA64_TASK_DMEM + 0x34, 8 * k);
 			}
+			/* SALSA64_LLE_POKE=dir=valor[,…] (hex; 16 o 32 bits según los dígitos): escribir la RDRAM
+			 * de los dos lados antes de la tarea, para probar variantes de la lista o de sus
+			 * tablas sin volver a correr el juego (experimentos sobre un comando). */
+			for (const char *p = getenv("SALSA64_LLE_POKE"); p && *p;) {
+				char *end;
+				uint32_t a = (uint32_t)strtoul(p, &end, 16) & 0x7FFFFF;
+				if (*end != '=')
+					break;
+				const char *v = end + 1;
+				uint32_t val = (uint32_t)strtoul(v, &end, 16);
+				unsigned digits = (unsigned)(end - v);
+				if (a + 4 <= n64.bus.rdram_size) {
+					if (digits > 4) {
+						salsa64_wr32(n64.bus.rdram + a, val);
+						salsa64_wr32(shadow.rdram + a, val);
+					} else {
+						salsa64_wr16(n64.bus.rdram + a, (uint16_t)val);
+						salsa64_wr16(shadow.rdram + a, (uint16_t)val);
+					}
+				}
+				p = *end == ',' ? end + 1 : end;
+			}
 			return true;
 		}
 		close(fd[1]);
@@ -2017,6 +2041,7 @@ static void shadow_start(const struct salsa64_task *t, const uint8_t *dm_pre)
 	}
 	struct aud_job job;
 	salsa64_audio_job(&job, &n64.bus, t, abi);
+	job.flags |= aud_sync.job_flags;  /* las mismas banderas (SALSA64_AUDIO_*) que la HLE normal */
 	job.rdram_ea = (uint64_t)(uintptr_t)shadow.rdram;
 	if (shadow.diffs)
 		fprintf(stderr, "T %u\n", shadow.tasks + 1);
@@ -3964,6 +3989,8 @@ int main(int argc, char **argv)
 	}
 	salsa64_audio_sync_init(&aud_sync, &aud_state, &n64.bus);
 	aud_sync.job_flags = salsa64_host_env_on("SALSA64_AUDIO_RANGES_OLD") ? AUD_JOB_RANGES_OLD : 0;
+	/* SALSA64_AUDIO_POLEF_ZERO=1: el POLEF de ABI1 con A_INIT parte de cero (lo anterior) */
+	aud_sync.job_flags |= salsa64_host_env_on("SALSA64_AUDIO_POLEF_ZERO") ? AUD_JOB_POLEF_INIT_ZERO : 0;
 	salsa64_rsp_set_audio(&n64.bus, &aud_sync.backend);
 	salsa64_ai_set_sink(&n64.bus, audio_push, NULL);
 	if (jcheck.on && lle_mode == SALSA64_LLE_OFF)

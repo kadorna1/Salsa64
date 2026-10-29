@@ -51,6 +51,18 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   on the demo races: 19–27 dB → 30–37 dB (4×4 blocks); other games unchanged
   within 0.1 dB. `sin-sombra-afin` in the data directory restores the previous
   behaviour. Pending confirmation on a real PS3.
+- **Audio (ABI1, libultra synthesizer: Super Mario 64, Wave Race 64, GoldenEye,
+  Diddy Kong Racing, Donald Duck: Quack Attack…): POLEF with A_INIT now starts
+  like the real microcode.** The microcode does not zero the filter's two
+  previous samples on A_INIT: it takes them from its state scratch area in DMEM,
+  which holds what the last RESAMPLE (its last samples) or ENVMIXER (volume
+  lanes) left there, so a filter that starts right after a resample carries a
+  short decaying transient from those samples; mupen64plus-rsp-hle started
+  from zero. Measured against the real microcode task by task: Donald Duck
+  (Europe and USA) and Diddy Kong Racing go from one differing audio task to
+  none; the other ABI1 games were already identical. `audio-polef-cero` in
+  `/dev_hdd0/salsa64/` (`SALSA64_AUDIO_POLEF_ZERO=1` on the host) restores the
+  zero start.
 - **Yoshi's Story: camera stutter when walking fast.** The game draws its
   8-bit background layers with the RDP and reads them back from RAM in the
   next task, so the emulator waited for the RSX to draw and copy them back on
