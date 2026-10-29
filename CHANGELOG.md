@@ -22,7 +22,11 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   alpha of the second pass left a black square. The RDP blender products the
   RSX can do directly (`dst·α`, `src + dst·α`, `src·(1 − α) + dst·α`,
   `src + dst`) now go through as such; `mezclas-viejas` restores the previous
-  classification for comparison. PS3 check pending.
+  classification for comparison. PS3 check pending. The game also renders
+  about 1.3 frames per field because the emulated RDP finishes almost at
+  once; `rsp-gfx-ciclos` (a number: the minimum length of a graphics task in
+  N64 cycles, default 30000) is a test switch to measure RDP pacing on the
+  console.
 - **Command & Conquer** (#38): limit oversized S2DEX backgrounds to their
   scaled image; `s2dex-marco-viejo` restores the previous repetition.
   Validated with synthetic lists and the real microcode; PS3 check pending.

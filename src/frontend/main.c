@@ -5494,6 +5494,21 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		gfx_ppe.backend.eurocom = eurocom;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_ppe.backend);
 	}
+	/* Duración mínima de una tarea gráfica, en ciclos de la N64 (rsp.c,
+	 * gfx_cycles; 30000 por omisión). Con el RDP casi instantáneo, un juego
+	 * que no espera el retrazo vuelve a dibujar en cuanto le llega la
+	 * interrupción: Vigilante 8 arma 1,3 cuadros por campo y un tercio no
+	 * se ve. Interruptor de prueba para medir en la consola; el host lo
+	 * toma de SALSA64_GFX_CYCLES. */
+	{
+		FILE *f = fopen(SALSA64_DATA_DIR "/rsp-gfx-ciclos", "r");
+		if (f) {
+			unsigned cyc = 0;
+			if (fscanf(f, "%u", &cyc) == 1 && cyc >= 1000 && cyc <= 4000000)
+				n64.bus.rsp.gfx_cycles = cyc;
+			fclose(f);
+			salsa64_log("RSP: una tarea gráfica dura al menos %u ciclos (rsp-gfx-ciclos)", n64.bus.rsp.gfx_cycles);
+		}
 	}
 	/* Killer Instinct Gold (y otros) dibuja con listas del RDP que el CPU
 	 * escribe por DPC_START/DPC_END, sin RSP, y espera la interrupción del
