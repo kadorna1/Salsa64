@@ -20,9 +20,11 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   every such task (8–13 ms each, the whole RSX queue and the CRT filter in
   front). Those layers are now rasterised directly into RAM by the PPE (1:1
   CI8 tiles, no filter, no blending; anything else falls back to the RSX for
-  that task), so there is nothing to wait for. `gfx-capas8-rsx` in
+  that task), so there is nothing to wait for. The common case (16 × 16 tiles
+  copied 1:1) goes through an integer row-copy path; only odd triangles use
+  the generic floating-point rasteriser. `gfx-capas8-rsx` in
   `/dev_hdd0/salsa64/` restores the RSX path; the log line "capas de 8 bits en
-  el PPE" counts tasks, pixels, time and waits avoided.
+  el PPE" counts tasks, pixels, time per path and waits avoided.
 - **Yoshi's Story: coloured dots on the edges of the background layers.** The
   RSX copied those 8-bit layers to RAM with a linear filter at 1:1, which on
   this hardware blends a fraction of the neighbouring pixel; the red channel is

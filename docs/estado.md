@@ -1,5 +1,28 @@
 # Estado
 
+## 2026-10-28 — Yoshi's Story: camino rápido de layer8 (el genérico costaba 1 µs por píxel en el PPE)
+
+- En la consola (`build/yoshi-rdp/ps3/yoshi3.log`) las esperas bajaron a 0,
+  pero el raster genérico de layer8 salió a ≈1 µs por píxel (6,35 ms por
+  tarea; una capa entera 86 016 px ≈ 90 ms, tres ≈ 300 ms: peor campo 309–316
+  ms al cambiar de página). Por píxel hacía cinco divisiones en coma
+  flotante, dos `floorf` con conversión a entero y dos módulos: todo lo que
+  el PPE in-order paga caro. En el host el mismo camino da 11,3 ns/px.
+- Camino rápido (`draw_rect_1to1`): dos triángulos que forman un rectángulo
+  alineado con s función de x y t de y, con la textura a 1 texel por píxel
+  y la muestra a medio texel (frac en [0,25, 0,75]) → copia de índices por
+  fila con enteros (y `memset` para el relleno), prueba de alfa por byte;
+  exacto frente al genérico (ningún redondeo flotante puede cambiar el
+  texel) y comprobado byte a byte contra el rasterizador del host, con y
+  sin el camino rápido. Host: 0,9 ns/px (12,5× menos que el genérico); en
+  el PPE se esperan 10–20 ns/px: una tira 16 × 256 ≈ 0,05–0,1 ms, una capa
+  entera ≈ 1–2 ms (tres ≈ 3–5 ms al cambiar de página). No hace falta un
+  SPE. El log separa ms y ns/px de cada camino.
+- Pruebas: `raster_layer8_equals_host` (más un rectángulo 2:1 y uno con
+  origen a medio texel por el genérico, y la igualdad con el camino rápido
+  apagado) y `raster_layer8_cost` (medida, no aserción). Unitarias 784
+  (2 fallos previos de `test_cover`), `raster` 10 de 10.
+
 ## 2026-10-28 — Yoshi's Story: las capas de 8 bits las dibuja el PPE en la RDRAM (saltos de cámara)
 
 - Medido en la consola (`build/yoshi-rdp/ps3/yoshi2*.log`): con las capas en

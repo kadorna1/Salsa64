@@ -72,6 +72,9 @@ struct salsa64_rdp_stats {
 	 * quedaron para el RSX y el tiempo (timebase). */
 	uint32_t layer8_tasks, layer8_draws, layer8_pixels, layer8_waits_avoided, layer8_refused;
 	uint64_t tb_layer8;
+	/* Por camino: rectángulos 1:1 (entero) y triángulos genéricos. */
+	uint32_t layer8_fast_pixels, layer8_slow_pixels;
+	uint64_t tb_layer8_fast, tb_layer8_slow;
 	uint32_t big8_copies, big8_changed;  /* copias big8 hechas y píxeles de la RDRAM que cambiaron */
 	uint64_t us_readback, us_readback_wait;
 	uint32_t mirrors, mirrors_skipped;  /* copias espejo (sin esperar) y las que no cupieron */

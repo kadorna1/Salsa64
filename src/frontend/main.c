@@ -3690,10 +3690,16 @@ static void stats(uint64_t now)
 				    rs.big8_primes - sw.rdp0.big8_primes);
 		if (rs.layer8_tasks != sw.rdp0.layer8_tasks || rs.layer8_refused != sw.rdp0.layer8_refused) {
 			uint32_t l8t = rs.layer8_tasks - sw.rdp0.layer8_tasks;
-			salsa64_log("gfx: capas de 8 bits en el PPE: %u tareas, %u dibujos, %u píxeles, %.3f ms por tarea; "
+			uint32_t fpx = rs.layer8_fast_pixels - sw.rdp0.layer8_fast_pixels;
+			uint32_t spx = rs.layer8_slow_pixels - sw.rdp0.layer8_slow_pixels;
+			double fms = (rs.tb_layer8_fast - sw.rdp0.tb_layer8_fast) * 1e3 / spukit_tick_hz();
+			double sms = (rs.tb_layer8_slow - sw.rdp0.tb_layer8_slow) * 1e3 / spukit_tick_hz();
+			salsa64_log("gfx: capas de 8 bits en el PPE: %u tareas, %u dibujos, %u píxeles, %.3f ms por tarea "
+				    "(rectángulos 1:1: %u píxeles, %.3f ms, %.1f ns/px; genérico: %u píxeles, %.3f ms, %.1f ns/px); "
 				    "%u esperas por la copia evitadas; %u destinos quedaron para el RSX (dibujo no soportado)",
 				    l8t, rs.layer8_draws - sw.rdp0.layer8_draws, rs.layer8_pixels - sw.rdp0.layer8_pixels,
-				    l8t ? (rs.tb_layer8 - sw.rdp0.tb_layer8) * 1e3 / spukit_tick_hz() / l8t : 0.0,
+				    l8t ? (rs.tb_layer8 - sw.rdp0.tb_layer8) * 1e3 / spukit_tick_hz() / l8t : 0.0, fpx, fms,
+				    fpx ? fms * 1e6 / fpx : 0.0, spx, sms, spx ? sms * 1e6 / spx : 0.0,
 				    rs.layer8_waits_avoided - sw.rdp0.layer8_waits_avoided, rs.layer8_refused - sw.rdp0.layer8_refused);
 		}
 		uint32_t gcop = rs.guard_copies - sw.rdp0.guard_copies, glin = rs.guard_lines - sw.rdp0.guard_lines;

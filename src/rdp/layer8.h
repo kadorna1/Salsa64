@@ -31,7 +31,17 @@ struct layer8_result {
 	uint32_t width[LAYER8_MAX];
 	uint32_t draws, pixels;       /* dibujos y píxeles escritos */
 	uint32_t refused;             /* destinos de 8 bits que quedaron para el RSX */
+	/* Por camino: rectángulos 1:1 (copia de índices por fila, entera) y
+	 * triángulos genéricos (baricéntricas en coma flotante); píxeles y
+	 * ticks de layer8_clock, si está. */
+	uint32_t fast_pixels, slow_pixels;
+	uint64_t fast_ticks, slow_ticks;
 };
+
+/* Reloj para medir los dos caminos (NULL: sin medir). */
+extern uint64_t (*layer8_clock)(void);
+/* El camino rápido se puede apagar (pruebas y comparación). */
+extern bool layer8_fast;
 
 /* ¿El dibujo cabe en la semántica de arriba? */
 bool layer8_draw_ok(const struct gfx_draw *d, const struct gfx_vertex *v);
@@ -40,7 +50,7 @@ bool layer8_draw_ok(const struct gfx_draw *d, const struct gfx_vertex *v);
  * RDRAM; `arena` y `cache` son las dos memorias de texturas (gfx_tex.where).
  * Devuelve los píxeles escritos. */
 uint32_t layer8_draw(uint8_t *rdram, uint32_t rdram_size, uint32_t addr, uint32_t width, const struct gfx_draw *d,
-		     const struct gfx_vertex *v, const uint8_t *arena, const uint8_t *cache);
+		     const struct gfx_vertex *v, const uint8_t *arena, const uint8_t *cache, struct layer8_result *out);
 
 /* Recorre la salida de una tarea y dibuja en la RDRAM los destinos de 8
  * bits de más de `min_width` píxeles de ancho (las capas; no las sombras

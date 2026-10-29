@@ -691,7 +691,7 @@ static void raster_big8_primed(void)
  * triángulo, un tile con prueba de alfa y uno repetido (wrap), sobre una
  * capa de 336 de ancho con contenido previo. */
 #include "rdp/layer8.h"
-#define L8T_N 7
+#define L8T_N 9
 static uint8_t cmd8[sizeof(struct gfx_cmd) + L8T_N * sizeof(struct gfx_draw) + sizeof(struct gfx_cmd)]
 	__attribute__((aligned(16)));
 static struct gfx_vertex vtx8[6 * L8T_N] __attribute__((aligned(16)));
@@ -700,9 +700,9 @@ static uint8_t ram8[sizeof ram] __attribute__((aligned(16)));
 
 static void quad_st(struct gfx_vertex *v, float x0, float y0, float x1, float y1, float s1, float t1)
 {
-	quad(v, x0, y0, x1, y1);
-	v[1].s = v[3].s = v[4].s = v[5].s = s1;
-	v[2].t = v[3].t = v[4].t = v[5].t = t1;
+	quad(v, x0, y0, x1, y1);  /* (x0,y0) (x1,y0) (x0,y1) (x1,y0) (x1,y1) (x0,y1) */
+	v[1].s = v[3].s = v[4].s = s1;
+	v[2].t = v[4].t = v[5].t = t1;
 }
 
 static void l8_draw(struct gfx_draw *d, uint32_t v0, uint32_t n, int tex, unsigned wraps, uint8_t atest, uint8_t aref)
@@ -779,6 +779,14 @@ static void raster_layer8_equals_host(void)
 	 * salirse de la capa (x hasta 336, y hasta 256). */
 	quad_st(&vtx8[36], 320, 240, 336, 256, 16, 16);
 	l8_draw(&d[6], 36, 6, 2, 0, 0, 0);
+	/* Un rectángulo escalado 2:1 (no es el camino rápido) y uno con
+	 * origen a medio texel: ambos por el genérico. */
+	quad_st(&vtx8[42], 150, 150, 182, 166, 16, 16);
+	l8_draw(&d[7], 42, 6, 1, 0, 0, 0);
+	quad_st(&vtx8[48], 200, 150, 216, 166, 16, 16);
+	for (int i = 0; i < 6; i++)
+		vtx8[48 + i].s += 0.5f;
+	l8_draw(&d[8], 48, 6, 2, GFX_WRAP_REPEAT, 0, 0);
 
 	memcpy(ram8, ram, sizeof ram);
 	struct gfx_job job;
@@ -800,6 +808,10 @@ static void raster_layer8_equals_host(void)
 	CHECK_EQ(lr.draws, L8T_N);
 	CHECK_EQ(lr.refused, 0);
 	CHECK(lr.pixels > 16 * 16 * 4);
+	/* Los tiles 1:1 y el relleno van por el camino rápido; el triángulo,
+	 * el 2:1 y el de medio texel por el genérico. */
+	CHECK_EQ(lr.fast_pixels, 16 * 16 * 4 + 32 * 16 + 40 * 20 - (16 * 16 - 16 * 8));
+	CHECK(lr.slow_pixels > 32 * 16 + 16 * 16);
 	unsigned bad = 0, drawn = 0;
 	for (uint32_t y = 0; y < 240; y++)
 		for (uint32_t x = 0; x < 320; x++) {
@@ -817,13 +829,71 @@ static void raster_layer8_equals_host(void)
 	CHECK_EQ(lr.n, 0);
 	CHECK_EQ(lr.refused, 1);
 	CHECK_EQ(lr.draws, 0);
+	d[3].blend = GFX_BLEND_OFF;
+	/* Sin el camino rápido, lo mismo byte a byte. */
+	layer8_fast = false;
+	memcpy(ram8, ram, sizeof ram);
+	layer8_run(ram8, sizeof ram8, cmd8, sizeof cmd8, vtx8, (const uint8_t *)tex8, NULL, 128, &lr);
+	layer8_fast = true;
+	CHECK_EQ(lr.fast_pixels, 0);
+	bad = 0;
+	for (uint32_t y = 0; y < 240; y++)
+		for (uint32_t x = 0; x < 320; x++)
+			bad += ram[L8 + y * L8_W + x] != ram8[L8 + y * L8_W + x];
+	CHECK_EQ(bad, 0);
 	raster_reset();
 	raster_fbfx = fbfx;
+}
+
+/* Medida (guía, no aserción): una capa entera de 336 × 256 en tiles de
+ * 16 × 16 por los dos caminos, en ns por píxel del host. */
+#include <stdio.h>
+#include <time.h>
+static uint64_t host_clock(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+#define L8B_N (21 * 16)
+static uint8_t cmdb[sizeof(struct gfx_cmd) + L8B_N * sizeof(struct gfx_draw) + sizeof(struct gfx_cmd)]
+	__attribute__((aligned(16)));
+static struct gfx_vertex vtxb[6 * L8B_N] __attribute__((aligned(16)));
+
+static void raster_layer8_cost(void)
+{
+	memset(cmdb, 0, sizeof cmdb);
+	struct gfx_cmd *t = (struct gfx_cmd *)cmdb;
+	t->op = GFX_OP_TARGET;
+	t->size = sizeof *t;
+	t->a = L8;
+	t->b = L8_W;
+	t->c = 2u << 8 | 1u;
+	struct gfx_draw *d = (struct gfx_draw *)(cmdb + sizeof *t);
+	for (int i = 0; i < L8B_N; i++) {
+		float x = (float)(i % 21 * 16), y = (float)(i / 21 * 16);
+		quad_st(&vtxb[6 * i], x, y, x + 16, y + 16, 16, 16);
+		l8_draw(&d[i], (uint32_t)(6 * i), 6, i % 3, 0, i & 1 ? GFX_ATEST_GEQUAL : 0, 128);
+	}
+	layer8_clock = host_clock;
+	struct layer8_result lr;
+	for (int pass = 0; pass < 2; pass++) {
+		layer8_fast = pass == 0;
+		layer8_run(ram8, sizeof ram8, cmdb, sizeof cmdb, vtxb, (const uint8_t *)tex8, NULL, 128, &lr);
+		fprintf(stderr, "    layer8 capa 336x256 %s: %u px en %.3f ms (%.1f ns/px)\n",
+			pass == 0 ? "rectángulos 1:1" : "genérico", pass == 0 ? lr.fast_pixels : lr.slow_pixels,
+			(pass == 0 ? lr.fast_ticks : lr.slow_ticks) / 1e6,
+			(double)(pass == 0 ? lr.fast_ticks : lr.slow_ticks) / (pass == 0 ? lr.fast_pixels : lr.slow_pixels));
+	}
+	layer8_fast = true;
+	layer8_clock = NULL;
+	CHECK_EQ(lr.n, 1);
 }
 
 void t_suite_raster(void)
 {
 	RUN(raster_layer8_equals_host);
+	RUN(raster_layer8_cost);
 	RUN(raster_big8_primed);
 	RUN(raster_recycled_slot);
 	RUN(raster_recycled_slot_big);

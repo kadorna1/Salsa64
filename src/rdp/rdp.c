@@ -21,6 +21,8 @@
 #include "rdp/rdp.h"
 #include "rdp/layer8.h"
 
+static inline uint64_t tb_now(void);  /* abajo; la usa el reloj de layer8 */
+
 #include <malloc.h>
 #include <stdio.h>
 #include <string.h>
@@ -516,6 +518,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.fbfx = 2;
 	rdp.big8_prime = true;
 	rdp.layer8_on = true;
+	layer8_clock = tb_now;
 	rdp.aa_edges = false;  /* experimental: engordaba los modelos en la PS3 */
 	rdp.ready = true;
 	return RSXKIT_OK;
@@ -2524,6 +2527,10 @@ static void done(void *ctx, const struct gfx_job *job, const struct gfx_result *
 		rdp.stats.layer8_draws += lr.draws;
 		rdp.stats.layer8_pixels += lr.pixels;
 		rdp.stats.layer8_refused += lr.refused;
+		rdp.stats.layer8_fast_pixels += lr.fast_pixels;
+		rdp.stats.layer8_slow_pixels += lr.slow_pixels;
+		rdp.stats.tb_layer8_fast += lr.fast_ticks;
+		rdp.stats.tb_layer8_slow += lr.slow_ticks;
 		rdp.stats.tb_layer8 += tb_now() - t0;
 	}
 	readbacks_wanted(s, res);
