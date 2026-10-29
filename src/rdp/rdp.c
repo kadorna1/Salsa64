@@ -1675,9 +1675,9 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 
 			/* Queue a late replay only for VI-visible targets. Mode 1 is a newly
 			 * changed covered pixel; mode 3 is its single bounded follow-up
-			 * replay (the VI alternates between framebuffer targets); mode 2
-			 * erases a previously covered pixel without alpha blending. Keep the
-			 * previous bytes available until this classification is complete. */
+			 * replay (the VI alternates between framebuffer targets); mode 2 is
+			 * a transparent erase marker consumed without overwriting the scene
+			 * that the RDP drew for this presentation. */
 			if (defer_to_vi && rdp.profile_pending[i] &&
 			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width))) {
 				uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
@@ -1759,9 +1759,9 @@ static uint32_t prime_profile_pending_spans(int i)
 		const uint8_t *ram_row = rdp.rdram + t->addr + (uint64_t)y * row_bytes;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
 
-		/* A live overlay whose coverage bit goes low becomes an erase. Mode 3
-		 * survives one further presentation only while the source remains
-		 * covered; it must not become a persistent latch. */
+		/* A live overlay whose coverage bit goes low becomes a transparent
+		 * erase marker. Mode 3 survives one further presentation only while
+		 * the source remains covered; it must not become a persistent latch. */
 		for (uint32_t px = 0; px < t->lw; px++) {
 			if (!pending_row[px])
 				continue;
