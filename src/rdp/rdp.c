@@ -1673,10 +1673,10 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
-			/* Queue a per-pixel late replay only for a VI-visible target. Mode 1
-			 * means a covered CPU pixel that must remain visible; mode 2 means
-			 * its coverage bit changed from 1 to 0 and it must be replaced once
-			 * (not alpha-blended) to erase the old sprite pixel. Keep the
+			/* Queue a late replay only for VI-visible targets. Mode 1 is a newly
+			 * changed covered pixel; mode 3 is its single bounded follow-up
+			 * replay (the VI alternates between framebuffer targets); mode 2
+			 * erases a previously covered pixel without alpha blending. Keep the
 			 * previous bytes available until this classification is complete. */
 			if (defer_to_vi && rdp.profile_pending[i] &&
 			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width))) {
@@ -1687,7 +1687,7 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 					bool is_covered = (raw_span[px * 2u + 1] & 1u) != 0;
 					if (is_covered)
 						pending_row[x] = 1;
-					else if (was_covered || pending_row[x] == 1)
+					else if (was_covered || pending_row[x] == 1 || pending_row[x] == 3)
 						pending_row[x] = 2;
 				}
 			}
@@ -1759,16 +1759,19 @@ static uint32_t prime_profile_pending_spans(int i)
 		const uint8_t *ram_row = rdp.rdram + t->addr + (uint64_t)y * row_bytes;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
 
-		/* A live overlay whose RDRAM coverage bit has gone low is now a
-		 * one-shot erase. Conversely, a clear can be superseded by a newly
-		 * covered pixel before this VI is presented. */
+		/* A live overlay whose coverage bit goes low becomes an erase. Mode 3
+		 * survives one further presentation only while the source remains
+		 * covered; it must not become a persistent latch. */
 		for (uint32_t px = 0; px < t->lw; px++) {
 			if (!pending_row[px])
 				continue;
-			if (ram_row[px * 2u + 1] & 1u)
-				pending_row[px] = 1;
-			else if (pending_row[px] == 1)
+			bool covered = (ram_row[px * 2u + 1] & 1u) != 0;
+			if (covered) {
+				if (pending_row[px] != 3)
+					pending_row[px] = 1;
+			} else if (pending_row[px] == 1 || pending_row[px] == 3) {
 				pending_row[px] = 2;
+			}
 		}
 
 		uint32_t x = 0;
@@ -1805,11 +1808,13 @@ static uint32_t prime_profile_pending_spans(int i)
 				continue;
 
 			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
-			/* Consume every replay after one VI. Pixels are re-queued only when
-			 * the CPU changes the RDRAM baseline again. Keeping mode 1 latched
-			 * would resurrect a previous pill over later backgrounds and menus
-			 * whenever its coverage bit stayed set. */
-			memset(pending_row + x0, 0, w);
+			/* Allow exactly one additional VI replay for a newly changed covered
+			 * pixel to bridge alternating-target timing. This is intentionally
+			 * finite: stale coverage must not resurrect old pills indefinitely. */
+			if (mode == 1)
+				memset(pending_row + x0, 3, w);
+			else
+				memset(pending_row + x0, 0, w);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
