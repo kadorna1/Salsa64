@@ -581,8 +581,113 @@ static void raster_recycled_slot_big(void)
 	recycled_slot(300, 110, 20);
 }
 
+/* Las capas de 8 bits grandes (big8: los fondos de Yoshi's Story, 336 × 256
+ * en CI8 que el juego redibuja por tiras) se ceban desde la RDRAM con el
+ * índice entero cuando su destino es nuevo o quedó viejo, como las de 16
+ * bits: una tarea que dibuja dos tiras (arriba y abajo) copia a la RDRAM la
+ * caja que las abarca, y lo que hay en medio tiene que seguir siendo lo que
+ * la RDRAM tenía, no ceros. */
+#define L8_W   336u
+#define L8_H   256u
+#define L8     0x40000u  /* fuera de los framebuffers de 16 bits */
+static uint8_t cmd2[sizeof(struct gfx_cmd) + 2 * sizeof(struct gfx_draw) + sizeof(struct gfx_cmd)]
+	__attribute__((aligned(16)));
+static struct gfx_vertex vtx2[12] __attribute__((aligned(16)));
+
+static void quad(struct gfx_vertex *v, float x0, float y0, float x1, float y1)
+{
+	set_vtx(&v[0], x0, y0);
+	set_vtx(&v[1], x1, y0);
+	set_vtx(&v[2], x0, y1);
+	set_vtx(&v[3], x1, y0);
+	set_vtx(&v[4], x1, y1);
+	set_vtx(&v[5], x0, y1);
+}
+
+static void task_big8_strips(uint32_t idx)
+{
+	memset(cmd2, 0, sizeof cmd2);
+	struct gfx_cmd *t = (struct gfx_cmd *)cmd2;
+	t->op = GFX_OP_TARGET;
+	t->size = sizeof *t;
+	t->a = L8;
+	t->b = L8_W;
+	t->c = 2u << 8 | 1u;  /* G_IM_FMT_CI, G_IM_SIZ_8b */
+	for (int k = 0; k < 2; k++) {
+		struct gfx_draw *d = (struct gfx_draw *)(cmd2 + sizeof *t + k * sizeof *d);
+		d->h.op = GFX_OP_DRAW;
+		d->h.size = sizeof *d;
+		d->h.a = (uint16_t)(6 * k);
+		d->h.b = 6;
+		d->cycle = 0;
+		d->scissor[2] = (uint16_t)(L8_W * 4);
+		d->scissor[3] = (uint16_t)(L8_H * 4);
+		d->k[GFX_K_ONE][0][0] = idx / 255.0f;
+		d->k[GFX_K_ONE][0][1] = idx / 255.0f;
+		d->k[GFX_K_ONE][0][2] = idx / 255.0f;
+		d->k[GFX_K_ONE][0][3] = 1.0f;
+	}
+	quad(&vtx2[0], 0, 0, L8_W, 8);
+	quad(&vtx2[6], 0, 232, L8_W, 240);
+	struct gfx_job job;
+	struct gfx_result res;
+	memset(&job, 0, sizeof job);
+	memset(&res, 0, sizeof res);
+	job.rdram_ea = (uint64_t)(uintptr_t)ram;
+	job.rdram_size = sizeof ram;
+	job.vtx_ea = (uint64_t)(uintptr_t)vtx2;
+	job.cmd_ea = (uint64_t)(uintptr_t)cmd2;
+	res.cmd_bytes = sizeof cmd2;
+	raster_task(&job, &res);
+}
+
+static void raster_big8_primed(void)
+{
+	int fbfx = raster_fbfx;
+	raster_reset();
+	raster_fbfx = 2;
+	/* La capa, con un índice distinto por posición, y un campo del VI (la
+	 * copia de una capa big8 pide saber el ancho del VI). */
+	for (uint32_t y = 0; y < L8_H; y++)
+		for (uint32_t x = 0; x < L8_W; x++)
+			ram[L8 + y * L8_W + x] = (uint8_t)(x * 7 + y * 3);
+	task_fill(FB_A, 0, 0, 255);
+	field(FB_A);
+	task_big8_strips(200);
+	/* Las tiras llegan con su índice... */
+	unsigned bad = 0;
+	for (uint32_t x = 0; x < 320; x++) {
+		bad += ram[L8 + 4 * L8_W + x] < 199 || ram[L8 + 4 * L8_W + x] > 201;
+		bad += ram[L8 + 236 * L8_W + x] < 199 || ram[L8 + 236 * L8_W + x] > 201;
+	}
+	CHECK_EQ(bad, 0);
+	/* ...y lo de en medio, que la caja de la copia abarca, sigue siendo lo
+	 * que tenía la RDRAM (el cebado), no ceros. */
+	for (uint32_t y = 8; y < 232; y++)
+		for (uint32_t x = 0; x < 320; x++)
+			bad += ram[L8 + y * L8_W + x] != (uint8_t)(x * 7 + y * 3);
+	CHECK_EQ(bad, 0);
+	/* Otra tarea con otro índice, muchas tareas después (destino viejo: se
+	 * vuelve a cebar): el CPU cambió la capa entre medias y eso se respeta. */
+	for (uint32_t y = 100; y < 110; y++)
+		for (uint32_t x = 0; x < L8_W; x++)
+			ram[L8 + y * L8_W + x] = 0x5A;
+	for (int k = 0; k < 6; k++)
+		task_fill(FB_A, 0, 0, 255);
+	task_big8_strips(100);
+	for (uint32_t x = 0; x < 320; x++)
+		bad += ram[L8 + 4 * L8_W + x] < 99 || ram[L8 + 4 * L8_W + x] > 101;
+	for (uint32_t y = 100; y < 110; y++)
+		for (uint32_t x = 0; x < 320; x++)
+			bad += ram[L8 + y * L8_W + x] != 0x5A;
+	CHECK_EQ(bad, 0);
+	raster_reset();
+	raster_fbfx = fbfx;
+}
+
 void t_suite_raster(void)
 {
+	RUN(raster_big8_primed);
 	RUN(raster_recycled_slot);
 	RUN(raster_recycled_slot_big);
 	RUN(raster_copy_inside_scissor);

@@ -379,6 +379,8 @@ static struct {
 	uint32_t rb_prev[RB_HISTORY][RB_PER_TASK], rb_prev_rep[RB_HISTORY][RB_PER_TASK];
 	/* Si las copias de las capas big8 se esperan (por juego: Yoshi's Story). */
 	bool big8_wait;
+	/* Si las capas big8 se ceban desde la RDRAM (gfx-big8-sin-cebar lo apaga). */
+	bool big8_prime;
 	bool zclear_target;          /* el borrado pertenece a la próxima color image */
 	uint32_t rb_prev_n[RB_HISTORY];
 	uint32_t rb_prev_i;
@@ -506,6 +508,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.rb = rdp.cache + CACHE_BYTES;
 	rdp.rb_off = rdp.cache_off + CACHE_BYTES;
 	rdp.fbfx = 2;
+	rdp.big8_prime = true;
 	rdp.aa_edges = false;  /* experimental: engordaba los modelos en la PS3 */
 	rdp.ready = true;
 	return RSXKIT_OK;
@@ -1201,8 +1204,10 @@ static void to_rdram(const uint8_t *src, uint32_t pitch, uint32_t addr, uint32_t
 	/* El paso de las big8 (XRGB8888) antes de soltar las líneas: con el de
 	 * RGB565 (1280 contra 1344 bytes en las capas de 336 de Yoshi's Story)
 	 * las últimas filas de la caja se leían de líneas viejas de la caché. */
-	if (big8(bpp, lw))
+	if (big8(bpp, lw)) {
 		pitch = rb_pitch(bpp, lw);
+		rdp.stats.big8_copies++;
+	}
 	/* El RSX escribió el búfer a espaldas de la caché del PPE: soltar las
 	 * líneas que pudieran quedar de la lectura anterior. */
 	for (uint32_t off = b->y0 * pitch & ~127u; off < b->y1 * pitch; off += 128)
@@ -1237,8 +1242,12 @@ static void to_rdram(const uint8_t *src, uint32_t pitch, uint32_t addr, uint32_t
 				/* XRGB8888 (bytes X, R, G, B): el índice entero es el rojo. */
 				const uint8_t *px = src + y * pitch;
 				uint8_t *dst = rdp.rdram + rowa;
-				for (uint32_t x = px0; x < px1; x++)
+				uint32_t changed = 0;
+				for (uint32_t x = px0; x < px1; x++) {
+					changed += dst[x] != px[4 * x + 1];
 					dst[x] = px[4 * x + 1];
+				}
+				rdp.stats.big8_changed += changed;
 			} else if (bpp == 1) {
 				/* Color image de 8 bits (la cobertura que Zelda copia para el
 				 * filtro de Link): la intensidad es el rojo del RGB565. */
@@ -1324,10 +1333,16 @@ static uint32_t rdram_sum(uint32_t lo, uint32_t hi)
 static void prime_rows(int i, uint32_t y0, uint32_t y1)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
-	if (!rdp.rdram || rdp.fbfx < 1 || t->bpp != 2 || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+	/* Las capas de 8 bits (big8) también: el índice entero en XRGB8888,
+	 * como lo devuelve su copia. Las otras de 8 bits (sombras de Conker,
+	 * cobertura de Zelda) las rehace el RDP enteras y no se ceban. */
+	bool x8 = big8(t->bpp, t->lw) && rdp.big8_prime;
+	if (!rdp.rdram || rdp.fbfx < 1 || (t->bpp != 2 && !x8) || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
 		return;
-	uint32_t line = t->width * 2, bytes = line * t->lh;
+	uint32_t line = t->width * t->bpp, bytes = line * t->lh;
 	if (t->addr + bytes > rdp.rdram_size)
+		return;
+	if (x8 && rb_pitch(t->bpp, t->lw) * t->lh > RB_SLOT)
 		return;
 	if (y1 > t->lh)
 		y1 = t->lh;
@@ -1342,15 +1357,27 @@ static void prime_rows(int i, uint32_t y0, uint32_t y1)
 		rdp.stats.prime_waits++;
 	}
 	uint8_t *dst = rdp.rb + boff;
-	uint32_t pitch = (t->lw * 2 + 63) & ~63u;
+	uint32_t pitch = x8 ? rb_pitch(t->bpp, t->lw) : (t->lw * 2 + 63) & ~63u;
 	uint64_t t0 = tb_now();
-	for (uint32_t y = y0; y < y1; y++)
-		memcpy(dst + y * pitch, rdp.rdram + t->addr + y * line, t->lw * 2);
+	for (uint32_t y = y0; y < y1; y++) {
+		if (!x8) {
+			memcpy(dst + y * pitch, rdp.rdram + t->addr + y * line, t->lw * 2);
+			continue;
+		}
+		/* XRGB8888 (bytes X, R, G, B) con el índice en los tres canales. */
+		const uint8_t *src = rdp.rdram + t->addr + y * line;
+		uint8_t *row = dst + y * pitch;
+		for (uint32_t x = 0; x < t->lw; x++) {
+			row[4 * x] = 0;
+			row[4 * x + 1] = row[4 * x + 2] = row[4 * x + 3] = src[x];
+		}
+	}
 	rdp.tb.copy += tb_now() - t0;
-	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1, RSXKIT_RGBA5551) ==
-	    RSXKIT_OK) {
+	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1,
+				    x8 ? RSXKIT_XRGB8888 : RSXKIT_RGBA5551) == RSXKIT_OK) {
 		rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
 		rdp.stats.primes++;
+		rdp.stats.big8_primes += x8;
 		rdp.surf_gen[i] = ++rdp.gen_seq;
 		/* La barrera va tras el blit: pasada, el RSX ya leyó el búfer. */
 		rdp.prime_fence[k] = rsxkit_fence();
@@ -2302,6 +2329,11 @@ static bool rdp_reads_image(const struct set *s, const struct gfx_result *res, u
 void salsa64_rdp_set_big8_wait(bool wait)
 {
 	rdp.big8_wait = wait;
+}
+
+void salsa64_rdp_set_big8_prime(bool prime)
+{
+	rdp.big8_prime = prime;
 }
 
 void salsa64_rdp_zclear_target(bool on)

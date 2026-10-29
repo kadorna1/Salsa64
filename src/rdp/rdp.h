@@ -66,6 +66,8 @@ struct salsa64_rdp_stats {
 	 * destinos cebados desde la RDRAM. */
 	uint32_t readbacks, readback_waits, readback_late;
 	uint32_t big8_sync, big8_nosync;  /* copias big8 pedidas con y sin espera */
+	uint32_t big8_primes;             /* capas big8 cebadas desde la RDRAM (índices de 8 bits) */
+	uint32_t big8_copies, big8_changed;  /* copias big8 hechas y píxeles de la RDRAM que cambiaron */
 	uint64_t us_readback, us_readback_wait;
 	uint32_t mirrors, mirrors_skipped;  /* copias espejo (sin esperar) y las que no cupieron */
 	uint32_t frames_mirrored;           /* campos cuyo framebuffer se copió a la RDRAM */
@@ -214,6 +216,10 @@ void salsa64_rdp_drop_targets(void);
 /* Las copias de las capas de 8 bits (big8) se esperan solo si el juego lo pide
  * (Yoshi's Story: las lee como CI8 desde la RDRAM); por omisión no se esperan. */
 void salsa64_rdp_set_big8_wait(bool wait);
+/* Las capas de 8 bits (big8) se ceban desde la RDRAM con el índice entero
+ * cuando su superficie es nueva o quedó vieja, como las de 16 bits; `false`
+ * (bandera gfx-big8-sin-cebar) vuelve a dejarlas con lo que tuviera el RSX. */
+void salsa64_rdp_set_big8_prime(bool prime);
 /* Interruptor por juego: cada borrado de z espera al próximo destino que se
  * liga. LEGO Racers emite el borrado antes de cambiar de color image y
  * alterna una auxiliar de 32 x 32 y el framebuffer de 320 x 240 con la misma

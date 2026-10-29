@@ -14,6 +14,14 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Yoshi's Story: 8-bit background layers are primed from RAM.** The game
+  draws its sky, hills and trees into three 336 × 256 8-bit images in strips;
+  when the RSX surface of such a layer was new or stale it started from
+  garbage, and the next copy to RAM carried that garbage into the rows the RDP
+  had not redrawn (black or old strips in the background). The layers are now
+  primed from RAM with the full 8-bit index, as 16-bit images already were
+  (`gfx-big8-sin-cebar` in `/dev_hdd0/salsa64/` disables it). The log line
+  "copias big8" now also reports copies made, pixels changed and layers primed.
 - **Donkey Kong 64 (USA): black screen with music halfway through the new-game
   intro** (#51). When the intro switches scene, the emulated CPU (faster than
   the real one) fit two game frames in the same video retrace; the game

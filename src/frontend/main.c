@@ -3681,9 +3681,13 @@ static void stats(uint64_t now)
 			salsa64_log("gfx: alfa en los destinos: %u destinos con alfa creados, %u texturas leídas de uno "
 				    "de ellos, %u rellenos o copias con su alfa",
 				    talpha, xalpha, falpha);
-		if (rs.big8_sync != sw.rdp0.big8_sync || rs.big8_nosync != sw.rdp0.big8_nosync)
-			salsa64_log("gfx: copias big8: %u esperadas, %u sin esperar", rs.big8_sync - sw.rdp0.big8_sync,
-				    rs.big8_nosync - sw.rdp0.big8_nosync);
+		if (rs.big8_sync != sw.rdp0.big8_sync || rs.big8_nosync != sw.rdp0.big8_nosync ||
+		    rs.big8_primes != sw.rdp0.big8_primes)
+			salsa64_log("gfx: copias big8: %u esperadas, %u sin esperar; %u hechas, cambiaron %u píxeles de la "
+				    "RDRAM; %u capas cebadas desde la RDRAM",
+				    rs.big8_sync - sw.rdp0.big8_sync, rs.big8_nosync - sw.rdp0.big8_nosync,
+				    rs.big8_copies - sw.rdp0.big8_copies, rs.big8_changed - sw.rdp0.big8_changed,
+				    rs.big8_primes - sw.rdp0.big8_primes);
 		uint32_t gcop = rs.guard_copies - sw.rdp0.guard_copies, glin = rs.guard_lines - sw.rdp0.guard_lines;
 		uint64_t gtb = rs.tb_guard_mark - sw.rdp0.tb_guard_mark;
 		if (gcop || gtb)
@@ -5542,6 +5546,14 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	savefile_open(&save_file, &save, &n64.bus, rom, SAVES_DIR, SAVE_CFG, SALSA64_SAVE_AUTO, salsa64_log);
 	/* Yoshi's Story (NYS, todas las regiones) lee sus capas de fondo CI8 desde la RDRAM: espera sus copias. */
 	salsa64_rdp_set_big8_wait(rom[0x3B] == 'N' && rom[0x3C] == 'Y' && rom[0x3D] == 'S');
+	/* Las capas de 8 bits se ceban desde la RDRAM cuando su superficie es
+	 * nueva o quedó vieja; `gfx-big8-sin-cebar` lo apaga (para comparar). */
+	{
+		bool big8_prime = !file_exists(SALSA64_DATA_DIR "/gfx-big8-sin-cebar");
+		salsa64_rdp_set_big8_prime(big8_prime);
+		if (!big8_prime)
+			salsa64_log("capas de 8 bits (big8): sin cebar desde la RDRAM (gfx-big8-sin-cebar)");
+	}
 	/* LEGO Racers (NLG) comparte la z image entre auxiliares de 32 x 32 y el
 	 * framebuffer: cada borrado se difiere hasta ligar su color image. */
 	bool lego_zclear = rom[0x3B] == 'N' && rom[0x3C] == 'L' && rom[0x3D] == 'G';

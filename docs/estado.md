@@ -1,5 +1,48 @@
 # Estado
 
+## 2026-10-28 — Yoshi's Story: las capas de 8 bits se ceban desde la RDRAM; inventario contra ares
+
+- **Inventario (host contra ares, mismas escenas).** Intro y título (tres
+  volcados propios de ares): 28,4–31,3 dB en 4×4, diferencias solo en bordes
+  (ares a UHD). Nivel «Treasure Hunt» (volcado de ares de la rama
+  `yoshi-reinicio`): 28,5 dB; la cuadrícula de puntos blancos del piso sale
+  igual en ares (es del juego). Menú (sin controles no se llega en ares):
+  el texto son 54 dibujos 3D que leen tiras CI8 de 328 de ancho de una imagen
+  estática del juego, no de un destino del RDP. La RDRAM que la PS3 guardó
+  en un estado el 21/10 dibuja el nivel igual (33,6 dB contra su propio
+  framebuffer): las capas llegaban bien a la RDRAM entonces.
+- **Capas de fondo (336 × 256, CI8, tres).** Medido en el host con
+  `--trace-fb` y el rasterizador a 640 × 480: el juego las redibuja por tiras
+  de 16 px (y enteras al cambiar de página) y las lee como fondo **en la
+  misma tarea**; la HLE decodifica el fondo antes de que la tira llegue a la
+  RDRAM (64 de 85 copias cambian 2–5 mil píxeles). En la consola es igual
+  (`done` espera la copia, ~6 ms por tarea en el log del 28/10). Las tiras
+  caen en el margen oculto: retraso de una tarea, no visible salvo al
+  redibujar entera. Queda anotado, sin arreglo.
+- **Defecto del camino de la PS3 corregido.** `prime_rows` solo cebaba
+  destinos de 16 bits: una capa de 8 bits nueva (ranura reciclada) o vieja
+  (más de 3 tareas sin dibujar) arrancaba con lo que tuviera el RSX, y la
+  copia siguiente (caja que abarca varias tiras, o el redibujo entero) bajaba
+  a la RDRAM lo que el RDP no dibujó: tiras negras o viejas en cielo, colinas
+  y árboles. Ahora las big8 se ceban con el índice entero (XRGB8888), igual
+  en `src/host/raster.c`; `gfx-big8-sin-cebar` en `/dev_hdd0/salsa64/` lo
+  apaga. Prueba `raster_big8_primed`. Las de 8 bits chicas (sombras de
+  Conker, cobertura de Zelda) siguen sin cebarse.
+- **Log de la PS3.** La línea «copias big8» dice ahora cuántas copias se
+  hicieron, cuántos píxeles de la RDRAM cambiaron y cuántas capas se cebaron.
+- **Host.** `RASTER_W`/`RASTER_H` (320 × 240) recortan las capas de 336 ×
+  256: las columnas 320–335 y las filas 240–255 nunca llegan a la RDRAM en el
+  host. Para Yoshi, compilar con `EXTRA_CFLAGS="-DRASTER_W=640
+  -DRASTER_H=480"`. Con `--trace-fb` la copia de una imagen de 8 bits dice
+  cuántos píxeles cambió.
+- **Volcados viejos de la consola** (`rsp-jit-ps3/yoshi-rsp18`, 16/10): el
+  rayado de los fondos sale igual al repetirlos en el host (`--raster-dump`):
+  venía de la RDRAM de entonces (capas sin copiar, anterior a big8), no del
+  RSX.
+- Pruebas: unitarias del host 781 (2 fallos previos de `test_cover`, ajenos),
+  `raster` 8 de 8; escenas del host iguales antes y después; Yoshi del campo
+  2500 al 2760 idéntico. Falta la PS3.
+
 ## 2026-10-27 — B3313: rangos de escritura del audio
 - El paginado no limita la escena: tras cargar hay 0–3 fallos/5 s (0–65 ms de disco).
 - La tabla de diez rangos del audio se llenaba y el último crecía hasta 6,4 MB; cada tarea invalidaba código intacto.

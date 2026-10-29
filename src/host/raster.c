@@ -637,10 +637,24 @@ static void viscvg(const struct gfx_job *job, int cur, const struct gfx_draw *d)
 static void prime(const struct gfx_job *job, int slot)
 {
 	const struct rdp_target *t = &tg.t[slot];
-	if (!raster_fbfx || t->bpp != 2 || !job->rdram_ea)
+	/* Como rdp.c: las capas de 8 bits grandes (big8) también, con el
+	 * índice en los tres canales (la copia toma el rojo). */
+	bool x8 = t->bpp == 1 && t->width > 128;
+	if (!raster_fbfx || (t->bpp != 2 && !x8) || !job->rdram_ea)
 		return;
 	const uint8_t *rdram = (const uint8_t *)(uintptr_t)job->rdram_ea;
 	uint32_t w = t->width < RASTER_W ? t->width : RASTER_W, h = t->lh < RASTER_H ? t->lh : RASTER_H;
+	if (x8) {
+		for (uint32_t y = 0; y < h; y++) {
+			uint32_t a = t->addr + y * t->width;
+			if (a + w > job->rdram_size)
+				break;
+			for (uint32_t x = 0; x < w; x++)
+				rgb[slot][y * RASTER_W + x] = (uint32_t)rdram[a + x] * 0x010101u;
+		}
+		primes++;
+		return;
+	}
 	for (uint32_t y = 0; y < h; y++) {
 		uint32_t a = t->addr + y * t->width * 2;
 		if (a + w * 2 > job->rdram_size)
@@ -677,6 +691,7 @@ static void readback(const struct gfx_job *job, int slot, const struct rdp_box *
 	uint32_t w = t->width < RASTER_W ? t->width : RASTER_W, h = b->y1 < RASTER_H ? b->y1 : RASTER_H;
 	uint32_t x1 = b->x1 < w ? b->x1 : w;
 	uint8_t *rdram = (uint8_t *)(uintptr_t)job->rdram_ea;
+	uint32_t changed = 0;  /* traza: píxeles que la copia cambia en la RDRAM */
 	for (uint32_t y = b->y0; y < h; y++) {
 		uint32_t a = t->addr + y * t->width * t->bpp;
 		if (a + x1 * t->bpp > job->rdram_size)
@@ -685,13 +700,18 @@ static void readback(const struct gfx_job *job, int slot, const struct rdp_box *
 			uint32_t c = rgb[slot][y * RASTER_W + x];
 			if (t->bpp == 1) {
 				/* Imagen de 8 bits: la intensidad es el rojo (como rdp.c). */
+				changed += rdram[a + x] != (uint8_t)(c >> 16);
 				rdram[a + x] = (uint8_t)(c >> 16);
 				continue;
 			}
 			uint32_t p = ((c >> 19) & 31) << 11 | ((c >> 11) & 31) << 6 | ((c >> 3) & 31) << 1 | 1;
+			changed += salsa64_rd16(rdram + a + 2 * x) != (uint16_t)p;
 			salsa64_wr16(rdram + a + 2 * x, (uint16_t)p);
 		}
 	}
+	if (raster_trace_fb && t->bpp == 1)
+		fprintf(stderr, "fb: campo %u tarea %u: la copia de %06x/%u cambió %u píxeles de la RDRAM\n", raster_field,
+			task_no, t->addr, t->width, changed);
 }
 
 /* Espejo del framebuffer (como frame_mirror en rdp.c): lo dibujado desde
