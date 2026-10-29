@@ -185,6 +185,11 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
  * un ciclo con FORCE_BL (la pista de F-Zero X; rdp.c blend_state). El PPE
  * lo pone si existe sin-niebla-1ciclo en el directorio de datos. */
 #define GFX_JOB_NO_FOG_1CYCLE 0x4000u
+/* Interruptor: el paso entre filas de los fondos de S2DEX (G_BG_COPY,
+ * G_BG_1CYC) vuelve a ser imageW texels en vez de imageW redondeado hacia
+ * abajo a palabras de 64 bits, como el microcódigo (s2dex.c bg_stride;
+ * Worms Armageddon). El PPE lo pone si existe s2dex-paso-viejo. */
+#define GFX_JOB_S2DEX_BG_ROW_OLD 0x8000u
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 

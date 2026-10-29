@@ -21,6 +21,13 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Worms Armageddon: slanted, striped image** (#57). Its S2DEX backgrounds
+  declare an image one texel wider than each row in memory (321 for 320-byte
+  rows); the microcode steps rows by the declared width rounded down to 8
+  bytes, the HLE stepped by the full width, so every row slid one texel and
+  the whole screen leaned. Measured against the real microcode: the logos,
+  title and language menu are now identical. `s2dex-paso-viejo` in
+  `/dev_hdd0/salsa64/` restores the old row step for comparison.
 - **Yoshi's Story: camera stutter when walking fast.** The game draws its
   8-bit background layers with the RDP and reads them back from RAM in the
   next task, so the emulator waited for the RSX to draw and copy them back on

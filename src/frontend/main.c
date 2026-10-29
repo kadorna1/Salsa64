@@ -930,6 +930,7 @@ static const struct salsa64_gfx_sink *rdp_sink;
 static bool gfx_affine_chain;
 static bool gfx_s2dex_old_modes;
 static bool gfx_no_fog_1cycle;
+static bool gfx_s2dex_bg_row_old;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -941,6 +942,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_S2DEX_OLD_MODES;
 	if (gfx_no_fog_1cycle)
 		job->flags |= GFX_JOB_NO_FOG_1CYCLE;
+	if (gfx_s2dex_bg_row_old)
+		job->flags |= GFX_JOB_S2DEX_BG_ROW_OLD;
 }
 
 /* DMA a la RDRAM (hilo de emulación): las copias del RDP no lo pisan. */
@@ -5451,6 +5454,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	gfx_no_fog_1cycle = file_exists(SALSA64_DATA_DIR "/sin-niebla-1ciclo");
 	salsa64_log("gfx: niebla del blender en un ciclo %s (sin-niebla-1ciclo)",
 		    gfx_no_fog_1cycle ? "apagada" : "activa");
+	gfx_s2dex_bg_row_old = file_exists(SALSA64_DATA_DIR "/s2dex-paso-viejo");
+	salsa64_log("gfx: paso de las filas de los fondos de S2DEX %s (s2dex-paso-viejo)",
+		    gfx_s2dex_bg_row_old ? "de imageW (el de antes)" : "en palabras de 64 bits, como el microcódigo");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);

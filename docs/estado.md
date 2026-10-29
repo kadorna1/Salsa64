@@ -1,5 +1,40 @@
 # Estado
 
+## 2026-10-29 — #57, Worms Armageddon inclinado: el paso de las filas de los fondos de S2DEX
+
+- Reporte (PAL y USA, v0.2.14): el logo de inicio y todo el texto salen con
+  rayas y «todo se ve inclinado». ROM del log (USA, CRC-32 de toda la ROM
+  `5471AE3B`) igual a la del respaldo propio.
+- En el host sale igual: cada fila de la imagen corrida un texel más que la
+  anterior (las letras en cursiva y lo que sale por un borde vuelve por el
+  otro). `--lle-check-gfx` en los primeros 300 campos: 255 de 256 tareas
+  distintas del microcódigo real («dibuja de más»), con los mismos 12 496
+  rectángulos; con el microcódigo real la imagen sale derecha, como en
+  mupen64plus.
+- Datos: todos los fondos son `G_BG_1CYC` (S2DEX 2.08) con `imageW` una
+  columna más ancho que el marco: 321 × 241 para un marco de 320 × 240 (y
+  41 / 36, 145 / 144), CI8 con LOADTILE. Los comandos del RDP que entrega el
+  microcódigo real: `SETTIMG` de 160 texels de 16 bits (filas de **320**
+  bytes), `LOADTILE` de 165 texels (lee 330 bytes desde cada fila: la
+  columna 321 es la primera de la fila siguiente) y el puntero avanza 1600
+  bytes cada 5 filas. La HLE pedía `SETTIMG` de 321 texels de 8 bits: paso
+  de 321 bytes, un texel de más por fila.
+- Causa y arreglo (`src/rsp/gfx/s2dex.c`, `bg_stride`): el paso entre filas
+  es `imageW` redondeado hacia abajo a palabras de 64 bits (lo que el
+  microcódigo toma de `imageW >> (6 − siz)`, el mismo cálculo que deja
+  `guS2DInitBg` en `tmemSizeW`, que el juego también trae en los bytes 36–37:
+  `0x50` = 80 palabras de 32 bits). Solo cambia algo cuando la fila no llena
+  palabras de 64 bits; los fondos de 320 × RGBA16 (Zelda, RE2) o de ancho
+  múltiplo de 8 bytes quedan igual.
+- Medido: `--lle-check-gfx` 1500 campos (logos, título y menú de idioma):
+  1454 de 1454 tareas idénticas al microcódigo real (antes 1 de 256 en los
+  primeros 300). La imagen del VI en el campo 300, idéntica byte a byte a la
+  del microcódigo real.
+- Interruptor `GFX_JOB_S2DEX_BG_ROW_OLD`: archivo `s2dex-paso-viejo` en la
+  PS3, `SALSA64_S2DEX_PASO_VIEJO=1` en el host (vuelve a la imagen inclinada,
+  idéntica a la de main). Prueba `gfx_s2dex_bg_row_stride` (imagen RGBA16 de
+  filas de 40 texels declarada de 41, y el interruptor).
+
 ## 2026-10-29 — rsxkit unificada con SalsaDS (rama rsxkit-unificar)
 
 - `lib/rsxkit` es ahora la misma biblioteca, byte a byte, en Salsa64 y en
