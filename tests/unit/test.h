@@ -146,6 +146,7 @@ void t_suite_pausectl(void);
 void t_suite_rec_profile(void);
 void t_suite_rec_sample(void);
 void t_suite_rec_trace(void);
+void t_suite_rec_copy(void);
 void t_suite_perfilado(void);
 void t_suite_cheats(void);
 void t_suite_cover(void);

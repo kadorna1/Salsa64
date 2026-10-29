@@ -7,6 +7,13 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 ## [Unreleased]
 
 ### Changed
+- **Recompiler: TLB-mapped code rewritten with the same bytes is no longer
+  retranslated.** The byte copies that let a block be re-attached were a 1 MB
+  pool that was never recycled; Perfect Dark filled it in the first minute and
+  then retranslated every reloaded overlay (77 % of its compilations, 60–120 ms
+  stutters). Copies now live in 64/128/256-byte slots (4 MB) freed when the
+  block dies; detached blocks are reclaimed before a full cache flush. The
+  flag file `jit-copias-viejas` restores the old behaviour for A/B tests.
 - **RetroAchievements Hardcore:** saving a state is now allowed in Hardcore
   (loading stays blocked everywhere); turning Hardcore on with a game open no
   longer switches the running game's mode: it applies from the next game.
