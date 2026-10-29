@@ -17,7 +17,11 @@
 - Donald Duck (PAL, #16) desde el estado del usuario: los hilos no están bloqueados (el de SP/DP despierta en cada
   campo, lee el control y dibuja; los tres que esperan colas propias son los de carga, audio y reset); las 137,8
   tareas de audio por segundo son lo normal del motor (160 muestras por tarea; desde el arranque 128–138/s) y la
-  consulta del pak 2 veces por campo también. Hace falta un estado de antes de hablar con el sobrino.
+  consulta del pak 2 veces por campo también. Con el microcódigo real de audio (`--lle=all`, 500 campos) el
+  diálogo tampoco aparece: el audio no es la causa. Pero `--lle-check-audio` da 624 de 624 tareas distintas
+  (MK64: 0 de 387): la HLE de ABI1 deja sin escribir estados de RESAMPLE/ADPCM y escribe salidas corridas 2
+  bytes con los SETBUFF de este motor (in 0x004, cuentas 0x58/0x38); pendiente aparte. Hace falta un estado de
+  antes de hablar con el sobrino.
 
 ## 2026-10-27 — B3313: rangos de escritura del audio
 - El paginado no limita la escena: tras cargar hay 0–3 fallos/5 s (0–65 ms de disco).
