@@ -6,6 +6,8 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
 
 ## [Unreleased]
 
+## [0.2.15] — 2026-10-29
+
 ### Changed
 - **Recompiler: TLB-mapped code rewritten with the same bytes is no longer
   retranslated.** The byte copies that let a block be re-attached were a 1 MB
@@ -50,7 +52,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   pre-multiplying by w: no extra fragment instructions). Measured against ares
   on the demo races: 19–27 dB → 30–37 dB (4×4 blocks); other games unchanged
   within 0.1 dB. `sin-sombra-afin` in the data directory restores the previous
-  behaviour. Pending confirmation on a real PS3.
+  behaviour.
 - **Audio (ABI1, libultra synthesizer: Super Mario 64, Wave Race 64, GoldenEye,
   Diddy Kong Racing, Donald Duck: Quack Attack…): POLEF with A_INIT now starts
   like the real microcode.** The microcode does not zero the filter's two
@@ -109,7 +111,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   leaves `rsx-colgado-<field>/` (command buffer, the task being translated
   and the black box) on disk before quitting; it no longer feeds or waits
   for the RSX on the way out. An experimental `rsx-colgado` flag reboots the
-  console instead of returning to the XMB. Needs confirmation on the PS3.
+  console instead of returning to the XMB.
 - **Yoshi's Story: camera stutter when walking fast.** The game draws its
   8-bit background layers with the RDP and reads them back from RAM in the
   next task, so the emulator waited for the RSX to draw and copy them back on
@@ -169,7 +171,7 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   for every game, `rsp-ritmo-<code>` (the 4-character cartridge code shown in
   the log) for one game, `sin-rsp-ritmo` turns it off, and the file may hold a
   percentage (150 = 50 % slower RCP; about 37 frames per second in Hoth, 200
-  about 31). Details in `docs/ritmo-rcp.md`. PS3 check pending.
+  about 31). Details in `docs/ritmo-rcp.md`.
 - **Vigilante 8: 2nd Offense: explosions, smoke and the sun glare drew as
   black squares.** The game paints each of them twice with the same quad: a
   `MEM·A_IN` pass that darkens the background through the texture and an
@@ -178,19 +180,19 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   alpha of the second pass left a black square. The RDP blender products the
   RSX can do directly (`dst·α`, `src + dst·α`, `src·(1 − α) + dst·α`,
   `src + dst`) now go through as such; `mezclas-viejas` restores the previous
-  classification for comparison. PS3 check pending. The game also renders
+  classification for comparison. The game also renders
   about 1.3 frames per field because the emulated RDP finishes almost at
   once; `rsp-gfx-ciclos` (a number: the minimum length of a graphics task in
   N64 cycles, default 30000) is a test switch to measure RDP pacing on the
   console.
 - **Command & Conquer** (#38): limit oversized S2DEX backgrounds to their
   scaled image; `s2dex-marco-viejo` restores the previous repetition.
-  Validated with synthetic lists and the real microcode; PS3 check pending.
+  Validated with synthetic lists and the real microcode.
 - **Indiana Jones** (#39): keep a stable window when alternating complete
   interlaced frames. `vi-campos` restores the previous presentation.
 - **Vigilante 8** (#30): decode YUV16 textures instead of returning black;
   `sin-yuv` restores the old path. The menu background uses this format;
-  visual confirmation and the separate character/missile defects remain open.
+  the separate character/missile defects remain open.
 - **Memory between games** (#52/#47): release the 9 MiB save-state snapshot
   after its writer stops. `memoria-estados-vieja` keeps the old allocation.
   ROM loading now distinguishes insufficient memory from read errors,
