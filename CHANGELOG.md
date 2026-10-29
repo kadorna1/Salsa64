@@ -14,6 +14,18 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Command & Conquer** (#38): limit oversized S2DEX backgrounds to their
+  scaled image; `s2dex-marco-viejo` restores the previous repetition.
+  Validated with synthetic lists and the real microcode; PS3 check pending.
+- **Indiana Jones** (#39): keep a stable window when alternating complete
+  interlaced frames. `vi-campos` restores the previous presentation.
+- **Vigilante 8** (#30): decode YUV16 textures instead of returning black;
+  `sin-yuv` restores the old path. The menu background uses this format;
+  visual confirmation and the separate character/missile defects remain open.
+- **Memory between games** (#52/#47): release the 9 MiB save-state snapshot
+  after its writer stops. `memoria-estados-vieja` keeps the old allocation.
+  ROM loading now distinguishes insufficient memory from read errors,
+  including ZIP files, and PS3 log sizes no longer use unsupported `%zu`.
 - **Donkey Kong 64 (USA): black screen with music halfway through the new-game
   intro** (#51). When the intro switches scene, the emulated CPU (faster than
   the real one) fit two game frames in the same video retrace; the game

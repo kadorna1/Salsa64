@@ -1,5 +1,15 @@
 # Estado
 
+## 2026-10-28 — Correcciones de los issues #38, #39, #30 y #52
+- #38: BG_1CYC limita marcos mayores que la imagen escalada; contraste con S2DEX real y `s2dex-marco-viejo` para A/B. Falta confirmar C&C en PS3.
+- #39: tejido de cuadros completos; en Indy la ventana pasa de alternar filas 1/2 a mantener 1. `vi-campos` restaura la ruta anterior.
+- #30: el fondo está en la tarea 253: 1200 bloques YUV cuyos texels se convertían en negro. Se implementan TMEM planar y K0–K3; `sin-yuv` restaura el negro.
+- YUV tiene pruebas sintéticas; faltan el contraste visual de V8 y los casos de personajes/misil y 2nd Offense.
+- #52/#47: se liberan los 9 MiB de la foto al cerrar, tras parar el escritor; `memoria-estados-vieja` conserva la reserva. Menú/ZIP distinguen falta de memoria; sin `%zu` en el frontend.
+- El log de Odyssey sigue completando audio y cierra los SPE correctamente: no prueba un desborde gráfico. Falta el volcado del punto de bloqueo.
+- Docker: 789 pruebas, 1878654 verificaciones, cero fallos; nueve escenas del host idénticas. Paquete con holgura mínima SPE de 2816 bytes.
+- Falta validación en PS3; no se infieren tiempos del Cell a partir del host.
+
 ## 2026-10-27 — B3313: rangos de escritura del audio
 - El paginado no limita la escena: tras cargar hay 0–3 fallos/5 s (0–65 ms de disco).
 - La tabla de diez rangos del audio se llenaba y el último crecía hasta 6,4 MB; cada tarea invalidaba código intacto.
