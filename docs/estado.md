@@ -110,6 +110,15 @@
   `raster` 8 de 8; escenas del host iguales antes y después; Yoshi del campo
   2500 al 2760 idéntico. Falta la PS3.
 
+## 2026-10-28 — F-Zero X: la niebla de la pista se perdía en la HLE (blender en un ciclo)
+- Reporte: en carrera no hay niebla por distancia y se ve cómo se construye la pista a lo lejos (en el original sí la hay).
+- Cajas negras de la PS3 (Mute City, cuatro) y volcados de ares de las carreras de la demo: la pista va con `G_FOG`, color de niebla `FAFFFF`, `G_MW_FOG` 12800/−12544 (el factor sube de z/w 0,98 a 1,0) y othermode L `0xFA006220`: FOG·A_SHADE + IN·(1 − A_SHADE) en los dos ciclos, FORCE_BL, ALPHA_CVG_SEL, Z_UPD, **en un solo ciclo** (othermode H `0x082C00`). Los vértices de la salida de la HLE traen el factor en el alfa (69–180 en la pista lejana de Mute City) pero el dibujo salía `cyc 0 fog 0 blend OFF`.
+- Causa: `blend_state` (`src/rsp/gfx/rdp.c`) solo reconocía esa mezcla en el primer ciclo de 2CYCLE (G_RM_FOG_SHADE_A). En un ciclo iba a `classify_blend` (sin MEM → sin mezcla) y `blend_constant` la dejaba pasar sin tocar: el rasterizador del host y el RSX dibujaban la textura tal cual. El RDP, con FORCE_BL, mezcla FOG·a + IN·(1 − a) en todos los píxeles sin leer la memoria: es la misma niebla.
+- Arreglo: en 1CYCLE con ese blender y FORCE_BL, `d->fog = 1` con el color de niebla (el resto del camino, rsxkit y el rasterizador, ya la aplicaba). Sin FORCE_BL no cuenta (el interior escribiría P). Interruptor `GFX_JOB_NO_FOG_1CYCLE`: archivo `sin-niebla-1ciclo` en la PS3, `SALSA64_SIN_NIEBLA_1CICLO=1` en el host. Prueba `gfx_fog_1cycle_force_bl`.
+- Medido contra ares (`salsa64-run --ares`, demo de cuatro jugadores): r04 15,46 → 17,53 dB por píxel (16,55 → 18,95 en 4×4), r15 18,27 → 20,51 (21,20 → 25,55); la pista lejana pasó de 20–66 unidades más oscura que la consola a 6–36. Las 9 escenas del host de otros juegos, idénticas byte a byte.
+- Lo que queda: el RDP interpola el sombreado (y con él el factor de niebla) lineal en pantalla; la HLE y el RSX con corrección de perspectiva, así que en los triángulos largos de la pista la bruma llega más tarde que en la consola. Experimento en el rasterizador (factor de niebla afín, sin commitear): r15 20,51 → 21,27 dB (25,55 → 27,90 en 4×4) y la pista lejana a ±6 de la consola. Para el RSX haría falta la mezcla de niebla en el fragment program con el factor por w en un texcoord (la misma obra que la sombra afín pendiente del 2026-10-14). La bruma del horizonte (fondo enorme con sombra 0/255) sigue siendo ese problema.
+- Paquete «Salsa64 F-Zero» (SLSA00212) para validar en la PS3: Mute City, recta con horizonte.
+
 ## 2026-10-27 — B3313: rangos de escritura del audio
 - El paginado no limita la escena: tras cargar hay 0–3 fallos/5 s (0–65 ms de disco).
 - La tabla de diez rangos del audio se llenaba y el último crecía hasta 6,4 MB; cada tarea invalidaba código intacto.
