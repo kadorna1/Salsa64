@@ -3026,27 +3026,6 @@ static void interp_task(struct set *s, const struct gfx_result *res, uint32_t ta
 }
 
 /* Traduce la salida de la tarea n a comandos del RSX. */
-/* A rectangular clear really supersedes pending CPU pixels across its full area.
- * Ordinary triangle batches must not invalidate pending pixels at all: the
- * CPU replay happens after the scene draw so transient framebuffer sprites
- * remain visible for this presentation. */
-static void profile_pending_invalidate_box(int i, const struct rdp_box *box)
-{
-	if (i < 0 || i >= RDP_TARGETS_MAX || !box || rdp_box_empty(box) ||
-	    !rdp.copy_color_from_rdram || !rdp.profile_pending[i])
-		return;
-	const struct rdp_target *t = &rdp.tg.t[i];
-	if (!t->used || t->bpp != 2)
-		return;
-	uint32_t x0 = box->x0, y0 = box->y0;
-	uint32_t x1 = box->x1 < t->lw ? box->x1 : t->lw;
-	uint32_t y1 = box->y1 < t->lh ? box->y1 : t->lh;
-	if (x0 >= x1 || y0 >= y1)
-		return;
-	for (uint32_t y = y0; y < y1; y++)
-		memset(rdp.profile_pending[i] + (size_t)y * t->width + x0, 0, x1 - x0);
-}
-
 /* Borra con `color` el rectángulo (xa, ya)–(xb, yb) (píxeles lógicos) del
  * destino `i`, como un FILLRECT del RDP, y lo cuenta como dibujado en la
  * tarea. false si no hay nada que borrar o no se pudo ligar. */
@@ -3066,7 +3045,7 @@ static bool tall_fill_target(int i, float xa, float ya, float xb, float yb, uint
 	struct rdp_box r = { 0, 0, 0, 0 };
 	const uint16_t all[4] = { 0, 0, (uint16_t)(t->lw * 4), (uint16_t)(t->lh * 4) };
 	rdp_box_add(&r, xa, ya, xb, yb, true, all, t->lw, t->lh);
-	profile_pending_invalidate_box(i, &r);
+	/* Pending CPU deltas are consumed after one VI presentation. */
 	rdp_box_union(&drawn_box[i], &r);
 	rdp_box_union(&rdp.tg.t[i].box, &r);
 	rdp.stats.tall_fills++;
