@@ -94,6 +94,31 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   console the write-back of ~480 dirty cache lines takes long enough for the
   write to finish first; with the data cache write-back cost above (and the
   new Serial Interface timing) it does here too.
+- **Vigilante 8: 2nd Offense: explosions, smoke and the sun glare drew as
+  black squares.** The game paints each of them twice with the same quad: a
+  `MEM·A_IN` pass that darkens the background through the texture and an
+  additive `IN·A_FOG + MEM` pass (`G_RM_ADD`) with the colour texture. Both
+  were approximated as `IN·α + MEM·(1 − α)`, which with the opaque texture
+  alpha of the second pass left a black square. The RDP blender products the
+  RSX can do directly (`dst·α`, `src + dst·α`, `src·(1 − α) + dst·α`,
+  `src + dst`) now go through as such; `mezclas-viejas` restores the previous
+  classification for comparison. PS3 check pending. The game also renders
+  about 1.3 frames per field because the emulated RDP finishes almost at
+  once; `rsp-gfx-ciclos` (a number: the minimum length of a graphics task in
+  N64 cycles, default 30000) is a test switch to measure RDP pacing on the
+  console.
+- **Command & Conquer** (#38): limit oversized S2DEX backgrounds to their
+  scaled image; `s2dex-marco-viejo` restores the previous repetition.
+  Validated with synthetic lists and the real microcode; PS3 check pending.
+- **Indiana Jones** (#39): keep a stable window when alternating complete
+  interlaced frames. `vi-campos` restores the previous presentation.
+- **Vigilante 8** (#30): decode YUV16 textures instead of returning black;
+  `sin-yuv` restores the old path. The menu background uses this format;
+  visual confirmation and the separate character/missile defects remain open.
+- **Memory between games** (#52/#47): release the 9 MiB save-state snapshot
+  after its writer stops. `memoria-estados-vieja` keeps the old allocation.
+  ROM loading now distinguishes insufficient memory from read errors,
+  including ZIP files, and PS3 log sizes no longer use unsupported `%zu`.
 - **Donkey Kong 64 (USA): black screen with music halfway through the new-game
   intro** (#51). When the intro switches scene, the emulated CPU (faster than
   the real one) fit two game frames in the same video retrace; the game

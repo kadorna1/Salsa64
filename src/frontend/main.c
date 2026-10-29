@@ -143,6 +143,7 @@
  * (pausectl.h, docs/hilos-ppe.md).
  * Lo que la ROM imprime por el ISViewer va al log.
  */
+#include <errno.h>
 #include <io/pad.h>
 #include <lv2/process.h>
 #include <malloc.h>
@@ -931,6 +932,9 @@ static bool gfx_affine_chain;
 static bool gfx_s2dex_old_modes;
 static bool gfx_no_fog_1cycle;
 static bool gfx_no_rsp_clip;  /* sin-sombra-afin: la HLE no recorta contra la caja del RSP */
+static bool gfx_s2dex_bg_old;
+static bool gfx_no_yuv;
+static bool gfx_blend_old;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -938,6 +942,12 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 	rdp_sink->acquire(rdp_sink->ctx, job);
 	if (gfx_affine_chain)
 		job->flags |= GFX_JOB_AFFINE_CHAIN;
+	if (gfx_s2dex_bg_old)
+		job->flags |= GFX_JOB_S2DEX_BG_OLD;
+	if (gfx_no_yuv)
+		job->flags |= GFX_JOB_NO_YUV;
+	if (gfx_blend_old)
+		job->flags |= GFX_JOB_BLEND_OLD;
 	if (gfx_s2dex_old_modes)
 		job->flags |= GFX_JOB_S2DEX_OLD_MODES;
 	if (gfx_no_fog_1cycle)
@@ -1443,6 +1453,7 @@ static void isv_out(void *ctx, const uint8_t *text, uint32_t len)
  * resto, y la ROM de 64 MB siguiente ya no cabe aunque sobre memoria. Las
  * páginas del sistema no dependen de eso (docs/memory-budget.md). */
 static void *rom_pages;  /* la ROM en curso, si salió de las páginas del sistema */
+static bool rom_no_memory;  /* fallo de reserva en la lectura actual, no de E/S */
 static void heap_report(const char *when);
 static bool menu_release_memory(void);
 
@@ -1459,12 +1470,15 @@ static void *rom_alloc(size_t len)
 		heap_report("sin páginas para la ROM");
 		if (menu_release_memory() && sysMemoryAllocate(bytes, SYS_MEMORY_PAGE_SIZE_1M, &addr) == 0) {
 			rom_pages = (void *)(uintptr_t)addr;
-			salsa64_log("ROM de %zu MB: cupo en páginas de 1 MB al soltar lo del menú", bytes >> 20);
+			salsa64_log("ROM de %u MB: cupo en páginas de 1 MB al soltar lo del menú", (unsigned)(bytes >> 20));
 			return rom_pages;
 		}
 	}
-	salsa64_log("ROM de %zu MB: sin páginas de 1 MB del sistema, va en el heap", bytes >> 20);
-	return memalign(128, len);
+	salsa64_log("ROM de %u MB: sin páginas de 1 MB del sistema, va en el heap", (unsigned)(bytes >> 20));
+	void *p = memalign(128, len);
+	if (!p)
+		rom_no_memory = true;
+	return p;
 }
 
 static FILE *rom_fp;             /* ROM por fragmentos (más abajo): el archivo abierto, */
@@ -1588,6 +1602,7 @@ static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool for
 	uint8_t *head = memalign(128, ROM_HEAD);
 	void *cache = head ? rom_cache_alloc(&cache_bytes) : NULL;
 	if (!head || !cache || fseek(f, 0, SEEK_SET) != 0 || fread(head, 1, ROM_HEAD, f) != ROM_HEAD) {
+		rom_no_memory = !head || !cache;
 		salsa64_log("ROM %s: no pude preparar la lectura por fragmentos (caché de %u MB)", path,
 			    (unsigned)(cache_bytes >> 20));
 		if (cache) {
@@ -1599,7 +1614,9 @@ static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool for
 	}
 	setvbuf(f, NULL, _IONBF, 0);  /* lecturas de 256 KB directas, sin pasar por el búfer de stdio */
 	enum salsa64_rom_format fmt = salsa64_rom_normalize(head, ROM_HEAD);
+	errno = 0;
 	if (salsa64_rompg_open(&rom_pg, rom_rd, f, len, fmt, ROM_PAGE_SHIFT, cache, cache_bytes) != 0) {
+		rom_no_memory = errno == ENOMEM;
 		sysMemoryFree((sys_mem_addr_t)(uintptr_t)rom_pages);
 		rom_pages = NULL;
 		free(head);
@@ -1625,6 +1642,7 @@ static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool for
  * fragmentos). */
 static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint32_t *size)
 {
+	rom_no_memory = false;
 	/* ZIP: se inspecciona la entrada elegida antes de reservar memoria, para que
 	 * el archivo no necesite un segundo búfer grande. La extracción completa
 	 * verifica el flujo Deflate, el tamaño descomprimido y el CRC-32 antes de
@@ -1633,9 +1651,11 @@ static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint
 		uint8_t header[SALSA64_ROM_HEADER_SIZE];
 		uint32_t rom_len = 0, actual_len = 0;
 		uint32_t limit = buf ? cap : ROM_MAX;
-		if (salsa64_ziprom_read_header(path, header, &rom_len, NULL, 0) != 0 ||
-		    rom_len < 0x1000u || rom_len > limit || rom_len > SALSA64_ZIPROM_MAX_SIZE)
+		int rc = salsa64_ziprom_read_header(path, header, &rom_len, NULL, 0);
+		if (rc != 0 || rom_len < 0x1000u || rom_len > limit || rom_len > SALSA64_ZIPROM_MAX_SIZE) {
+			rom_no_memory = rc == SALSA64_ZIPROM_NOMEM;
 			return NULL;
+		}
 		uint8_t *dst = buf ? buf : rom_alloc(rom_len);
 		if (!dst)
 			return NULL;
@@ -1643,7 +1663,9 @@ static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint
 		 * El archivo se abre dos veces (vista previa y extracción), así que
 		 * debe seguir siendo seguro aunque cambie entre las dos lecturas. */
 		uint32_t dst_cap = buf ? cap : rom_len;
-		if (salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
+		rc = salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0);
+		if (rc != 0 || actual_len != rom_len) {
+			rom_no_memory = rc == SALSA64_ZIPROM_NOMEM;
 			if (!buf)
 				rom_free(dst);
 			return NULL;
@@ -4734,7 +4756,7 @@ static void profile_open(const uint8_t *rom)
 	/* La tabla, la primera vez que se enciende (fuera del bucle de
 	 * emulación); queda para los juegos siguientes. */
 	if (!rec_profile && !(rec_profile = memalign(128, sizeof *rec_profile))) {
-		salsa64_log("perfil del recompilador: sin memoria para la tabla (%zu bytes): apagado", sizeof *rec_profile);
+		salsa64_log("perfil del recompilador: sin memoria para la tabla (%u bytes): apagado", (unsigned)sizeof *rec_profile);
 		return;
 	}
 	mkdir(PROFILE_DIR, 0777);
@@ -5441,6 +5463,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		salsa64_rom_normalize(rom, rom_size);
 	memset(rdram, 0, SALSA64_RDRAM_MAX);  /* cada juego arranca igual, venga después del que venga */
 	salsa64_n64_init(&n64, rdram, SALSA64_RDRAM_MAX);
+	n64.bus.vi.bob_full_frame = file_exists(SALSA64_DATA_DIR "/vi-campos");
+	salsa64_log("VI: cuadros entrelazados completos %s (vi-campos)",
+		    n64.bus.vi.bob_full_frame ? "por campos" : "tejidos");
 	bool si_immediate = file_exists(SALSA64_DATA_DIR "/sin-si-diferido");
 	bool si_fixed = file_exists(SALSA64_DATA_DIR "/si-ritmo-viejo");
 	salsa64_si_set_immediate(&n64.bus, si_immediate);
@@ -5453,6 +5478,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_cpu_set_dcache_sweep(&n64.cpu, dcache_sweep);
 	salsa64_log("CPU: barridos de la caché de datos %s (sin-barrido-cache)",
 		    dcache_sweep ? "con su costo" : "gratis");
+	bool keep_snapshot = file_exists(SALSA64_DATA_DIR "/memoria-estados-vieja");
+	states_keep_snapshot(keep_snapshot);
+	salsa64_log("estados: foto %s al cerrar (memoria-estados-vieja)", keep_snapshot ? "retenida" : "liberada");
 	states_init(SALSA64_RDRAM_MAX);  /* la foto de los estados y su hilo de escritura (docs/estados.md) */
 	cajanegra_init(&n64.bus);        /* el anillo de la caja negra, si hay archivo cajanegra (docs/cajanegra.md) */
 	n64.bus.rdram_written = front_rdram_written;
@@ -5469,6 +5497,13 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	gfx_no_rsp_clip = file_exists(SALSA64_DATA_DIR "/sin-sombra-afin");
 	salsa64_log("gfx: recorte del RSP y sombra afín %s (sin-sombra-afin)",
 		    gfx_no_rsp_clip ? "apagados" : "activos");
+	gfx_s2dex_bg_old = file_exists(SALSA64_DATA_DIR "/s2dex-marco-viejo");
+	salsa64_log("gfx: fondos S2DEX con marco %s (s2dex-marco-viejo)",
+		    gfx_s2dex_bg_old ? "antiguo" : "limitado");
+	gfx_no_yuv = file_exists(SALSA64_DATA_DIR "/sin-yuv");
+	salsa64_log("gfx: conversión YUV %s (sin-yuv)", gfx_no_yuv ? "apagada" : "encendida");
+	gfx_blend_old = file_exists(SALSA64_DATA_DIR "/mezclas-viejas");
+	salsa64_log("gfx: modos del blender %s (mezclas-viejas)", gfx_blend_old ? "los cuatro de antes" : "completos");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);
@@ -5501,6 +5536,22 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		gfx_ppe.backend.acclaim = acclaim;
 		gfx_ppe.backend.eurocom = eurocom;
 		salsa64_rsp_set_gfx(&n64.bus, &gfx_ppe.backend);
+	}
+	/* Duración mínima de una tarea gráfica, en ciclos de la N64 (rsp.c,
+	 * gfx_cycles; 30000 por omisión). Con el RDP casi instantáneo, un juego
+	 * que no espera el retrazo vuelve a dibujar en cuanto le llega la
+	 * interrupción: Vigilante 8 arma 1,3 cuadros por campo y un tercio no
+	 * se ve. Interruptor de prueba para medir en la consola; el host lo
+	 * toma de SALSA64_GFX_CYCLES. */
+	{
+		FILE *f = fopen(SALSA64_DATA_DIR "/rsp-gfx-ciclos", "r");
+		if (f) {
+			unsigned cyc = 0;
+			if (fscanf(f, "%u", &cyc) == 1 && cyc >= 1000 && cyc <= 4000000)
+				n64.bus.rsp.gfx_cycles = cyc;
+			fclose(f);
+			salsa64_log("RSP: una tarea gráfica dura al menos %u ciclos (rsp-gfx-ciclos)", n64.bus.rsp.gfx_cycles);
+		}
 	}
 	/* Killer Instinct Gold (y otros) dibuja con listas del RDP que el CPU
 	 * escribe por DPC_START/DPC_END, sin RSP, y espera la interrupción del
@@ -6687,15 +6738,16 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	beat.pres_at = "arranque del juego";
 	if (!rom) {
 		/* Una vez más, con todo lo del menú suelto. */
-		salsa64_log("menú: no se pudo leer %s: reintento tras soltar lo del menú", path);
+		salsa64_log("menú: %s %s: reintento tras soltar lo del menú",
+			    rom_no_memory ? "memoria insuficiente para abrir" : "no se pudo leer", path);
 		heap_report("antes del reintento");
 		menu_release_memory();
 		rom = read_rom_file(path, NULL, 0, &size);
 	}
 	if (!rom) {
-		salsa64_log("menú: no se pudo leer %s", path);
-		heap_report("tras fallar la lectura");
-		menu_set_status(&menu, "No se pudo leer %s", path);
+		salsa64_log("menú: %s %s", rom_no_memory ? "memoria insuficiente para abrir" : "no se pudo leer", path);
+		heap_report(rom_no_memory ? "tras faltar memoria para la ROM" : "tras fallar la lectura");
+		menu_set_status(&menu, rom_no_memory ? "Memoria insuficiente para abrir %s" : "No se pudo leer %s", title);
 		mn.games++;
 		mn.failures++;
 		menu_scan(path);

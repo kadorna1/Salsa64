@@ -10,6 +10,12 @@ el [radar de compatibilidad](compatibilidad/index.html). Sus datos están en
 
 Las entradas antiguas conservan sus métodos de prueba como historia.
 
+## 2026-10-29 — Vigilante 8: 2nd Offense (blender)
+
+| Juego | Estado | Notas |
+|---|---|---|
+| Vigilante 8: 2nd Offense | explosiones, humo y resplandor del sol con mezcla (host; falta la PS3) | el juego los pinta en dos pasadas con el mismo cuadrilátero: MEM·A_IN con el color en negro y encima IN·A_FOG + MEM (G_RM_ADD); la HLE las clasificaba como IN·α + MEM·(1 − α) y quedaba un cuadro negro. Modos nuevos de gfx_blend (`dst·α`, `src + dst·α`, `src·(1 − α) + dst·α`, `src + dst`) hasta el RSX; `mezclas-viejas` vuelve a la clasificación anterior. Escenas del host de SM64, Zelda, MK64, GoldenEye y F-Zero X sin cambios |
+
 ## 2026-10-22 — Candidata de la v0.2.10 (microcódigos)
 
 | Juego | Estado | Notas |

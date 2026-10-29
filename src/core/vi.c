@@ -210,7 +210,6 @@ bool salsa64_vi_frame(const struct salsa64_bus *bus, struct salsa64_vi_frame *f)
 	if (f->width > pitch)
 		f->width = pitch;
 	f->origin = r[SALSA64_VI_ORIGIN] & 0xFFFFFF;
-	f->vpos = (r[SALSA64_VI_CONTROL] & SALSA64_VI_CONTROL_SERRATE) ? v_start + (bus->vi.field & 1) : 0;
 
 	/* Solo líneas completas dentro de la RDRAM. */
 	if (f->origin >= bus->rdram_size || f->width == 0)
@@ -221,5 +220,12 @@ bool salsa64_vi_frame(const struct salsa64_bus *bus, struct salsa64_vi_frame *f)
 	uint32_t max_lines = (room - f->width * f->bpp) / f->stride + 1;
 	if (f->height > max_lines)
 		f->height = max_lines;
+	bool serrate = (r[SALSA64_VI_CONTROL] & SALSA64_VI_CONTROL_SERRATE) != 0;
+	/* Un cuadro completo de alta resolución ya contiene las dos paridades.
+	 * No desplazarlo de nuevo por campo. Los modos que leen una fila de cada
+	 * dos (paso doble) o solo un campo conservan la compensación anterior. */
+	f->weave = serrate && !bus->vi.bob_full_frame && y_scale == 0x800 &&
+		   f->height >= 400 && pitch == f->width;
+	f->vpos = serrate ? v_start + (f->weave ? 0 : bus->vi.field & 1) : 0;
 	return f->height > 0;
 }

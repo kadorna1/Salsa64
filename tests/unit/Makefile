@@ -52,3 +52,6 @@ clean:
 	rm -rf $(OUT)
 
 -include $(OBJS:.o=.d)
+
+# Sustitutos PS3 solo para el ciclo de vida de la foto de estados.
+$(OUT)/obj/tests/unit/test_states_frontend.o: CFLAGS += -DSALSA64_STATES_HOST_TEST -I$(CURDIR)/stubs

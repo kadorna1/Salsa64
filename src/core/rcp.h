@@ -417,6 +417,7 @@ struct salsa64_vi {
 	uint64_t field_start;   /* ciclo del VR4300 en que empezó el campo */
 	uint64_t field_cycles;  /* duración del campo en curso */
 	struct salsa64_sched *sched;
+	bool bob_full_frame;    /* diagnóstico: conservar campos en cuadros completos */
 };
 
 /* Imagen que saca el VI: la parte visible del framebuffer en la RDRAM. */
@@ -430,8 +431,10 @@ struct salsa64_vi_frame {
 	/* Posición vertical del campo (entrelazado): la primera media línea de
 	 * V_VIDEO más el bit de campo del VI (medio renglón de la trama). Dos campos seguidos del mismo cuadro caen en
 	 * renglones contiguos de la pantalla. 0 si no es entrelazado (SERRATE
-	 * apagado) o no se conoce. */
+	 * apagado) o no se conoce. Al tejer un cuadro completo se omite el bit
+	 * de campo: la imagen ya contiene ambas paridades. */
 	uint32_t vpos;
+	bool weave;  /* cuadro completo y contiguo: estabilizar también al cambiar de búfer */
 };
 
 enum salsa64_ai_reg {

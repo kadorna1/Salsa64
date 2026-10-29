@@ -324,6 +324,74 @@ static void gfx_blender_fog_color(void)
 	}
 }
 
+/* Los productos del blender que el RSX hace tal cual. Vigilante 8 dibuja
+ * cada explosión, humo y resplandor del sol en dos pasadas con el mismo
+ * cuadrilátero: MEM·A_IN con el color en negro (oscurece el fondo según la
+ * textura) y encima IN·A_FOG + MEM·1 (G_RM_ADD) con la textura de color;
+ * clasificadas como IN·α + MEM·(1 − α) salían como cuadros negros. Con
+ * GFX_JOB_BLEND_OLD vuelven a la clasificación de antes. */
+static void gfx_blender_products(void)
+{
+	enum { P_IN = 0, P_MEM = 1, P_BL = 2, P_FOG = 3 };
+	enum { A_IN = 0, A_FOG = 1, A_SHADE = 2, A_ZERO = 3 };
+	enum { B_1MA = 0, B_MEM = 1, B_ONE = 2, B_ZERO = 3 };
+#define BLW(p, a, m, b)                                                                                     \
+	((uint32_t)(p) << 30 | (uint32_t)(a) << 26 | (uint32_t)(m) << 22 | (uint32_t)(b) << 18 |          \
+	 (uint32_t)(p) << 28 | (uint32_t)(a) << 24 | (uint32_t)(m) << 20 | (uint32_t)(b) << 16 | 0x4040u)
+	static const struct {
+		uint32_t ol, fog;
+		uint32_t flags;
+		uint8_t blend;
+		float rgb;   /* el término constante esperado (color PRIM 0x80, escalado) */
+		float alpha; /* y su alfa (PRIM 0xC0 o el de la niebla) */
+	} c[] = {
+		{ BLW(P_MEM, A_IN, P_IN, B_ZERO), 0xFFFFFFFF, 0, GFX_BLEND_MUL, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_MEM, A_IN, P_IN, B_1MA), 0xFFFFFFFF, 0, GFX_BLEND_ALPHA_INV, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_MEM, A_IN, P_IN, B_MEM), 0xFFFFFFFF, 0, GFX_BLEND_ADD_MUL, 0x80 / 255.0f, 0xC0 / 255.0f },
+		/* G_RM_ADD: con el alfa de la niebla en 255, la suma tal cual; con
+		 * 128, el color escalado a la mitad. */
+		{ BLW(P_IN, A_FOG, P_MEM, B_ONE), 0xFFFFFFFF, 0, GFX_BLEND_ADD_ONE, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_IN, A_FOG, P_MEM, B_ONE), 0xFFFFFF80, 0, GFX_BLEND_ADD_ONE, 0x80 / 255.0f * 0x80 / 255.0f,
+		  0xC0 / 255.0f },
+		/* Los de siempre no cambian. */
+		{ BLW(P_IN, A_IN, P_MEM, B_1MA), 0xFFFFFFFF, 0, GFX_BLEND_ALPHA, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_IN, A_IN, P_MEM, B_MEM), 0xFFFFFFFF, 0, GFX_BLEND_ADD, 0x80 / 255.0f, 0xC0 / 255.0f },
+		{ BLW(P_IN, A_ZERO, P_IN, B_ONE), 0xFFFFFFFF, 0, GFX_BLEND_OFF, 0x80 / 255.0f, 0xC0 / 255.0f },
+		/* El interruptor: todo lo que no sea opaco, solo z o aditivo vuelve
+		 * a IN·α + MEM·(1 − α), sin escalar nada. */
+		{ BLW(P_MEM, A_IN, P_IN, B_ZERO), 0xFFFFFFFF, GFX_JOB_BLEND_OLD, GFX_BLEND_ALPHA, 0x80 / 255.0f,
+		  0xC0 / 255.0f },
+		{ BLW(P_IN, A_FOG, P_MEM, B_ONE), 0xFFFFFF80, GFX_JOB_BLEND_OLD, GFX_BLEND_ALPHA, 0x80 / 255.0f,
+		  0xC0 / 255.0f },
+	};
+#undef BLW
+	for (unsigned i = 0; i < sizeof c / sizeof c[0]; i++) {
+		start();
+		job_flags = c[i].flags;
+		set_cycle(G_CYC_1CYCLE);
+		set_combine(CC_A_ZERO, CC_ZERO, CC_C_ZERO, CC_PRIM, CC_ZERO, CC_ZERO, CC_ZERO, CC_PRIM);
+		dl(0xFA000000, 0x808080C0);                      /* G_SETPRIMCOLOR */
+		dl(0xF8000000, c[i].fog);                        /* G_SETFOGCOLOR */
+		dl(0xEF000000 | G_CYC_1CYCLE << 20, c[i].ol);     /* G_RDPSETOTHERMODE */
+		dl(0xE4000000 | (40 << 2) << 12 | (40 << 2), 0);  /* G_TEXRECT */
+		dl(0xE1000000, 0);
+		dl(0xF1000000, 0x04000400);
+		run();
+		const struct gfx_draw *d = draw_n(0);
+		CHECK(d != NULL);
+		if (!d)
+			continue;
+		CHECK_EQ(d->blend, c[i].blend);
+		float out[4] = { 0, 0, 0, 0 };
+		for (int k = 0; k < GFX_K_TERMS; k++)
+			for (int l = 0; l < 4; l++)
+				out[l] += d->k[k][0][l];  /* sin textura ni color de vértice: solo k0 */
+		for (int l = 0; l < 3; l++)
+			CHECK(fabsf(out[l] - c[i].rgb) < 1e-5f);
+		CHECK(fabsf(out[3] - c[i].alpha) < 1e-5f);
+	}
+}
+
 /* G_SETCONVERT: K5 entra al combiner (Conker: (SHADE − ENV)·K5 + PRIM en el
  * segundo ciclo, con K5 = 255; si se ignora, la cara sale negra) y persiste
  * en el estado del RDP. */
@@ -370,6 +438,99 @@ static void gfx_setconvert_k5(void)
 	CHECK(gfx_state_unpack_regs(&gs, buf));
 	CHECK_EQ(gs.k4, 0);
 	CHECK_EQ(gs.k5, 0);
+}
+
+static void set_yuv_matrix(int k0, int k1, int k2, int k3)
+{
+	uint64_t matrix = (uint64_t)(k0 & 511) << 45 | (uint64_t)(k1 & 511) << 36 |
+			  (uint64_t)(k2 & 511) << 27 | (uint64_t)(k3 & 511) << 18;
+	dl(0xEC000000 | (uint32_t)(matrix >> 32), (uint32_t)matrix);
+}
+
+/* Bloques U,Y0,V,Y1 inventados: planos de TMEM, parejas de crominancia,
+ * filas impares, vuelta a los 2 KB y los coeficientes con signo. */
+static void gfx_yuv_texture(void)
+{
+	static const uint8_t pixels[16] = { 128, 16, 128, 235, 96, 100, 160, 140,
+		160, 110, 96, 150, 0, 16, 255, 240 };
+	static const uint32_t expected[8] = { 0x10101010, 0xEBEBEBEB, 0x90592C64, 0xB881548C,
+		0x427AA66E, 0x6AA2CE96, 0xBE000010, 0xFFC312F0 };
+	for (int tile = 0; tile < 2; tile++)
+	for (int wrap = 0; wrap < 2; wrap++)
+	for (int disabled = 0; disabled < 2; disabled++) {
+		start();
+		cache_task = 1;
+		job_flags = disabled ? GFX_JOB_NO_YUV : 0;
+		uint32_t base = wrap ? 2040 : 0;
+		memcpy(t_n64.bus.rdram + TEX_PA, pixels, sizeof pixels);
+		memcpy(t_n64.bus.rdram + TEX_PA + 16, pixels, sizeof pixels);
+		set_yuv_matrix(175, -43, -89, 222);
+		dl(0xFD300007, TEX_PA);  /* YUV16, ancho 8 */
+		dl(0xF5300200 | base / 8, 0x07000000);  /* plano de 8 bytes por fila */
+		if (tile)
+			dl(0xF4000000, 0x07000000 | 7 << 14 | 1 << 2);
+		else
+			dl(0xF3000000, 0x07000000 | 15 << 12 | 1024);
+		dl(0xF5300200 | base / 8, 2u << 18 | 2u << 8);
+		dl(0xF2000000, 7 << 14 | 1 << 2);
+		set_cycle(G_CYC_1CYCLE);
+		set_combine(CC_A_ZERO, CC_ZERO, CC_C_ZERO, CC_T0, CC_ZERO, CC_ZERO, CC_ZERO, CC_T0);
+		dl(0xE4000000 | 8 << 14 | 2 << 2, 0);
+		dl(0xE1000000, 0);
+		dl(0xF1000000, 0x04000400);
+		/* Sin recargar TMEM: SETCONVERT debe separar dibujo y textura. */
+		set_yuv_matrix(0, 0, 0, 0);
+		dl(0xE4000000 | 8 << 14 | 2 << 2, 0);
+		dl(0xE1000000, 0);
+		dl(0xF1000000, 0x04000400);
+		run();
+		CHECK_EQ(res.dl_errors, 0);
+		const struct gfx_draw *d = draw_n(0), *d2 = draw_n(1);
+		CHECK(d && d2);
+		if (!d || !d2)
+			return;
+		CHECK_EQ(d->tex[0].width, 8);
+		CHECK_EQ(d->tex[0].height, 2);
+		const uint8_t *tex = tex_of(&d->tex[0]), *tex2 = tex_of(&d2->tex[0]);
+		for (int y = 0; y < 2; y++)
+			for (int x = 0; x < 8; x++) {
+				CHECK_EQ(salsa64_rd32(tex + y * d->tex[0].pitch + 4 * x), disabled ? 0xFFu : expected[x]);
+				if (x < 2)
+					CHECK_EQ(salsa64_rd32(tex2 + y * d2->tex[0].pitch + 4 * x), disabled ? 0xFFu : expected[x]);
+			}
+		if (!disabled)
+			CHECK(salsa64_rd32(tex + 8) != salsa64_rd32(tex2 + 8));
+		/* Cambiar solo la Y debe cambiar la clave, aunque U/V no cambien. */
+		uint32_t key = d->tex[0].key;
+		t_n64.bus.rdram[TEX_PA + 1] = 32;
+		gfx_run(&gs, &job, &res);
+		d = draw_n(0);
+		CHECK(d && d->tex[0].key != key);
+		/* El interruptor no reutiliza el negro de la caché anterior. */
+		job.flags ^= GFX_JOB_NO_YUV;
+		gfx_run(&gs, &job, &res);
+		d = draw_n(0);
+		CHECK(d != NULL);
+		if (d)
+			CHECK_EQ(salsa64_rd32(tex_of(&d->tex[0])), disabled ? 0x20202020u : 0xFFu);
+	}
+	start();
+	set_yuv_matrix(175, -43, -89, 222);
+	run();
+	CHECK_EQ(gs.k0, 175);
+	CHECK_EQ(gs.k1, 469);
+	CHECK_EQ(gs.k2, 423);
+	CHECK_EQ(gs.k3, 222);
+	uint8_t state[GFX_STATE_REGS];
+	gfx_state_pack_regs(&gs, state);
+	gs.k0 = gs.k1 = gs.k2 = gs.k3 = 0;
+	CHECK(gfx_state_unpack_regs(&gs, state));
+	CHECK_EQ(gs.k0, 175);
+	CHECK_EQ(gs.k1, 469);
+	CHECK_EQ(gs.k2, 423);
+	CHECK_EQ(gs.k3, 222);
+	gfx_rdp_reset(&gs);
+	CHECK_EQ(gs.k0 | gs.k1 | gs.k2 | gs.k3, 0);
 }
 
 static void gfx_combiner_forms(void)
@@ -1999,6 +2160,52 @@ static void gfx_s2dex_bg_scaled(void)
 	CHECK_EQ(res.skipped, 4);
 }
 
+/* BG_1CYC no llena un marco sobrado con copias de la misma imagen. Las
+ * cotas de los casos sobredimensionados se contrastaron con S2DEX real;
+ * aquí tanto las listas como las imágenes son sintéticas. */
+static void gfx_s2dex_bg_oversized(void)
+{
+	static const struct {
+		uint32_t iw, ih, fw, fh, sw, sh, want_w, want_h;
+		int x, y;
+	} cases[] = {
+		{ 176, 28, 352, 56, 512, 1024, 352, 27, 0, 0 },
+		{ 40, 20, 100, 60, 1024, 1024, 39, 19, 0, 0 },
+		{ 40, 20, 80, 40, 2048, 2048, 19, 9, 0, 0 },
+		{ 40, 20, 80, 40, 1536, 1536, 26, 13, 0, 0 },
+		{ 40, 20, 100, 60, 1024, 1024, 39, 19, -7, -3 },
+		{ 40, 20, 20, 10, 1024, 1024, 20, 10, 0, 0 },
+	};
+	for (unsigned mode = 0; mode < 3; mode++) {
+		bool old = mode == 1, copy = mode == 2;
+		for (unsigned k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+			start();
+			job_flags = old ? GFX_JOB_S2DEX_BG_OLD : 0;
+			put_bg_image(cases[k].iw, cases[k].ih);
+			s2dex_enter("RSP Gfx ucode S2DEX fifo 2.05 prueba");
+			dl(copy ? 0xEF200000 : 0xEF000000, 0x00000001);
+			set_combine(CC(CC_ZERO, CC_ZERO, CC_C_ZERO, CC_T0), CC(CC_A_ZERO, CC_A_ZERO, 7, 6));
+			dl(copy ? 0x0A000000 : 0x09000000, 0x80000000 | put_bg(0, cases[k].iw, cases[k].x, cases[k].fw, 0,
+				cases[k].ih, cases[k].y, cases[k].fh, 0x80000000 | TEX_PA, cases[k].sw, cases[k].sh));
+			s2dex_leave();
+			job_ucode = 0x30000;
+			run();
+			job_ucode = 0;
+			CHECK_EQ(res.bg, 1);
+			CHECK_EQ(res.dl_errors, 0);
+			float xmax = 0, ymax = 0;
+			for (unsigned v = 0; v < res.vtx_bytes / sizeof out_vtx[0]; v++) {
+				CHECK(out_vtx[v].x >= 0 && out_vtx[v].y >= 0);
+				if (out_vtx[v].x > xmax) xmax = out_vtx[v].x;
+				if (out_vtx[v].y > ymax) ymax = out_vtx[v].y;
+			}
+			CHECK(xmax == (float)(cases[k].x + (int)(old || copy ? cases[k].fw : cases[k].want_w)));
+			CHECK(ymax == (float)(cases[k].y + (int)(old || copy ? cases[k].fh : cases[k].want_h)));
+		}
+	}
+	job_flags = 0;
+}
+
 /* ---- S2DEX suelto (tareas SALSA64_GBI_S2DEX y S2DEX1): objetos ---- */
 
 /* uObjTxtr de bloque (G_OBJ_LOADTXTR): la imagen en TEX_PA a la TMEM en
@@ -2884,6 +3091,8 @@ static void gfx_tmem_decode_formats(void)
 	uint32_t seed = 0x5A15A64u;
 	for (unsigned c = 0; c < sizeof cases / sizeof cases[0]; c++) {
 		start();
+		if (cases[c].fmt == G_IM_FMT_YUV)
+			job_flags = GFX_JOB_NO_YUV;  /* cubre también el diagnóstico anterior */
 		for (int i = 0; i < 4096; i++)
 			t_n64.bus.rdram[TEX_PA + i] = (uint8_t)(lcg(&seed) >> 24);
 		dl(0xFD100000, TEX_PA);                            /* SETTIMG RGBA16 */
@@ -3219,6 +3428,7 @@ void t_suite_gfx(void)
 	RUN(gfx_s2dex_task_chains_f3dex2);
 	RUN(gfx_s2dex_chain_first_generation);
 	RUN(gfx_setconvert_k5);
+	RUN(gfx_yuv_texture);
 	RUN(gfx_texrect_two_tiles);
 	RUN(gfx_untextured_texel);
 	RUN(gfx_combiner_shade_squared);
@@ -3255,6 +3465,7 @@ void t_suite_gfx(void)
 	RUN(gfx_s2dex_bg_copy);
 	RUN(gfx_s2dex_bg_wrap);
 	RUN(gfx_s2dex_bg_scaled);
+	RUN(gfx_s2dex_bg_oversized);
 	RUN(gfx_texcache_across_tasks);
 	RUN(gfx_texcache_palette);
 	RUN(gfx_texcache_ring);
@@ -3265,6 +3476,7 @@ void t_suite_gfx(void)
 	RUN(gfx_aa_flag);
 	RUN(gfx_tile_clamp_mirror_mask);
 	RUN(gfx_blender_fog_color);
+	RUN(gfx_blender_products);
 	RUN(gfx_tile_mirror_once);
 	RUN(gfx_tile_clamp_mask_period);
 	RUN(gfx_tri_no_persp_half);

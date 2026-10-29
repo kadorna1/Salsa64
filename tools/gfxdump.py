@@ -22,7 +22,7 @@ import sys
 MAGIC = 0x53344744
 OPS = {0: "END", 1: "TARGET", 2: "ZCLEAR", 3: "DRAW"}
 U8_FIELDS = ["cycle", "cull", "depth", "blend", "atest", "aref", "fog", "ntex"]
-BLEND = ["OFF", "ALPHA", "ADD", "KEEP"]
+BLEND = ["OFF", "ALPHA", "ADD", "KEEP", "MUL", "ADD_MUL", "ALPHA_INV", "ADD_ONE"]
 # struct gfx_draw (gfx.h): desplazamientos desde el inicio del dibujo.
 OFF_NTERMS, OFF_FACTORS, OFF_VISCVG, OFF_AA = 48, 49, 77, 78
 OFF_TEX, TEX_SIZE = 80, 40            # struct gfx_tex tex[2]

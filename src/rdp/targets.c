@@ -539,6 +539,7 @@ void rdp_targets_present(struct rdp_targets *s, const struct salsa64_vi_frame *f
 	    field - s->shown_field <= 2 && covers(&s->t[s->shown], f->origin, &best_y0))
 		best = s->shown;
 
+	uint32_t previous_field = s->shown_field;
 	s->shown = best;
 	s->shown_origin = f->origin;
 	s->shown_field = field;
@@ -546,8 +547,10 @@ void rdp_targets_present(struct rdp_targets *s, const struct salsa64_vi_frame *f
 		s->t[best].presented = true;
 	out->slot = best;
 	out->y0 = out->w = out->h = out->age = 0;
-	if (best < 0)
+	if (best < 0) {
+		s->il_weave = false;
 		return;
+	}
 	const struct rdp_target *t = &s->t[best];
 	out->age = age[best];
 	out->y0 = best_y0;
@@ -574,16 +577,30 @@ void rdp_targets_present(struct rdp_targets *s, const struct salsa64_vi_frame *f
 		 * alinea a k filas según la fila de la trama en que cae. */
 		int32_t v0 = (int32_t)(f->vpos * k) - 2 * (int32_t)best_y0;
 		uint32_t y0p = best_y0 - f->vpos % k % (best_y0 + 1);
-		if (s->il_valid && s->il_slot == best && v0 - s->il_v0 >= -(int32_t)k && v0 - s->il_v0 <= (int32_t)k &&
+		/* Indy alterna dos cuadros completos, uno desde la fila 1 y otro
+		 * desde la 2, con V_VIDEO desplazado también. La ventana común debe
+		 * sobrevivir al cambio de búfer; limitarla a una ranura hacía temblar
+		 * el cuadro aunque cada superficie ya tuviera las 480 líneas. */
+		bool weave = f->weave && k == 1 && rows <= t->lh - best_y0;
+		bool same_frame = s->il_slot == best ||
+			(weave && s->il_weave && field - previous_field == 1 && s->il_width == t->width &&
+			 s->il_height == t->lh && s->il_bpp == t->bpp);
+		if (s->il_valid && same_frame && v0 - s->il_v0 >= -(int32_t)k && v0 - s->il_v0 <= (int32_t)k &&
 		    s->il_y0 <= best_y0 && best_y0 - s->il_y0 <= k)
 			y0p = s->il_y0;
 		s->il_valid = true;
 		s->il_slot = best;
 		s->il_v0 = v0;
 		s->il_y0 = y0p;
+		s->il_weave = weave;
+		s->il_width = t->width;
+		s->il_height = t->lh;
+		s->il_bpp = t->bpp;
 		out->y0 = y0p;
-	} else if (k > 1) {
-		out->y0 = best_y0 - best_y0 % k;
+	} else {
+		s->il_weave = false;
+		if (k > 1)
+			out->y0 = best_y0 - best_y0 % k;
 	}
 	out->h = rows < t->lh - out->y0 ? rows : t->lh - out->y0;
 }

@@ -284,6 +284,7 @@ struct gfx_state {
 	uint8_t prim_lod, prim_min;
 	uint16_t prim_z, prim_dz;
 	uint16_t k4, k5;           /* G_SETCONVERT: 9 bits con signo */
+	uint16_t k0, k1, k2, k3;   /* matriz YUV del filtro de texturas */
 	uint16_t scissor[4];       /* 10.2 */
 	uint32_t cimg_addr;
 	uint16_t cimg_width;

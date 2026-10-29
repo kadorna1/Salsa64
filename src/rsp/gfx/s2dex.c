@@ -263,6 +263,21 @@ static void bg_draw(struct gfx_state *g, uint32_t seg, bool scaled)
 	struct bg b;
 	if (!read_bg(g, seg, scaled, &b))
 		return;
+	/* BG_1CYC limita un marco mayor que la imagen escalada: el módulo
+	 * siguiente solo sirve para el origen desplazado, no para dibujar
+	 * copias completas de más. El RSP reserva el borde final en cuartos
+	 * de píxel. BG_COPY sí conserva el marco de la copia sin esta cota.
+	 * Los marcos que ya caben mantienen su recorrido y redondeo. */
+	if (scaled && !(g->job->flags & GFX_JOB_S2DEX_BG_OLD)) {
+		if (b.frame_w * b.scale_w > (b.image_w << 10)) {
+			uint32_t q = (b.image_w << 12) / b.scale_w;
+			b.frame_w = q ? (q - 1) >> 2 : 0;
+		}
+		if (b.frame_h * b.scale_h > (b.image_h << 10)) {
+			uint32_t q = (b.image_h << 12) / b.scale_h;
+			b.frame_h = q ? (q - 1) >> 2 : 0;
+		}
+	}
 	unsigned cycle = (g->oh >> G_MDSFT_CYCLETYPE) & 3;
 	bool copy = cycle == G_CYC_COPY;
 	/* Con paleta, la mitad alta de la TMEM es de la paleta. */
