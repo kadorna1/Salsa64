@@ -1675,11 +1675,10 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
-			/* Queue a late replay only for VI-visible targets. Mode 1 is a newly
-			 * changed covered pixel; mode 3 is its single bounded follow-up
-			 * replay (the VI alternates between framebuffer targets); mode 2 is
-			 * a transparent erase marker consumed without overwriting the scene
-			 * that the RDP drew for this presentation. */
+			/* Queue one late composite only for VI-visible targets. Mode 1 is
+			 * a newly changed covered pixel; mode 2 marks a formerly covered pixel
+			 * whose coverage is now zero. The marker is consumed at this VI and
+			 * never latched for an additional field. */
 			if (defer_to_vi && rdp.profile_pending[i] &&
 			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width))) {
 				uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
