@@ -372,6 +372,99 @@ static void gfx_setconvert_k5(void)
 	CHECK_EQ(gs.k5, 0);
 }
 
+static void set_yuv_matrix(int k0, int k1, int k2, int k3)
+{
+	uint64_t matrix = (uint64_t)(k0 & 511) << 45 | (uint64_t)(k1 & 511) << 36 |
+			  (uint64_t)(k2 & 511) << 27 | (uint64_t)(k3 & 511) << 18;
+	dl(0xEC000000 | (uint32_t)(matrix >> 32), (uint32_t)matrix);
+}
+
+/* Bloques U,Y0,V,Y1 inventados: planos de TMEM, parejas de crominancia,
+ * filas impares, vuelta a los 2 KB y los coeficientes con signo. */
+static void gfx_yuv_texture(void)
+{
+	static const uint8_t pixels[16] = { 128, 16, 128, 235, 96, 100, 160, 140,
+		160, 110, 96, 150, 0, 16, 255, 240 };
+	static const uint32_t expected[8] = { 0x10101010, 0xEBEBEBEB, 0x90592C64, 0xB881548C,
+		0x427AA66E, 0x6AA2CE96, 0xBE000010, 0xFFC312F0 };
+	for (int tile = 0; tile < 2; tile++)
+	for (int wrap = 0; wrap < 2; wrap++)
+	for (int disabled = 0; disabled < 2; disabled++) {
+		start();
+		cache_task = 1;
+		job_flags = disabled ? GFX_JOB_NO_YUV : 0;
+		uint32_t base = wrap ? 2040 : 0;
+		memcpy(t_n64.bus.rdram + TEX_PA, pixels, sizeof pixels);
+		memcpy(t_n64.bus.rdram + TEX_PA + 16, pixels, sizeof pixels);
+		set_yuv_matrix(175, -43, -89, 222);
+		dl(0xFD300007, TEX_PA);  /* YUV16, ancho 8 */
+		dl(0xF5300200 | base / 8, 0x07000000);  /* plano de 8 bytes por fila */
+		if (tile)
+			dl(0xF4000000, 0x07000000 | 7 << 14 | 1 << 2);
+		else
+			dl(0xF3000000, 0x07000000 | 15 << 12 | 1024);
+		dl(0xF5300200 | base / 8, 2u << 18 | 2u << 8);
+		dl(0xF2000000, 7 << 14 | 1 << 2);
+		set_cycle(G_CYC_1CYCLE);
+		set_combine(CC_A_ZERO, CC_ZERO, CC_C_ZERO, CC_T0, CC_ZERO, CC_ZERO, CC_ZERO, CC_T0);
+		dl(0xE4000000 | 8 << 14 | 2 << 2, 0);
+		dl(0xE1000000, 0);
+		dl(0xF1000000, 0x04000400);
+		/* Sin recargar TMEM: SETCONVERT debe separar dibujo y textura. */
+		set_yuv_matrix(0, 0, 0, 0);
+		dl(0xE4000000 | 8 << 14 | 2 << 2, 0);
+		dl(0xE1000000, 0);
+		dl(0xF1000000, 0x04000400);
+		run();
+		CHECK_EQ(res.dl_errors, 0);
+		const struct gfx_draw *d = draw_n(0), *d2 = draw_n(1);
+		CHECK(d && d2);
+		if (!d || !d2)
+			return;
+		CHECK_EQ(d->tex[0].width, 8);
+		CHECK_EQ(d->tex[0].height, 2);
+		const uint8_t *tex = tex_of(&d->tex[0]), *tex2 = tex_of(&d2->tex[0]);
+		for (int y = 0; y < 2; y++)
+			for (int x = 0; x < 8; x++) {
+				CHECK_EQ(salsa64_rd32(tex + y * d->tex[0].pitch + 4 * x), disabled ? 0xFFu : expected[x]);
+				if (x < 2)
+					CHECK_EQ(salsa64_rd32(tex2 + y * d2->tex[0].pitch + 4 * x), disabled ? 0xFFu : expected[x]);
+			}
+		if (!disabled)
+			CHECK(salsa64_rd32(tex + 8) != salsa64_rd32(tex2 + 8));
+		/* Cambiar solo la Y debe cambiar la clave, aunque U/V no cambien. */
+		uint32_t key = d->tex[0].key;
+		t_n64.bus.rdram[TEX_PA + 1] = 32;
+		gfx_run(&gs, &job, &res);
+		d = draw_n(0);
+		CHECK(d && d->tex[0].key != key);
+		/* El interruptor no reutiliza el negro de la caché anterior. */
+		job.flags ^= GFX_JOB_NO_YUV;
+		gfx_run(&gs, &job, &res);
+		d = draw_n(0);
+		CHECK(d != NULL);
+		if (d)
+			CHECK_EQ(salsa64_rd32(tex_of(&d->tex[0])), disabled ? 0x20202020u : 0xFFu);
+	}
+	start();
+	set_yuv_matrix(175, -43, -89, 222);
+	run();
+	CHECK_EQ(gs.k0, 175);
+	CHECK_EQ(gs.k1, 469);
+	CHECK_EQ(gs.k2, 423);
+	CHECK_EQ(gs.k3, 222);
+	uint8_t state[GFX_STATE_REGS];
+	gfx_state_pack_regs(&gs, state);
+	gs.k0 = gs.k1 = gs.k2 = gs.k3 = 0;
+	CHECK(gfx_state_unpack_regs(&gs, state));
+	CHECK_EQ(gs.k0, 175);
+	CHECK_EQ(gs.k1, 469);
+	CHECK_EQ(gs.k2, 423);
+	CHECK_EQ(gs.k3, 222);
+	gfx_rdp_reset(&gs);
+	CHECK_EQ(gs.k0 | gs.k1 | gs.k2 | gs.k3, 0);
+}
+
 static void gfx_combiner_forms(void)
 {
 	/* SHADE: todo en X_4, coeficiente del color del vértice. */
@@ -2712,6 +2805,8 @@ static void gfx_tmem_decode_formats(void)
 	uint32_t seed = 0x5A15A64u;
 	for (unsigned c = 0; c < sizeof cases / sizeof cases[0]; c++) {
 		start();
+		if (cases[c].fmt == G_IM_FMT_YUV)
+			job_flags = GFX_JOB_NO_YUV;  /* cubre también el diagnóstico anterior */
 		for (int i = 0; i < 4096; i++)
 			t_n64.bus.rdram[TEX_PA + i] = (uint8_t)(lcg(&seed) >> 24);
 		dl(0xFD100000, TEX_PA);                            /* SETTIMG RGBA16 */
@@ -3047,6 +3142,7 @@ void t_suite_gfx(void)
 	RUN(gfx_s2dex_task_chains_f3dex2);
 	RUN(gfx_s2dex_chain_first_generation);
 	RUN(gfx_setconvert_k5);
+	RUN(gfx_yuv_texture);
 	RUN(gfx_texrect_two_tiles);
 	RUN(gfx_untextured_texel);
 	RUN(gfx_combiner_shade_squared);

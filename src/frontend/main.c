@@ -930,6 +930,7 @@ static char version_text[64], build_text[160];
 static const struct salsa64_gfx_sink *rdp_sink;
 static bool gfx_affine_chain;
 static bool gfx_s2dex_old_modes;
+static bool gfx_no_yuv;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -937,6 +938,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 	rdp_sink->acquire(rdp_sink->ctx, job);
 	if (gfx_affine_chain)
 		job->flags |= GFX_JOB_AFFINE_CHAIN;
+	if (gfx_no_yuv)
+		job->flags |= GFX_JOB_NO_YUV;
 	if (gfx_s2dex_old_modes)
 		job->flags |= GFX_JOB_S2DEX_OLD_MODES;
 }
@@ -5442,6 +5445,8 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	/* HLE gráfica: en un SPE, o en el PPE si se pide. */
 	gfx_affine_chain = !file_exists(SALSA64_DATA_DIR "/sin-afin-cadena");
 	gfx_s2dex_old_modes = file_exists(SALSA64_DATA_DIR "/gfx-s2dex-modos-viejos");
+	gfx_no_yuv = file_exists(SALSA64_DATA_DIR "/sin-yuv");
+	salsa64_log("gfx: conversión YUV %s (sin-yuv)", gfx_no_yuv ? "apagada" : "encendida");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);

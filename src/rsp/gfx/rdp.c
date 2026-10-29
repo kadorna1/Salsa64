@@ -69,6 +69,7 @@ void gfx_rdp_reset(struct gfx_state *g)
 	g->prim = g->env = g->fog = g->blend = g->fill = 0;
 	g->prim_lod = g->prim_min = 0;
 	g->prim_z = g->prim_dz = 0;
+	g->k0 = g->k1 = g->k2 = g->k3 = g->k4 = g->k5 = 0;
 	g->scissor[0] = g->scissor[1] = 0;
 	g->scissor[2] = 320 << 2;
 	g->scissor[3] = 240 << 2;
@@ -1163,10 +1164,15 @@ GFX_IMG1_COLD void gfx_rdp_command(struct gfx_state *g, uint32_t w0, uint32_t w1
 	case G_SETKEYR:
 		return;
 	case G_SETCONVERT:
-		/* K0–K3 son de la conversión YUV (sin uso aquí); K4 y K5 son
-		 * entradas del combiner (Conker: (SHADE − ENV)·K5 + PRIM). */
+		/* K0–K3 convierten YUV en el filtro; K4 y K5 quedan en el
+		 * combiner. Otra matriz invalida también las tiles resueltas. */
+		g->k0 = (uint16_t)((w0 >> 13) & 0x1FF);
+		g->k1 = (uint16_t)((w0 >> 4) & 0x1FF);
+		g->k2 = (uint16_t)(((w0 & 15) << 5) | (w1 >> 27));
+		g->k3 = (uint16_t)((w1 >> 18) & 0x1FF);
 		g->k4 = (uint16_t)((w1 >> 9) & 0x1FF);
 		g->k5 = (uint16_t)(w1 & 0x1FF);
+		g->tex_gen++;
 		break;
 	case G_SETSCISSOR:
 		g->scissor[0] = (w0 >> 12) & 0xFFF;
