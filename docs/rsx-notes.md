@@ -406,3 +406,44 @@ HLE decodificó de la RDRAM ya traen los puntos (`build/yoshi-rdp/ps3/`).
 Arreglo: a 1:1 el más cercano (`rsxkit_read_filter_nearest`); la bandera
 `gfx-copia-lineal` vuelve al lineal. El mismo fenómeno obligó antes a dibujar
 sin filtro dentro de esas capas (rdp.c, «puntos naranjas y azules»).
+
+## Sombreado lineal en pantalla con el bit 31 de SRC2 (2026-10-29)
+
+El RDP de la N64 interpola el sombreado (color, alfa y con él el factor de
+niebla) lineal en pantalla; el RSX, con corrección de perspectiva. En los
+triángulos largos (la pista de F-Zero X, w de 500 a 6000; el fondo de sus
+pistas, con dos vértices cerca de la cámara muy fuera de la pantalla) la
+diferencia es grande: la bruma llegaba tarde y el fondo salía con la textura
+en vez de la sombra. El mismo bit que cgcomp pone por error (arriba:
+«quita la corrección de perspectiva en MUL, DP…») sirve a propósito: la
+entrada llega **dividida entre la w del vértice e interpolada lineal en
+pantalla** (lo que RPCS3 emula como `tcN * gl_FragCoord.w`). Si el vertex
+program multiplica cada término X_j por w (`rsxkit_lincomb*.vcg`, constante
+`affine`), el fragment program que lee TEXCOORD1..7 con el bit recibe
+X_j·w/w = X_j lineal en pantalla: la sombra del RDP, sin instrucciones de
+más por píxel. Las coordenadas de textura (TEXCOORD0) y el color del
+vértice (COL0, factores C y Ca de los programas generados) siguen con
+perspectiva.
+
+- `rsxkit_affine_shade(1)` (lib/rsxkit/src/draw3d.c): la constante `affine`
+  del vertex program, una copia de cada programa precompilado con el bit en
+  las lecturas de TEXCOORD1..7 (`rsxkit_fp_upload_affine`, fprog.c) y
+  `rsxkit_fp_desc.affine` en los generados (fpgen.c: otro programa en la
+  caché). El emulador lo enciende por omisión (`salsa64_rdp_affine_shade`);
+  `sin-sombra-afin` en el directorio de datos lo apaga junto con el recorte
+  del RSP de la HLE (abajo); en el host, `SALSA64_SIN_SOMBRA_AFIN=1`.
+- Solo tiene sentido con el recorte de la HLE contra la caja del clip ratio
+  (`src/rsp/gfx/rdp.c`, `gfx_triangle`): el RDP interpola lineal **dentro
+  del polígono que el RSP le manda**, no dentro del triángulo del juego. Sin
+  recortar, la sombra afín de un triángulo con vértices a miles de píxeles
+  queda peor que la de perspectiva. Medido contra el microcódigo real
+  (F3DEX2 fifo 2.03 en la LLE del host): Sutherland–Hodgman recorriendo el
+  polígono desde su primer vértice con el anterior, el plano izquierdo al
+  final, abanico desde el primer vértice de la lista final y rechazo trivial
+  de cada triángulo del abanico por los planos de la pantalla (114 de 115
+  abanicos iguales; el que falta es un vértice de esquina a 0,9 px).
+- Precisión: el RSX hace X_j·w/w en el interpolador en fp32; los X_j llegan
+  a las instrucciones en fp16 como antes. En RPCS3 (`gl_FragCoord.w`), lo
+  mismo. Pendiente de confirmar en la PS3 real con el paquete «Salsa64
+  F-Zero afin»: si el bit no hiciera lo que el apunte de arriba midió, toda
+  la imagen saldría escalada por w; el interruptor lo deshace.

@@ -274,6 +274,11 @@ size_t salsa64_rdp_interp_bytes(void);
  * uniones en T que el RDP tapa con la cobertura. Apagado por omisión: en
  * la PS3 a escala alta engordaba los modelos (docs/rsx-notes.md). */
 void salsa64_rdp_aa_edges(bool on);
+/* Interruptor: el RSX interpola el sombreado de los vértices (color, alfa y
+ * con ellos el factor de niebla) lineal en pantalla, como el RDP de la N64
+ * (rsxkit_affine_shade); va con el recorte de la HLE contra la caja del
+ * clip ratio (GFX_JOB_NO_RSP_CLIP lo apaga). Encendido por omisión. */
+void salsa64_rdp_affine_shade(bool on);
 /* Interruptor: los destinos de 16 bits que no son un framebuffer del VI
  * (render a textura) se crean con canal alfa (A8R8G8B8) y llevan el alfa de
  * la N64: 0 al borrarse con 0x0000, 1 en cada píxel dibujado (el alfa del

@@ -57,6 +57,11 @@ extern bool raster_q5;
  * aristas como líneas antes de los triángulos (experimental, apagadas por
  * omisión; SALSA64_AA_EDGES=1 las pone). */
 extern bool raster_aa_edges;
+/* El sombreado (color y alfa del vértice, con el factor de niebla) se
+ * interpola lineal en pantalla, como el RDP (y como rsxkit con
+ * rsxkit_affine_shade); las coordenadas de textura siguen con perspectiva.
+ * Apagado: todo con corrección de perspectiva, como antes. */
+extern bool raster_affine;
 extern float raster_edge_width;  /* ancho de esas líneas, en píxeles */
 extern float raster_edge_factor, raster_edge_units;  /* su desplazamiento hacia atrás */
 /* Cada campo con imagen: el origen y ancho del VI (como salsa64_rdp_vi). */

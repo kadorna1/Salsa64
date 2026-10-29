@@ -185,6 +185,12 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
  * un ciclo con FORCE_BL (la pista de F-Zero X; rdp.c blend_state). El PPE
  * lo pone si existe sin-niebla-1ciclo en el directorio de datos. */
 #define GFX_JOB_NO_FOG_1CYCLE 0x4000u
+/* Interruptor: no recortar los triángulos contra la caja del clip ratio
+ * como el RSP (rdp.c gfx_triangle): queda solo el plano cercano, como
+ * antes. Va con la sombra afín del consumidor (sin-sombra-afin en el
+ * directorio de datos apaga las dos cosas; en el host,
+ * SALSA64_SIN_SOMBRA_AFIN=1). */
+#define GFX_JOB_NO_RSP_CLIP 0x8000u
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 
@@ -441,7 +447,8 @@ struct gfx_draw {
  * cercano entre los lugares a y b de un mismo grupo (siempre en los juegos
  * medidos), GFX_VCLIP_ID(número, a, b): la fracción sale de las coordenadas
  * de recorte del grupo, t = (z + w)_a / ((z + w)_a − (z + w)_b). Los demás
- * (rectángulos, recortes entre grupos) llevan pad = 0. */
+ * (rectángulos, recortes entre grupos, los vértices del recorte contra la
+ * caja del clip ratio) llevan pad = 0. */
 struct gfx_vgroup {
 	struct gfx_cmd h;   /* a = dirección, b = n | v0 << 8 | paso << 16, c = hash del contenido (no 0) */
 	float vp[4];        /* vscale x, y y vtrans x, y */

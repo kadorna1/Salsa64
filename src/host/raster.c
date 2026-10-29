@@ -67,6 +67,7 @@ uint32_t raster_field;
 int raster_fbfx = 2;
 bool raster_q5 = true;
 bool raster_aa_edges = false;
+bool raster_affine = true;
 float raster_edge_width = 1.5f;  /* como rdp.c: 1,5 píxeles de la N64 */
 float raster_edge_factor = 8.0f, raster_edge_units = 64.0f;  /* su desplazamiento de polígono (rsxkit) */
 static struct rdp_vi_ring vi_ring;
@@ -297,13 +298,16 @@ static void shade(const struct gfx_draw *d, const struct gfx_vertex *v, const st
 	/* ZMODE_XLU: estrictamente delante, o el z-buffer aún borrado. */
 	if ((d->depth & GFX_DEPTH_LESS) && zb && z >= zb->z[idx] && zb->z[idx] < 1.0f)
 		return;
-	/* Interpolación con perspectiva. */
+	/* Coordenadas de textura con corrección de perspectiva. */
 	float p0 = b0 * t3->iw[0], p1 = b1 * t3->iw[1], p2 = b2 * t3->iw[2], pw = p0 + p1 + p2;
 	p0 /= pw, p1 /= pw, p2 /= pw;
 	float c[4], s = p0 * v[0].s + p1 * v[1].s + p2 * v[2].s, t = p0 * v[0].t + p1 * v[1].t + p2 * v[2].t;
 	const uint8_t *c0 = &v[0].r, *c1 = &v[1].r, *c2 = &v[2].r;
+	/* El sombreado (y con él el factor de niebla) lineal en pantalla, como
+	 * el RDP (raster_affine); si no, también con perspectiva. */
+	float q0 = raster_affine ? b0 : p0, q1 = raster_affine ? b1 : p1, q2 = raster_affine ? b2 : p2;
 	for (int k = 0; k < 4; k++)
-		c[k] = (p0 * c0[k] + p1 * c1[k] + p2 * c2[k]) / 255.0f;
+		c[k] = (q0 * c0[k] + q1 * c1[k] + q2 * c2[k]) / 255.0f;
 
 	float tx[2][4] = { { 1, 1, 1, 1 }, { 1, 1, 1, 1 } };
 	for (int i = 0; i < d->ntex && i < 2; i++) {

@@ -274,7 +274,7 @@ asigna velocidad.
 | Juego | Estado | Velocidad | Notas |
 |---|---|---:|---|
 | Banjo-Tooie | Jugable | 59,7 campos/s de mediana en la sesión de perfilado | Prueba larga; escenas pesadas limitadas por el camino lento del recompilador. |
-| F-Zero X | Jugable; carrera y «SELECT COURSE» superados | — | A 5×. Quedan objetos del fondo dibujados sobre la pista. Niebla de la pista desde la rama `fzero-niebla` (blender en un ciclo; `sin-niebla-1ciclo` la apaga). |
+| F-Zero X | Jugable; carrera y «SELECT COURSE» superados | — | A 5×. Niebla de la pista desde la rama `fzero-niebla` (blender en un ciclo; `sin-niebla-1ciclo` la apaga). El fondo de las pistas con la sombra del RDP (recorte contra la caja del clip ratio como el RSP + sombreado lineal en pantalla en el RSX; `sin-sombra-afin` lo apaga), pendiente de la PS3. |
 | Pokémon Snap | Jugable | — | Orden de dibujo incorrecto: la correa de la mochila queda delante y la playa delante de las montañas. |
 | Zelda: Ocarina of Time | Jugable | — | Se probaron salas con fondos prerrenderizados; el registro de la sesión informa 149–150 fondos S2DEX por ventana. |
 | GoldenEye 007 | Jugable | — | Incluido en la regresión; sin medición de velocidad atribuible a esta prueba en el censo. |
@@ -321,7 +321,7 @@ como antecedente; el de 2026-10-15 es el más reciente.
 | Super Smash Bros. (y Smash Remix) | velocidad completa | desde v0.2.4 pasa los KO y el Castillo de Hyrule se ve bien (confirmado en la PS3 real); en v0.2.3 y anteriores se congelaba en el primer KO (`/dev_hdd0/salsa64/fbfx.cfg` con un `1` lo evitaba) |
 | Doom 64 | ~40 % | limitado por el CPU |
 | Banjo-Tooie | jugable en la PS3 (primera prueba) | desafío del CIC 6105 de la PIF; confirmado en la PS3 real el 2026-10-13 |
-| F-Zero X | jugable en la PS3 (v0.2.6) | bus abierto del PI (sondeo del 64DD), el microcódigo que recarga a mitad de lista (F3DEX → F3DFLX) y los brillos de los autos por tabla; a 5× se colgaba en «SELECT COURSE» hasta la v0.2.6; la niebla de la pista (blender FOG·A_SHADE en un solo ciclo con FORCE_BL, que la HLE solo tomaba en dos ciclos) desde la rama `fzero-niebla`, `sin-niebla-1ciclo` la apaga; quedan objetos del fondo pintados sobre la pista y la bruma del horizonte más tardía que en la consola (sombra afín del RDP tras el recorte) |
+| F-Zero X | jugable en la PS3 (v0.2.6) | bus abierto del PI (sondeo del 64DD), el microcódigo que recarga a mitad de lista (F3DEX → F3DFLX) y los brillos de los autos por tabla; a 5× se colgaba en «SELECT COURSE» hasta la v0.2.6; la niebla de la pista (blender FOG·A_SHADE en un solo ciclo con FORCE_BL, que la HLE solo tomaba en dos ciclos) desde la rama `fzero-niebla`, `sin-niebla-1ciclo` la apaga; el fondo de las pistas (objetos del fondo pintados sobre la pista, bruma del horizonte tardía) era la sombra afín del RDP tras el recorte del RSP: desde la rama `fzero-afin` la HLE recorta contra la caja del clip ratio como el microcódigo y el RSX interpola el sombreado lineal en pantalla (`sin-sombra-afin` lo apaga); contra ares, las carreras de la demo pasan de 19–27 a 30–37 dB en 4×4; falta la PS3 |
 | Diddy Kong Racing | pantalla negra | microcódigo propio de Rare; en desarrollo con el RSP a bajo nivel |
 | Resident Evil 2 | no jugable | microcódigo de Capcom |
 

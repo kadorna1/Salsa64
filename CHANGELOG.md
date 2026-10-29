@@ -37,6 +37,20 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **F-Zero X: white background and mis-shaded objects over the track.** The
+  RSP clips every triangle against the clip-ratio box before the RDP sees it,
+  and the RDP interpolates the shade linearly in screen space inside each
+  clipped piece; the HLE sent the whole triangle and the RSX interpolated with
+  perspective correction, so the background quads (two vertices near the
+  camera, far off screen) lost their shade and showed the raw texture, and the
+  horizon haze arrived late. The HLE now clips like the microcode (same
+  polygon, same fan, verified against the real F3DEX2 running in the host LLE)
+  and rsxkit interpolates the vertex shade linearly in screen space (the RSX
+  input bit that skips perspective correction, with the vertex program
+  pre-multiplying by w: no extra fragment instructions). Measured against ares
+  on the demo races: 19–27 dB → 30–37 dB (4×4 blocks); other games unchanged
+  within 0.1 dB. `sin-sombra-afin` in the data directory restores the previous
+  behaviour. Pending confirmation on a real PS3.
 - **Yoshi's Story: camera stutter when walking fast.** The game draws its
   8-bit background layers with the RDP and reads them back from RAM in the
   next task, so the emulator waited for the RSX to draw and copy them back on

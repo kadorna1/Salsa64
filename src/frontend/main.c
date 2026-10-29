@@ -930,6 +930,7 @@ static const struct salsa64_gfx_sink *rdp_sink;
 static bool gfx_affine_chain;
 static bool gfx_s2dex_old_modes;
 static bool gfx_no_fog_1cycle;
+static bool gfx_no_rsp_clip;  /* sin-sombra-afin: la HLE no recorta contra la caja del RSP */
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -941,6 +942,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_S2DEX_OLD_MODES;
 	if (gfx_no_fog_1cycle)
 		job->flags |= GFX_JOB_NO_FOG_1CYCLE;
+	if (gfx_no_rsp_clip)
+		job->flags |= GFX_JOB_NO_RSP_CLIP;
 }
 
 /* DMA a la RDRAM (hilo de emulación): las copias del RDP no lo pisan. */
@@ -5461,6 +5464,11 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	gfx_no_fog_1cycle = file_exists(SALSA64_DATA_DIR "/sin-niebla-1ciclo");
 	salsa64_log("gfx: niebla del blender en un ciclo %s (sin-niebla-1ciclo)",
 		    gfx_no_fog_1cycle ? "apagada" : "activa");
+	/* sin-sombra-afin: la HLE no recorta contra la caja del clip ratio y el
+	 * RSX vuelve a interpolar el sombreado con perspectiva (docs/rsx-notes.md). */
+	gfx_no_rsp_clip = file_exists(SALSA64_DATA_DIR "/sin-sombra-afin");
+	salsa64_log("gfx: recorte del RSP y sombra afín %s (sin-sombra-afin)",
+		    gfx_no_rsp_clip ? "apagados" : "activos");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);
@@ -5812,6 +5820,7 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		salsa64_log("alfa en los destinos de render a textura: %s",
 			    tgt_alpha ? "encendido" : "apagado (sin-alfa-destinos)");
 		salsa64_rdp_aa_edges(aa_edges);
+		salsa64_rdp_affine_shade(!gfx_no_rsp_clip);
 		if (aa_edges)
 			salsa64_log("aristas de los dibujos con AA: encendidas (aristas-aa, experimental)");
 	}
