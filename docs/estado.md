@@ -1,5 +1,28 @@
 # Estado
 
+## 2026-10-29 — Costo del barrido de la caché de datos (#55 Forsaken 64)
+- Reproducido en el host con el respaldo: 1100 tareas y después solo audio y VI, igual que en la PS3. El hilo
+  principal (pri 10) manda un pedido (tipo 0xD) a su hilo del SI (pri 125, cola 0x8008E600, la misma en la que
+  recibe el aviso del SI) y espera la respuesta en 0x8008E670. En ese momento el hilo del SI está dentro de
+  `osContStartReadData` esperando la escritura de la PIF RAM, con `osRecvMesg` sobre esa misma cola: toma el
+  pedido por el aviso del SI, el pedido se pierde y la respuesta no llega nunca. Hace falta que el juego haya
+  hablado con el pak (la escritura de la PIF RAM solo va cuando el último comando no fue leer el control): la
+  corrida «sin pak» de la PS3 mandó 161 comandos del pak; en el host con `--sin-pak` desde el arranque no manda
+  ninguno y pasa la intro.
+- Entre que el hilo del SI empieza a esperar y el pedido pasan 2355 ciclos en Salsa64: casi todo es
+  `osWritebackDCacheAll` (512 CACHE 0x01, 2048 instrucciones). Con un modelo de cachés al estilo ares (40 ciclos
+  por línea sucia escrita de vuelta, 40 por llenado, 48 por línea de instrucciones) ese tramo son 24 019 ciclos:
+  479 líneas sucias. La escritura dura 6098 (65 µs): en la consola termina antes del pedido. ares v148 pasa la
+  intro (logo del corazón y «PRESS START»). Con `SALSA64_SI_INMEDIATO` también pasa; con los 2 ms viejos no.
+- Arreglo: CACHE 0x01 sobre la línea 0 (inicio de un barrido entero) cobra 256 × 40 = 10 240 ciclos en el
+  intérprete y en el recompilador (a r29 en la sección fría; sale del bloque si ya no cabe antes del evento).
+  Medido con el modelo: 1–1,5 barridos por campo y 107 (GoldenEye) a 293 (Zelda) líneas sucias en promedio;
+  Forsaken hace ~5 por campo. `sin-barrido-cache` (host `SALSA64_SIN_BARRIDO_CACHE=1`) lo deja gratis.
+- Host, 1500 campos con y sin el costo: SM64 667, OoT 647, Cruis'n USA 694 y GoldenEye 1266 tareas iguales;
+  imágenes idénticas salvo OoT (el caballo un poco más adelante). Escenas del host: 6 idénticas, DK64 y la casa
+  de Link con la animación un cuadro corrida (una tarea menos). Forsaken: 1957 tareas en 4200 campos y el título.
+  Unitarias: `dcache_sweep_*` (cuatro); 786 pruebas en Docker, 0 fallidas.
+
 ## 2026-10-28 — Ritmo del SI según la PIF (#55 Forsaken 64) y latido para juegos que no arrancan (#54)
 - Forsaken 64 (USA) se queda en negro tras la intro, dos corridas idénticas en la PS3: 1100 tareas, 490 consultas
   de estado, 592 lecturas y 285 escrituras del Controller Pak (0 bloques cambiados: son los sondeos de 0x8000 del

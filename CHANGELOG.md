@@ -11,9 +11,14 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   the read DMA what the PIF needs for the joybus exchanges it carries (0.66 ms
   for one controller or one Controller Pak block, 1.65 ms for four controllers;
   constants measured by the ares project), instead of a flat 2 ms each way.
-  Games that talk to the Controller Pak a lot (Forsaken 64 at its title screen,
-  #55) spent 4 ms per block and could run into their own timeouts. The file
-  `si-ritmo-viejo` in `/dev_hdd0/salsa64/` restores the flat 2 ms.
+  The file `si-ritmo-viejo` in `/dev_hdd0/salsa64/` restores the flat 2 ms.
+- **Data cache write-back cost:** the emulated CPU does not model the VR4300
+  caches, so writing back the whole data cache (`osWritebackDCacheAll`, or
+  `osWritebackDCache`/`osInvalDCache` of 8 KB or more) took 2,000 cycles
+  instead of the console's ~20 cycles per dirty line. Each full sweep now costs
+  10,240 cycles (half of the 512 lines dirty, 40 cycles each, as measured by the
+  ares project). The file `sin-barrido-cache` in `/dev_hdd0/salsa64/` makes it
+  free again.
 - **Heartbeat for games that never start:** the file `latido-siempre` in
   `/dev_hdd0/salsa64/` makes the heartbeat report (pc, registers, last RCP
   events, RDRAM dump) also for a game that never read the controller nor drew
@@ -25,6 +30,14 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
+- **Forsaken 64 (USA): black screen after the intro** (#55). Right after the
+  intro the main thread writes back the data cache and sends a request to its
+  controller thread, which at that moment is waiting for the Serial Interface
+  to finish a write; libultra takes the request as the end of that write, the
+  request is lost and the main thread waits for its answer forever. On the
+  console the write-back of ~480 dirty cache lines takes long enough for the
+  write to finish first; with the data cache write-back cost above (and the
+  new Serial Interface timing) it does here too.
 - **Donkey Kong 64 (USA): black screen with music halfway through the new-game
   intro** (#51). When the intro switches scene, the emulated CPU (faster than
   the real one) fit two game frames in the same video retrace; the game

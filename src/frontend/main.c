@@ -5104,6 +5104,8 @@ static void game_close(void)
 		    n64.bus.vi.fields, emu_stats.fields, emu_stats.dropped, emu_stats.no_slot);
 	if (salsa64_gamefix_name(&n64.bus))
 		salsa64_log("cierre: arreglo de juego aplicado %u veces", n64.bus.gamefix_applied);
+	if (n64.cpu.dcache_sweep_cycles)
+		salsa64_log("cierre: %u barridos de la caché de datos", n64.cpu.dcache_sweeps);
 	savefile_close(&save_file);
 	mempakfile_close(&mempak_file);
 	for (unsigned i = 0; i < SALSA64_PIF_PORTS; i++)
@@ -5421,6 +5423,11 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_log("SI: transferencia %s%s", si_immediate ? "inmediata (sin-si-diferido)"
 		    : si_fixed ? "diferida, 2 ms fijos (si-ritmo-viejo)"
 		    : "diferida: escritura 65 µs, lectura según la PIF", si_immediate ? "" : " (si-ritmo-viejo)");
+	/* Antes de que el recompilador compile nada: decide al compilar (vr4300.h). */
+	bool dcache_sweep = !file_exists(SALSA64_DATA_DIR "/sin-barrido-cache");
+	salsa64_cpu_set_dcache_sweep(&n64.cpu, dcache_sweep);
+	salsa64_log("CPU: barridos de la caché de datos %s (sin-barrido-cache)",
+		    dcache_sweep ? "con su costo" : "gratis");
 	states_init(SALSA64_RDRAM_MAX);  /* la foto de los estados y su hilo de escritura (docs/estados.md) */
 	cajanegra_init(&n64.bus);        /* el anillo de la caja negra, si hay archivo cajanegra (docs/cajanegra.md) */
 	n64.bus.rdram_written = front_rdram_written;
