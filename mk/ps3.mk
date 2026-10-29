@@ -135,7 +135,7 @@ PIC1  ?=
 
 SND0 ?= $(ROOT)/assets/ps3/SND0.AT3
 
-$(OUT)/$(PROGRAM).pkg: $(OUT)/$(PROGRAM).elf $(ICON0) $(PIC1) $(SND0)
+$(OUT)/$(PROGRAM).pkg: $(OUT)/$(PROGRAM).elf $(ICON0) $(PIC1) $(SND0) $(ROOT)/tools/prepare_snd0.py
 	@echo "  PKG     $(notdir $@)"
 	$(VERB)rm -rf $(OBJ)/pkg && mkdir -p $(OBJ)/pkg/USRDIR
 	$(VERB)cp $(ICON0) $(OBJ)/pkg/ICON0.PNG
