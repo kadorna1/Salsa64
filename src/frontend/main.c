@@ -5506,7 +5506,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	bool audio_old_ranges = file_exists(SALSA64_DATA_DIR "/audio-rangos-viejos");
 	salsa64_log("audio: resumen de escrituras %s (audio-rangos-viejos)",
 		    audio_old_ranges ? "anterior" : "por hueco menor");
-	audio_out_init(&n64, audio_old_ranges);
+	/* audio-polef-cero: el POLEF de ABI1 con A_INIT parte de cero, como antes, en vez de tomar las
+	 * muestras previas de la zona de estados del microcódigo (docs/audio-censo.md). */
+	bool audio_polef_zero = file_exists(SALSA64_DATA_DIR "/audio-polef-cero");
+	salsa64_log("audio: POLEF de ABI1 con A_INIT %s (audio-polef-cero)",
+		    audio_polef_zero ? "desde cero" : "como el microcódigo");
+	audio_out_init(&n64, (audio_old_ranges ? AUD_JOB_RANGES_OLD : 0) | (audio_polef_zero ? AUD_JOB_POLEF_INIT_ZERO : 0));
 	/* Tarea JPEG (fondos prerrenderizados de Zelda OoT) en otro SPE, salvo
 	 * que se pida el PPE o que el SPE no dé lo mismo que el PPE. */
 	jpeg_on_spu = 0;
