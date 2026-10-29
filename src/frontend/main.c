@@ -5427,6 +5427,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 		salsa64_rom_normalize(rom, rom_size);
 	memset(rdram, 0, SALSA64_RDRAM_MAX);  /* cada juego arranca igual, venga después del que venga */
 	salsa64_n64_init(&n64, rdram, SALSA64_RDRAM_MAX);
+	n64.bus.vi.bob_full_frame = file_exists(SALSA64_DATA_DIR "/vi-campos");
+	salsa64_log("VI: cuadros entrelazados completos %s (vi-campos)",
+		    n64.bus.vi.bob_full_frame ? "por campos" : "tejidos");
 	bool si_immediate = file_exists(SALSA64_DATA_DIR "/sin-si-diferido");
 	salsa64_si_set_immediate(&n64.bus, si_immediate);
 	salsa64_log("SI: transferencia %s%s", si_immediate ? "inmediata" : "diferida",

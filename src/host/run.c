@@ -3869,6 +3869,7 @@ int main(int argc, char **argv)
 		rdram = fm_window;
 	}
 	salsa64_n64_init(&n64, rdram, ram);
+	n64.bus.vi.bob_full_frame = salsa64_host_env_on("SALSA64_VI_CAMPOS");
 	bool si_immediate = salsa64_host_env_on("SALSA64_SI_INMEDIATO");
 	salsa64_si_set_immediate(&n64.bus, si_immediate);
 	if (si_immediate)

@@ -143,6 +143,8 @@ struct rdp_targets {
 	int il_slot;
 	int32_t il_v0;
 	uint32_t il_y0;
+	bool il_weave;
+	uint32_t il_width, il_height, il_bpp;
 	uint32_t vi_width;      /* ancho del VI en el último campo con imagen */
 	uint32_t created;       /* superficies creadas (estadística) */
 	uint32_t readbacks;     /* copias a la RDRAM (estadística) */

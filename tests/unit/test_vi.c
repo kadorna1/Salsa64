@@ -220,6 +220,47 @@ static void frame_description(void)
 	CHECK(!salsa64_vi_frame(bus(), &f));
 }
 
+static void full_interlaced_frame(void)
+{
+	struct salsa64_vi_frame f;
+	set_mode(0x3252, 0x100000, 640);
+	vi_wr(SALSA64_VI_Y_SCALE, 0x02000800);
+	for (uint32_t field = 0; field < 2; field++) {
+		bus()->vi.field = field;
+		CHECK(salsa64_vi_frame(bus(), &f));
+		CHECK(f.weave);
+		CHECK_EQ(f.vpos, 0x25);
+		CHECK_EQ(f.height, 474);
+		CHECK_EQ(f.origin, 0x100000);
+		/* La presentación no altera la paridad que lee el juego. */
+		CHECK_EQ(vi_rd(SALSA64_VI_V_CURRENT) & 1, field);
+	}
+	bus()->vi.bob_full_frame = true;
+	CHECK(salsa64_vi_frame(bus(), &f));
+	CHECK(!f.weave);
+	CHECK_EQ(f.vpos, 0x26);
+	bus()->vi.bob_full_frame = false;
+	/* Un campo de 237 líneas y un paso doble (Racer/DK64) se conservan. */
+	vi_wr(SALSA64_VI_WIDTH, 1280);
+	vi_wr(SALSA64_VI_Y_SCALE, 0x400);
+	CHECK(salsa64_vi_frame(bus(), &f));
+	CHECK(!f.weave);
+	CHECK_EQ(f.vpos, 0x26);
+	CHECK_EQ(f.height, 237);
+	CHECK_EQ(f.stride, 2560);
+	/* Rogue usa 316 líneas; tampoco es un cuadro completo. */
+	vi_wr(SALSA64_VI_WIDTH, 640);
+	vi_wr(SALSA64_VI_Y_SCALE, 0x555);
+	CHECK(salsa64_vi_frame(bus(), &f));
+	CHECK(!f.weave);
+	CHECK_EQ(f.vpos, 0x26);
+	vi_wr(SALSA64_VI_CONTROL, 0x3202);
+	vi_wr(SALSA64_VI_Y_SCALE, 0x800);
+	CHECK(salsa64_vi_frame(bus(), &f));
+	CHECK(!f.weave);
+	CHECK_EQ(f.vpos, 0);
+}
+
 void t_suite_vi(void)
 {
 	RUN(field_length_ntsc);
@@ -230,4 +271,5 @@ void t_suite_vi(void)
 	RUN(v_intr_reset_never_fires);
 	RUN(vi_interrupt_reaches_cpu);
 	RUN(frame_description);
+	RUN(full_interlaced_frame);
 }

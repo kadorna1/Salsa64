@@ -876,6 +876,49 @@ static void targets_present_interlaced_vpos(void)
 	CHECK_EQ(p.y0, 2);
 }
 
+/* Dos cuadros completos alternos (Indy): V_VIDEO y el origen avanzan
+ * juntos una fila; la ventana presentada debe ser común a ambos búferes. */
+static void targets_present_full_interlaced(void)
+{
+	const uint32_t base[2] = { 0x6b3000, 0x749000 };
+	bool fresh;
+	struct rdp_present p;
+	for (unsigned legacy = 0; legacy < 2; legacy++) {
+		rdp_targets_init(&s);
+		int slot[2];
+		for (unsigned i = 0; i < 2; i++) {
+			slot[i] = rdp_targets_get(&s, base[i], 640, SIZ_16b, 480, &fresh);
+			rdp_targets_drawn(&s, slot[i]);
+		}
+		for (unsigned n = 0; n < 6; n++) {
+			unsigned i = n & 1;
+			struct salsa64_vi_frame f = frame(base[i] + (1 + i) * 1280, 640, 474);
+			f.vpos = i ? 0x25 : 0x23 + legacy;
+			f.weave = !legacy;
+			rdp_targets_present(&s, &f, 10 + n, &p);
+			CHECK_EQ(p.slot, slot[i]);
+			CHECK_EQ(p.y0, legacy ? 1 + i : 1);
+			CHECK_EQ(p.h, 474);
+		}
+		/* Tras una pausa sin presentar no se arrastra la ventana entre
+		 * superficies de otra escena aunque tengan el mismo tamaño. */
+		struct salsa64_vi_frame gap = frame(base[0] + 1280, 640, 474);
+		gap.vpos = 0x23;
+		gap.weave = !legacy;
+		rdp_targets_present(&s, &gap, 16, &p);
+		gap.origin = base[1] + 2 * 1280;
+		gap.vpos = 0x25;
+		rdp_targets_present(&s, &gap, 18, &p);
+		CHECK_EQ(p.y0, 2);
+		/* Cambiar la ventana del juego de verdad no queda fijado al pasado. */
+		struct salsa64_vi_frame f = frame(base[0] + 4 * 1280, 640, 474);
+		f.vpos = 0x25;
+		f.weave = !legacy;
+		rdp_targets_present(&s, &f, 19, &p);
+		CHECK_EQ(p.y0, 4);
+	}
+}
+
 /* Color image de 320 × 720 (Star Fox 64): los tres framebuffers seguidos
  * caben enteros dentro, con sus filas de inicio; otro ancho, no. */
 static void targets_inside(void)
@@ -1170,6 +1213,7 @@ void t_suite_targets(void)
 	RUN(targets_tall_pending);
 	RUN(targets_present_interlaced);
 	RUN(targets_present_interlaced_vpos);
+	RUN(targets_present_full_interlaced);
 	RUN(targets_locate);
 	RUN(targets_decode_rgba16);
 	RUN(targets_texture_policy);
