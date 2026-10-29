@@ -1805,11 +1805,11 @@ static uint32_t prime_profile_pending_spans(int i)
 				continue;
 
 			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
-			/* Active pixels stay latched so RDP work in later fields cannot
-			 * hide them. A coverage-one-to-zero transition is replaced once,
-			 * then removed from the mask so it cannot leave a permanent trail. */
-			if (mode == 2)
-				memset(pending_row + x0, 0, w);
+			/* Consume every replay after one VI. Pixels are re-queued only when
+			 * the CPU changes the RDRAM baseline again. Keeping mode 1 latched
+			 * would resurrect a previous pill over later backgrounds and menus
+			 * whenever its coverage bit stayed set. */
+			memset(pending_row + x0, 0, w);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
@@ -3026,38 +3026,10 @@ static void interp_task(struct set *s, const struct gfx_result *res, uint32_t ta
 }
 
 /* Traduce la salida de la tarea n a comandos del RSX. */
-/* A later RDP primitive supersedes a pending CPU pixel only when it
- * actually covers that pixel. The bounding box of an entire gfx_draw can
- * include large empty gaps between unrelated triangles; clearing those gaps
- * makes CPU-rendered falling pills disappear while they are still in flight. */
-static bool profile_pending_triangle_hits_pixel(float ax, float ay, float bx, float by,
-						float cx, float cy, uint32_t x, uint32_t y,
-						uint32_t scale)
-{
-	float area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-	if (area > -0.000001f && area < 0.000001f)
-		return false;
-
-	/* Test the centers of the actual RSX subpixels represented by this N64
-	 * pixel. This also handles edges at the 3x/4x/5x render-target scales. */
-	const float eps = 0.0001f;
-	for (uint32_t sy = 0; sy < scale; sy++) {
-		float py = (float)y + ((float)sy + 0.5f) / (float)scale;
-		for (uint32_t sx = 0; sx < scale; sx++) {
-			float px = (float)x + ((float)sx + 0.5f) / (float)scale;
-			float e0 = (bx - ax) * (py - ay) - (by - ay) * (px - ax);
-			float e1 = (cx - bx) * (py - by) - (cy - by) * (px - bx);
-			float e2 = (ax - cx) * (py - cy) - (ay - cy) * (px - cx);
-			if (area > 0.0f ? e0 >= -eps && e1 >= -eps && e2 >= -eps
-					: e0 <= eps && e1 <= eps && e2 <= eps)
-				return true;
-		}
-	}
-	return false;
-}
-
-/* Rectangular clears are exact boxes; ordinary draws are handled per triangle
- * below because a batch's union bounding box is much too broad for CPU pixels. */
+/* A rectangular clear really supersedes pending CPU pixels across its full area.
+ * Ordinary triangle batches must not invalidate pending pixels at all: the
+ * CPU replay happens after the scene draw so transient framebuffer sprites
+ * remain visible for this presentation. */
 static void profile_pending_invalidate_box(int i, const struct rdp_box *box)
 {
 	if (i < 0 || i >= RDP_TARGETS_MAX || !box || rdp_box_empty(box) ||
@@ -3424,7 +3396,7 @@ static void translate(uint32_t n)
 				const struct rdp_target *t = &rdp.tg.t[cur];
 				struct rdp_box r = { 0, 0, 0, 0 };
 				rdp_box_add(&r, x0, y0, x1, y1, front, g->scissor, t->lw, t->lh);
-				profile_pending_invalidate_draw(cur, s, g);
+				/* Late CPU pixels are composed after the RDP scene at VI presentation. */
 				rdp_box_union(&drawn_box[cur], &r);
 				rdp_box_union(&rdp.tg.t[cur].box, &r);
 			if (d && (g->depth & GFX_DEPTH_WRITE))
