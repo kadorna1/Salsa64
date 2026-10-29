@@ -1920,6 +1920,52 @@ static void gfx_s2dex_bg_scaled(void)
 	CHECK_EQ(res.skipped, 4);
 }
 
+/* BG_1CYC no llena un marco sobrado con copias de la misma imagen. Las
+ * cotas de los casos sobredimensionados se contrastaron con S2DEX real;
+ * aquí tanto las listas como las imágenes son sintéticas. */
+static void gfx_s2dex_bg_oversized(void)
+{
+	static const struct {
+		uint32_t iw, ih, fw, fh, sw, sh, want_w, want_h;
+		int x, y;
+	} cases[] = {
+		{ 176, 28, 352, 56, 512, 1024, 352, 27, 0, 0 },
+		{ 40, 20, 100, 60, 1024, 1024, 39, 19, 0, 0 },
+		{ 40, 20, 80, 40, 2048, 2048, 19, 9, 0, 0 },
+		{ 40, 20, 80, 40, 1536, 1536, 26, 13, 0, 0 },
+		{ 40, 20, 100, 60, 1024, 1024, 39, 19, -7, -3 },
+		{ 40, 20, 20, 10, 1024, 1024, 20, 10, 0, 0 },
+	};
+	for (unsigned mode = 0; mode < 3; mode++) {
+		bool old = mode == 1, copy = mode == 2;
+		for (unsigned k = 0; k < sizeof cases / sizeof cases[0]; k++) {
+			start();
+			job_flags = old ? GFX_JOB_S2DEX_BG_OLD : 0;
+			put_bg_image(cases[k].iw, cases[k].ih);
+			s2dex_enter("RSP Gfx ucode S2DEX fifo 2.05 prueba");
+			dl(copy ? 0xEF200000 : 0xEF000000, 0x00000001);
+			set_combine(CC(CC_ZERO, CC_ZERO, CC_C_ZERO, CC_T0), CC(CC_A_ZERO, CC_A_ZERO, 7, 6));
+			dl(copy ? 0x0A000000 : 0x09000000, 0x80000000 | put_bg(0, cases[k].iw, cases[k].x, cases[k].fw, 0,
+				cases[k].ih, cases[k].y, cases[k].fh, 0x80000000 | TEX_PA, cases[k].sw, cases[k].sh));
+			s2dex_leave();
+			job_ucode = 0x30000;
+			run();
+			job_ucode = 0;
+			CHECK_EQ(res.bg, 1);
+			CHECK_EQ(res.dl_errors, 0);
+			float xmax = 0, ymax = 0;
+			for (unsigned v = 0; v < res.vtx_bytes / sizeof out_vtx[0]; v++) {
+				CHECK(out_vtx[v].x >= 0 && out_vtx[v].y >= 0);
+				if (out_vtx[v].x > xmax) xmax = out_vtx[v].x;
+				if (out_vtx[v].y > ymax) ymax = out_vtx[v].y;
+			}
+			CHECK(xmax == (float)(cases[k].x + (int)(old || copy ? cases[k].fw : cases[k].want_w)));
+			CHECK(ymax == (float)(cases[k].y + (int)(old || copy ? cases[k].fh : cases[k].want_h)));
+		}
+	}
+	job_flags = 0;
+}
+
 /* ---- S2DEX suelto (tareas SALSA64_GBI_S2DEX y S2DEX1): objetos ---- */
 
 /* uObjTxtr de bloque (G_OBJ_LOADTXTR): la imagen en TEX_PA a la TMEM en
@@ -3177,6 +3223,7 @@ void t_suite_gfx(void)
 	RUN(gfx_s2dex_bg_copy);
 	RUN(gfx_s2dex_bg_wrap);
 	RUN(gfx_s2dex_bg_scaled);
+	RUN(gfx_s2dex_bg_oversized);
 	RUN(gfx_texcache_across_tasks);
 	RUN(gfx_texcache_palette);
 	RUN(gfx_texcache_ring);

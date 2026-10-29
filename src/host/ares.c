@@ -223,6 +223,8 @@ static void run_task(const struct salsa64_task *t, enum salsa64_gbi gbi, struct 
 	job->done_task = 0;
 	if (raster_fbfx >= 1)
 		job->flags |= GFX_JOB_FBTEX;  /* como salsa64-run y la PS3 */
+	if (getenv("SALSA64_GFX_S2DEX_BG_OLD") && strcmp(getenv("SALSA64_GFX_S2DEX_BG_OLD"), "0"))
+		job->flags |= GFX_JOB_S2DEX_BG_OLD;
 	gfx_init(&st);
 	gfx_run(&st, job, res);
 }

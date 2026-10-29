@@ -183,6 +183,8 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
 #define GFX_JOB_S2DEX_OLD_MODES 0x2000u
 /* Diagnóstico: vuelve al negro opaco usado antes para las texturas YUV. */
 #define GFX_JOB_NO_YUV 0x4000u
+/* Diagnóstico: fondos escalados con el marco sin limitar a la imagen. */
+#define GFX_JOB_S2DEX_BG_OLD 0x8000u
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 
