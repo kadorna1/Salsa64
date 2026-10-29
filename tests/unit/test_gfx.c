@@ -2206,6 +2206,43 @@ static void gfx_s2dex_bg_oversized(void)
 	job_flags = 0;
 }
 
+/* Paso entre filas de un fondo cuyo imageW no llena palabras de 64 bits
+ * (Worms Armageddon, #57: imageW = 321 con filas de 320 bytes en CI8). El
+ * microcódigo avanza imageW redondeado hacia abajo a 8 bytes por fila: aquí
+ * una imagen RGBA16 con filas de 40 texels (80 bytes) declarada de 41. Con
+ * el paso de imageW (GFX_JOB_S2DEX_BG_ROW_OLD) cada fila se corría un texel
+ * y la imagen salía inclinada. */
+static void s2dex_bg_odd_scene(uint32_t flags)
+{
+	start();
+	job_flags = flags;
+	put_bg_image(40, 20);
+	s2dex_enter("RSP Gfx ucode S2DEX  fifo 2.05  prueba de Salsa64");
+	dl(0xEF000000, 0x00000001);  /* 1 ciclo, filtro puntual */
+	set_combine(CC(CC_ZERO, CC_ZERO, CC_C_ZERO, CC_T0), CC(CC_A_ZERO, CC_A_ZERO, 7, 6));
+	dl(0x09000000, 0x80000000 | put_bg(0, 41, 0, 40, 0, 20, 0, 10, 0x80000000 | TEX_PA, 1024, 1024));
+	s2dex_leave();
+	job_ucode = 0x30000;
+	run();
+	job_ucode = 0;
+}
+
+static void gfx_s2dex_bg_row_stride(void)
+{
+	s2dex_bg_odd_scene(0);
+	CHECK_EQ(res.bg, 1);
+	CHECK_EQ(res.rects, 1);
+	CHECK(bg_tex_is(0, 0, 0, 0, 0) && bg_tex_is(0, 0, 1, 0, 1) && bg_tex_is(0, 39, 9, 39, 9));
+	CHECK(bg_tex_is(0, 17, 6, 17, 6));
+	/* La columna 41 de una fila es la primera de la siguiente. */
+	CHECK(bg_tex_is(0, 40, 3, 0, 4));
+
+	/* El interruptor: el paso de 41 texels corre cada fila uno más. */
+	s2dex_bg_odd_scene(GFX_JOB_S2DEX_BG_ROW_OLD);
+	CHECK_EQ(res.bg, 1);
+	CHECK(bg_tex_is(0, 0, 0, 0, 0) && bg_tex_is(0, 0, 1, 1, 1) && bg_tex_is(0, 0, 2, 2, 2));
+}
+
 /* ---- S2DEX suelto (tareas SALSA64_GBI_S2DEX y S2DEX1): objetos ---- */
 
 /* uObjTxtr de bloque (G_OBJ_LOADTXTR): la imagen en TEX_PA a la TMEM en
@@ -3466,6 +3503,7 @@ void t_suite_gfx(void)
 	RUN(gfx_s2dex_bg_wrap);
 	RUN(gfx_s2dex_bg_scaled);
 	RUN(gfx_s2dex_bg_oversized);
+	RUN(gfx_s2dex_bg_row_stride);
 	RUN(gfx_texcache_across_tasks);
 	RUN(gfx_texcache_palette);
 	RUN(gfx_texcache_ring);

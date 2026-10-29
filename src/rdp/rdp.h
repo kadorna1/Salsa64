@@ -92,6 +92,9 @@ struct salsa64_rdp_stats {
 	 * canal alfa, texturas leídas de uno de ellos, y rellenos / copias de
 	 * texturas que escribieron su alfa tal cual (rsxkit_draw.dst_alpha). */
 	uint32_t targets_alpha, tex_alpha, alpha_fills;
+	/* Copias a la RDRAM de un destino con alfa que llevaron su alfa al bit
+	 * de RGBA5551 (salsa64_rdp_set_copy_alpha). */
+	uint32_t alpha_copies;
 	/* Texturas que la HLE no decodificó por venir de un destino
 	 * (GFX_TEX_TARGET) y que no se pudieron leer de él: decodificadas en el
 	 * PPE desde la RDRAM, y las que no cupieron en el arena (dibujo saltado). */
@@ -228,6 +231,11 @@ void salsa64_rdp_set_big8_wait(bool wait);
  * cuando su superficie es nueva o quedó vieja, como las de 16 bits; `false`
  * (bandera gfx-big8-sin-cebar) vuelve a dejarlas con lo que tuviera el RSX. */
 void salsa64_rdp_set_big8_prime(bool prime);
+/* Las copias a la RDRAM de los destinos con alfa (salsa64_rdp_target_alpha)
+ * se leen del RSX en ARGB8888 y dejan el alfa en el bit de RGBA5551, como el
+ * RDP; `false` (bandera copia-sin-alfa) vuelve a copiarlas en RGB565 con
+ * alfa 1 (LEGO Racers, #34: autos lejanos dentro de un cuadro). */
+void salsa64_rdp_set_copy_alpha(bool on);
 /* Las capas de 8 bits (big8) las dibuja el PPE en la RDRAM (layer8.h) y no
  * pasan por el RSX ni por su copia; `false` (bandera gfx-capas8-rsx) vuelve
  * a dibujarlas en el RSX y a esperar la copia. */

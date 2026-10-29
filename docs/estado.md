@@ -26,6 +26,87 @@
   `tools/escenas-host.sh`, F-Zero X en los campos 3000 y 4500, Luigi Raceway, Dam y el castillo de
   SM64). Falta la PS3.
 
+## 2026-10-29 — #34, LEGO Racers: el cuadro alrededor de los autos lejanos (alfa en las copias a la RDRAM)
+
+- Reporte (v0.2.14): los autos se ven bien casi siempre, pero al empezar una
+  carrera y a veces en juego aparece un cuadro que parpadea alrededor de
+  ellos. ROM del log igual al respaldo propio (CRC-32 `39407C9F`).
+- Datos: el juego dibuja cada auto lejano en una imagen de 32 × 32 (o 64 ×
+  64) que borra con un relleno 0x0000 (alfa 0) y la pega en el cuadro como
+  textura RGBA16 con prueba de alfa (dos triángulos, `atest 1/1`). En la
+  RDRAM de un volcado de ares de la carrera (de la rama del 2026-10-26) el
+  fondo de las cinco imágenes es 0x0000 (814–908 de 1024 píxeles con alfa 0)
+  y el auto lleva alfa 1. En el log del usuario, «texturas desde un
+  destino: … de la RDRAM» llega a 532 (423 decodificadas en el PPE) en los
+  5 s de cada salida y a 47–228 en algunas ventanas de la carrera: cuando
+  una de esas imágenes lleva más de `RDP_TARGETS_FRESH` tareas sin
+  redibujarse, la textura se decodifica de la RDRAM.
+- Causa: las copias del RSX a la RDRAM (espejos de imágenes chicas, copias
+  de la tarea) pasaban por RGB565 y `rsxkit_pixels_565_to_5551` pone el bit
+  de alfa en 1: leída de la RDRAM, la imagen salía opaca con su fondo negro.
+  El canal alfa de los destinos (1d30178) ya hacía bien el camino del RSX.
+  No es el arreglo de mezclas de Vigilante 8 ni la profundidad del
+  2026-10-26.
+- Arreglo: `rsxkit_target_read` acepta `RSXKIT_ARGB8888` (el alfa del
+  destino, filtrado como el color; 1 si no tiene) y `src/rdp/rdp.c` copia así
+  los destinos con alfa que no son framebuffer (`rb_argb`), con el bit de
+  alfa por la mitad; si la copia de 32 bits no cabe en su búfer, la de
+  antes. Interruptor `copia-sin-alfa` (`salsa64_rdp_set_copy_alpha`); el log
+  de cada 5 s suma «copias a la RDRAM con su alfa».
+- Host: el rasterizador no tenía alfa en los destinos (el auto lejano salía
+  siempre en su cuadro). Ahora lo lleva como rsxkit, en el byte alto de cada
+  imagen (`RGB_TRANSP`), y lo copia a la RDRAM igual que la PS3
+  (`SALSA64_SIN_ALFA_DESTINOS=1`, `SALSA64_COPIA_SIN_ALFA=1`). Con el pad de
+  la rama del 2026-10-26 hasta la carrera: main saca el cuadro en cada
+  cuadro con un auto lejano; con la rama, sin cuadro; con
+  `SALSA64_COPIA_SIN_ALFA=1`, el cuadro vuelve solo en los campos en que la
+  textura sale de la RDRAM (2810, 2870–2890: 0,07–0,14 % de la imagen), que
+  es lo que veía la PS3.
+- Sin regresiones: escenas del host (SM64, Banjo, Zelda título y casa, DK64,
+  PD, GoldenEye, MK64, Kirby, F-Zero X en dos escenas) idénticas byte a byte
+  a main; solo cambian Worms y LEGO Racers. Unitarias en Docker 790, 0
+  fallidas; prueba `raster_alpha_copy` (fondo 0x0000 con alfa, 0x0001 con
+  los dos interruptores, y el cebado que conserva el bit). `--lle-check-gfx`
+  pasa el color sin el byte del alfa.
+- Falta la PS3: el costo de la copia ARGB8888 (el doble de bytes y la
+  conversión en el PPE; en LEGO Racers son imágenes de 2–8 KB) y que el
+  cuadro no vuelva al empezar la carrera.
+
+## 2026-10-29 — #57, Worms Armageddon inclinado: el paso de las filas de los fondos de S2DEX
+
+- Reporte (PAL y USA, v0.2.14): el logo de inicio y todo el texto salen con
+  rayas y «todo se ve inclinado». ROM del log (USA, CRC-32 de toda la ROM
+  `5471AE3B`) igual a la del respaldo propio.
+- En el host sale igual: cada fila de la imagen corrida un texel más que la
+  anterior (las letras en cursiva y lo que sale por un borde vuelve por el
+  otro). `--lle-check-gfx` en los primeros 300 campos: 255 de 256 tareas
+  distintas del microcódigo real («dibuja de más»), con los mismos 12 496
+  rectángulos; con el microcódigo real la imagen sale derecha, como en
+  mupen64plus.
+- Datos: todos los fondos son `G_BG_1CYC` (S2DEX 2.08) con `imageW` una
+  columna más ancho que el marco: 321 × 241 para un marco de 320 × 240 (y
+  41 / 36, 145 / 144), CI8 con LOADTILE. Los comandos del RDP que entrega el
+  microcódigo real: `SETTIMG` de 160 texels de 16 bits (filas de **320**
+  bytes), `LOADTILE` de 165 texels (lee 330 bytes desde cada fila: la
+  columna 321 es la primera de la fila siguiente) y el puntero avanza 1600
+  bytes cada 5 filas. La HLE pedía `SETTIMG` de 321 texels de 8 bits: paso
+  de 321 bytes, un texel de más por fila.
+- Causa y arreglo (`src/rsp/gfx/s2dex.c`, `bg_stride`): el paso entre filas
+  es `imageW` redondeado hacia abajo a palabras de 64 bits (lo que el
+  microcódigo toma de `imageW >> (6 − siz)`, el mismo cálculo que deja
+  `guS2DInitBg` en `tmemSizeW`, que el juego también trae en los bytes 36–37:
+  `0x50` = 80 palabras de 32 bits). Solo cambia algo cuando la fila no llena
+  palabras de 64 bits; los fondos de 320 × RGBA16 (Zelda, RE2) o de ancho
+  múltiplo de 8 bytes quedan igual.
+- Medido: `--lle-check-gfx` 1500 campos (logos, título y menú de idioma):
+  1454 de 1454 tareas idénticas al microcódigo real (antes 1 de 256 en los
+  primeros 300). La imagen del VI en el campo 300, idéntica byte a byte a la
+  del microcódigo real.
+- Interruptor `GFX_JOB_S2DEX_BG_ROW_OLD`: archivo `s2dex-paso-viejo` en la
+  PS3, `SALSA64_S2DEX_PASO_VIEJO=1` en el host (vuelve a la imagen inclinada,
+  idéntica a la de main). Prueba `gfx_s2dex_bg_row_stride` (imagen RGBA16 de
+  filas de 40 texels declarada de 41, y el interruptor).
+
 ## 2026-10-29 — rsxkit unificada con SalsaDS (rama rsxkit-unificar)
 
 - `lib/rsxkit` es ahora la misma biblioteca, byte a byte, en Salsa64 y en

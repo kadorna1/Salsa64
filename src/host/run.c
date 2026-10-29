@@ -171,6 +171,7 @@ static struct salsa64_rec rec;
 static bool gfx_affine_chain;
 static bool gfx_no_fog_1cycle;
 static bool gfx_no_rsp_clip;  /* SALSA64_SIN_SOMBRA_AFIN: sin la caja del RSP ni la sombra afín */
+static bool gfx_s2dex_bg_row_old;
 
 /* fastmem (docs/fastmem.md): un acceso del código generado fuera de la RDRAM
  * cae en la ventana sin permisos; el manejador parchea el sitio hacia su
@@ -1313,6 +1314,8 @@ static void gfx_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_NO_YUV;
 	if (salsa64_host_env_on("SALSA64_BLEND_OLD"))
 		job->flags |= GFX_JOB_BLEND_OLD;
+	if (gfx_s2dex_bg_row_old)
+		job->flags |= GFX_JOB_S2DEX_BG_ROW_OLD;
 #ifdef SALSA64_GFX_TRACE
 	salsa64_gfx_trace_now = trace_gfx_verbose && trace_gfx_left && n64.bus.vi.fields > (trace_from ? trace_from : 500);
 	trace_draw = trace_states = 0;
@@ -3924,6 +3927,7 @@ int main(int argc, char **argv)
 	raster_affine = !gfx_no_rsp_clip;
 	if (gfx_no_rsp_clip)
 		fprintf(stderr, "salsa64-run: recorte del RSP y sombra afín apagados (SALSA64_SIN_SOMBRA_AFIN)\n");
+	gfx_s2dex_bg_row_old = salsa64_host_env_on("SALSA64_S2DEX_PASO_VIEJO");
 	if (getenv("SALSA64_GFX_CYCLES"))
 		n64.bus.rsp.gfx_cycles = (uint32_t)strtoul(getenv("SALSA64_GFX_CYCLES"), NULL, 0);
 	if (getenv("SALSA64_DP_CYCLES"))
@@ -3943,6 +3947,8 @@ int main(int argc, char **argv)
 		raster_fbfx = atoi(getenv("SALSA64_FBFX"));
 	if (getenv("SALSA64_AA_EDGES"))
 		raster_aa_edges = atoi(getenv("SALSA64_AA_EDGES")) != 0;
+	raster_target_alpha = !salsa64_host_env_on("SALSA64_SIN_ALFA_DESTINOS");
+	raster_copy_alpha = !salsa64_host_env_on("SALSA64_COPIA_SIN_ALFA");
 	if (getenv("SALSA64_AA_EDGE_OFFSET"))
 		sscanf(getenv("SALSA64_AA_EDGE_OFFSET"), "%f,%f", &raster_edge_factor, &raster_edge_units);
 	const struct salsa64_gfx_sink sink = { NULL, gfx_acquire, gfx_done };

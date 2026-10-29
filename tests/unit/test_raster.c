@@ -529,7 +529,7 @@ static void raster_tall_fill_first(void)
 		task_fill_w(0x1000, 64, 0, 0, 0);
 	task_scissor(FB_B, 8, 8, 312, 232, inner, 255, 0, 0);
 	b = raster_image(FB_B, &w);
-	CHECK(b && b[0] == 0u);
+	CHECK(b && (b[0] & 0xFFFFFFu) == 0u);  /* el byte alto es el alfa (sin VI, con alfa) */
 	/* Con un DMA posterior al relleno en la memoria del destino, manda el DMA. */
 	raster_reset();
 	memset(ram, 0, sizeof ram);
@@ -750,6 +750,108 @@ static void raster_big8_primed(void)
 	raster_fbfx = fbfx;
 }
 
+/* LEGO Racers (#34): cada auto lejano se dibuja en una imagen de 32 × 32
+ * borrada con alfa 0 (relleno 0x0000) y se usa como textura con prueba de
+ * alfa. La copia a la RDRAM lleva el alfa del destino al bit de RGBA5551,
+ * como el RDP (en la consola, el fondo de esas imágenes queda en 0x0000);
+ * con alfa 1 en todo, una textura decodificada de la RDRAM (destino viejo)
+ * sacaba el auto dentro de un cuadro. */
+#define AUX 0x8000u  /* 32 × 32 a 16 bits, antes de los framebuffers */
+static void task_aux_car(bool with_fill)
+{
+	memset(cmd2, 0, sizeof cmd2);
+	struct gfx_cmd *t = (struct gfx_cmd *)cmd2;
+	t->op = GFX_OP_TARGET;
+	t->size = sizeof *t;
+	t->a = AUX;
+	t->b = 32;
+	t->c = 2;
+	for (int k = 0; k < 2; k++) {
+		struct gfx_draw *d = (struct gfx_draw *)(cmd2 + sizeof *t + k * sizeof *d);
+		d->h.op = GFX_OP_DRAW;
+		d->h.size = sizeof *d;
+		d->h.a = (uint32_t)(6 * k);
+		d->h.b = 6;
+		d->scissor[2] = 32 * 4;
+		d->scissor[3] = 32 * 4;
+		d->k[GFX_K_ONE][0][3] = 1.0f;
+	}
+	struct gfx_draw *fill = (struct gfx_draw *)(cmd2 + sizeof *t);
+	fill->cycle = 3;  /* G_CYC_FILL, color 0x0000: alfa 0 */
+	fill->aref = 0;
+	quad(&vtx2[0], 0, 0, 32, 32);
+	if (!with_fill)
+		fill->h.b = 0;  /* sin triángulos: solo el auto */
+	struct gfx_draw *car = fill + 1;
+	car->k[GFX_K_ONE][0][0] = 1.0f;  /* el auto: rojo, opaco */
+	quad(&vtx2[6], 8, 8, 24, 24);
+	struct gfx_job job;
+	struct gfx_result res;
+	memset(&job, 0, sizeof job);
+	memset(&res, 0, sizeof res);
+	job.rdram_ea = (uint64_t)(uintptr_t)ram;
+	job.rdram_size = sizeof ram;
+	job.vtx_ea = (uint64_t)(uintptr_t)vtx2;
+	job.cmd_ea = (uint64_t)(uintptr_t)cmd2;
+	res.cmd_bytes = sizeof cmd2;
+	raster_task(&job, &res);
+}
+
+static uint16_t aux_px(uint32_t x, uint32_t y)
+{
+	return salsa64_rd16(ram + AUX + (y * 32 + x) * 2);
+}
+
+static void raster_alpha_copy(void)
+{
+	int fbfx = raster_fbfx;
+	bool ta = raster_target_alpha, ca = raster_copy_alpha;
+	raster_fbfx = 2;
+	for (int mode = 0; mode < 3; mode++) {
+		raster_reset();
+		memset(ram, 0x55, sizeof ram);
+		raster_target_alpha = mode != 2;
+		raster_copy_alpha = mode == 0;
+		task_fill(FB_A, 0, 0, 255);
+		field(FB_A);
+		task_aux_car(true);  /* el espejo de la imagen chica, al terminar la tarea */
+		/* Lo dibujado: rojo con alfa 1. */
+		CHECK_EQ(aux_px(16, 16), rgba5551(255, 0, 0));
+		/* El fondo: 0x0000 como en la consola; sin el alfa (copia-sin-alfa o
+		 * sin-alfa-destinos), 0x0001. */
+		CHECK_EQ(aux_px(0, 0), mode == 0 ? 0x0000 : 0x0001);
+		CHECK_EQ(aux_px(31, 31), mode == 0 ? 0x0000 : 0x0001);
+		/* La imagen del destino: el alfa en el byte alto (alfa 0: 0xFF). */
+		uint32_t w = 0;
+		const uint32_t *img = raster_image(AUX, &w);
+		CHECK(img != NULL && w == 32);
+		if (img) {
+			CHECK_EQ(img[0] >> 24, mode != 2 ? 0xFFu : 0u);
+			CHECK_EQ(img[16 * RASTER_W + 16] >> 24, 0u);
+		}
+	}
+	/* El cebado desde la RDRAM conserva el bit: tareas después (destino
+	 * viejo) la imagen se ceba de la copia, sin el relleno, y el fondo sigue
+	 * con alfa 0. */
+	raster_target_alpha = raster_copy_alpha = true;
+	raster_reset();
+	memset(ram, 0x55, sizeof ram);
+	task_fill(FB_A, 0, 0, 255);
+	field(FB_A);
+	task_aux_car(true);
+	for (int k = 0; k < 6; k++)
+		task_fill(FB_A, 0, 0, 255);
+	task_aux_car(false);
+	uint32_t w = 0;
+	const uint32_t *img = raster_image(AUX, &w);
+	CHECK(img && img[0] >> 24 == 0xFFu && img[16 * RASTER_W + 16] >> 24 == 0u);
+	CHECK_EQ(aux_px(0, 0), 0x0000);
+	raster_reset();
+	raster_target_alpha = ta;
+	raster_copy_alpha = ca;
+	raster_fbfx = fbfx;
+}
+
 /* layer8 (src/rdp/layer8.c, lo que el PPE hace en la PS3 con las capas de
  * 8 bits) contra el rasterizador del host, byte a byte: tiles CI8 de 16 ×
  * 16 (RGBA8888 con el índice en el rojo) copiados 1:1 sin filtro, un
@@ -960,6 +1062,7 @@ void t_suite_raster(void)
 	RUN(raster_layer8_equals_host);
 	RUN(raster_layer8_cost);
 	RUN(raster_big8_primed);
+	RUN(raster_alpha_copy);
 	RUN(raster_recycled_slot);
 	RUN(raster_recycled_slot_big);
 	RUN(raster_copy_inside_scissor);

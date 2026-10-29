@@ -16,6 +16,13 @@ Las entradas antiguas conservan sus métodos de prueba como historia.
 |---|---|---|
 | Vigilante 8: 2nd Offense | explosiones, humo y resplandor del sol con mezcla (host; falta la PS3) | el juego los pinta en dos pasadas con el mismo cuadrilátero: MEM·A_IN con el color en negro y encima IN·A_FOG + MEM (G_RM_ADD); la HLE las clasificaba como IN·α + MEM·(1 − α) y quedaba un cuadro negro. Modos nuevos de gfx_blend (`dst·α`, `src + dst·α`, `src·(1 − α) + dst·α`, `src + dst`) hasta el RSX; `mezclas-viejas` vuelve a la clasificación anterior. Escenas del host de SM64, Zelda, MK64, GoldenEye y F-Zero X sin cambios |
 
+## 2026-10-29 — Reportes #57 y #34 (rama gh-worms-lego, sin probar en la PS3)
+
+| Juego | Estado | Notas |
+|---|---|---|
+| Worms Armageddon | imagen derecha en el host, idéntica al microcódigo real en logos, título y menú de idioma | los fondos de S2DEX declaran `imageW` una columna más ancho que la fila; el paso de las filas ya es el del microcódigo (`s2dex-paso-viejo` vuelve al de antes) |
+| LEGO Racers | sin el cuadro alrededor de los autos lejanos en el host | las copias a la RDRAM de los destinos con alfa llevan su alfa (`copia-sin-alfa` vuelve a alfa 1); falta confirmarlo en la PS3 |
+
 ## 2026-10-22 — Candidata de la v0.2.10 (microcódigos)
 
 | Juego | Estado | Notas |

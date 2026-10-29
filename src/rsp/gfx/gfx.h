@@ -198,6 +198,11 @@ _Static_assert(sizeof(struct gfx_detail) % 16 == 0, "detalle apto para DMA");
 /* Diagnóstico: el blender solo con los cuatro modos de antes (todo lo demás
  * como IN·α + MEM·(1 − α)); los productos nuevos de gfx_blend no salen. */
 #define GFX_JOB_BLEND_OLD 0x40000u
+/* Interruptor: el paso entre filas de los fondos de S2DEX (G_BG_COPY,
+ * G_BG_1CYC) vuelve a ser imageW texels en vez de imageW redondeado hacia
+ * abajo a palabras de 64 bits, como el microcódigo (s2dex.c bg_stride;
+ * Worms Armageddon). El PPE lo pone si existe s2dex-paso-viejo. */
+#define GFX_JOB_S2DEX_BG_ROW_OLD 0x80000u
 /* Valor interno de chain_ex; no forma parte del descriptor ni del estado RDP. */
 #define GFX_CHAIN_AFFINE 2u
 

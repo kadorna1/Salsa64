@@ -935,6 +935,7 @@ static bool gfx_no_rsp_clip;  /* sin-sombra-afin: la HLE no recorta contra la ca
 static bool gfx_s2dex_bg_old;
 static bool gfx_no_yuv;
 static bool gfx_blend_old;
+static bool gfx_s2dex_bg_row_old;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -954,6 +955,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_NO_FOG_1CYCLE;
 	if (gfx_no_rsp_clip)
 		job->flags |= GFX_JOB_NO_RSP_CLIP;
+	if (gfx_s2dex_bg_row_old)
+		job->flags |= GFX_JOB_S2DEX_BG_ROW_OLD;
 }
 
 /* DMA a la RDRAM (hilo de emulación): las copias del RDP no lo pisan. */
@@ -3693,6 +3696,7 @@ static void stats(uint64_t now)
 		uint32_t tppe = rs.tex_ppe - sw.rdp0.tex_ppe, tppel = rs.tex_ppe_lost - sw.rdp0.tex_ppe_lost;
 		uint32_t talpha = rs.targets_alpha - sw.rdp0.targets_alpha, xalpha = rs.tex_alpha - sw.rdp0.tex_alpha;
 		uint32_t falpha = rs.alpha_fills - sw.rdp0.alpha_fills;
+		uint32_t calpha = rs.alpha_copies - sw.rdp0.alpha_copies;
 		if (rb || rbw || mir || mirs || fmir || dmas || trsx || trd || tself || primes || lost || tfail || tabs ||
 		    bfail || tppe || tppel)
 			salsa64_log("gfx: framebuffer: %u copias a la RDRAM (%.2f ms c/u en presentación), la emulación "
@@ -3705,10 +3709,10 @@ static void stats(uint64_t now)
 				    rbw ? (rs.us_readback_wait - sw.rdp0.us_readback_wait) / 1e3 / rbw : 0.0,
 				    rs.readback_late - sw.rdp0.readback_late, mir, mirs, fmir, dmas, trsx, trd, tself, tppe,
 				    tppel, primes, pwaits, lost, tfail, tabs, bfail);
-		if (talpha || xalpha || falpha)
+		if (talpha || xalpha || falpha || calpha)
 			salsa64_log("gfx: alfa en los destinos: %u destinos con alfa creados, %u texturas leídas de uno "
-				    "de ellos, %u rellenos o copias con su alfa",
-				    talpha, xalpha, falpha);
+				    "de ellos, %u rellenos o copias con su alfa, %u copias a la RDRAM con su alfa",
+				    talpha, xalpha, falpha, calpha);
 		if (rs.big8_sync != sw.rdp0.big8_sync || rs.big8_nosync != sw.rdp0.big8_nosync ||
 		    rs.big8_primes != sw.rdp0.big8_primes)
 			salsa64_log("gfx: copias big8: %u esperadas, %u sin esperar; %u hechas, cambiaron %u píxeles de la "
@@ -5504,6 +5508,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	salsa64_log("gfx: conversión YUV %s (sin-yuv)", gfx_no_yuv ? "apagada" : "encendida");
 	gfx_blend_old = file_exists(SALSA64_DATA_DIR "/mezclas-viejas");
 	salsa64_log("gfx: modos del blender %s (mezclas-viejas)", gfx_blend_old ? "los cuatro de antes" : "completos");
+	gfx_s2dex_bg_row_old = file_exists(SALSA64_DATA_DIR "/s2dex-paso-viejo");
+	salsa64_log("gfx: paso de las filas de los fondos de S2DEX %s (s2dex-paso-viejo)",
+		    gfx_s2dex_bg_row_old ? "de imageW (el de antes)" : "en palabras de 64 bits, como el microcódigo");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);
@@ -5654,6 +5661,14 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	if (file_exists(SALSA64_DATA_DIR "/gfx-capas8-rsx")) {
 		salsa64_rdp_set_layer8(false);
 		salsa64_log("capas de 8 bits (big8): en el RSX con copia a la RDRAM (gfx-capas8-rsx)");
+	}
+	/* Las copias a la RDRAM de los destinos con alfa llevan su alfa al bit de
+	 * RGBA5551; `copia-sin-alfa` vuelve a copiarlas con alfa 1 (para comparar). */
+	{
+		bool copy_alpha = !file_exists(SALSA64_DATA_DIR "/copia-sin-alfa");
+		salsa64_rdp_set_copy_alpha(copy_alpha);
+		if (!copy_alpha)
+			salsa64_log("gfx: copias a la RDRAM de los destinos con alfa sin su alfa (copia-sin-alfa)");
 	}
 	{
 		bool big8_prime = !file_exists(SALSA64_DATA_DIR "/gfx-big8-sin-cebar");
