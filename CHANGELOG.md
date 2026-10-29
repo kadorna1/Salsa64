@@ -14,11 +14,18 @@ NTSC backups); `docs/perf-log.md` has the detailed numbers and
   in April 2027, after 6 public months); regular achievements work meanwhile.
 
 ### Fixed
-- **Indiana Jones and the Infernal Machine: console freeze leaving a
-  waterfall (intermittent).** The graphics HLE once asked for a colour image
-  at 0x900000, outside the 8 MB of RDRAM, 455 pixels wide; the depth upload
-  that followed was the first one with an odd source width, and the RSX
-  stopped right there. Colour images that start outside RDRAM are now
+- **Indiana Jones and the Infernal Machine: invisible Indy, half the screen
+  black and a console freeze after leaving a waterfall.** The graphics HLE
+  ran the game's secondary display lists (the ones Factor 5's microcode runs
+  before drawing) until a `B8000000 FFFFFFFF`, but some end with a plain
+  `B8000000 00000000`: it kept going through the vertex data behind them and
+  executed vertices as RDP commands (a colour image at 0x880000 for Indy's
+  model, a black rectangle over the right half). Like the real microcode
+  (checked with the low-level RSP on the Mac), any end-of-list command now
+  ends them; `f5-sublista-vieja` restores the old behaviour. One of those
+  bogus colour images, at 0x900000, outside the 8 MB of RDRAM, 455 pixels
+  wide, was followed by the first depth upload with an odd source width, and
+  the RSX stopped right there. Colour images that start outside RDRAM are now
   ignored (the RDP has nowhere to write them), and depth uploads always use
   an even source width (the extra texel never reaches the output).
   `rsx-sin-blindaje` turns this off for comparison. If the RSX still hangs,

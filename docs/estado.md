@@ -1,5 +1,25 @@
 # Estado
 
+## 2026-10-29 — Indiana Jones, segunda ronda: la lista secundaria de Factor 5 acaba en cualquier G_ENDDL (rama `indy-rsx`)
+
+- En la PS3 con el paquete de la primera ronda: sin cuelgue, pero tras salir
+  de la cascada Indy invisible y la mitad derecha negra; 20 avisos «color
+  image 880000/18 fuera de la RDRAM». Las cajas negras: los dibujos de Indy
+  van a 880000/18 (z 0x820000) y un rectángulo (240,0)–(670,430) con
+  s = t = 0 pinta de negro la derecha. `FFB00011 00880000` (formato 5, que
+  no existe) es un vértice de 8 bytes (−80, 17, 136, 0): la HLE ejecutaba
+  vértices como comandos del RDP al seguir la lista secundaria (DMEM 0x58C)
+  más allá de un `B8000000 00000000` hasta un B8 … FFFFFFFF.
+- Comprobado con `--lle=all` en el host (estado de una partida del autor en
+  el mismo nivel, reproducida con las entradas del log): una lista de
+  material cambiada para acabar en B8/0 con un G_SETCIMG detrás: la HLE
+  vieja lo ejecuta, el microcódigo real no; dentro de la lista, los dos.
+- Arreglo en `do_sub_dlist` (f5indy.c): cualquier G_ENDDL termina la lista;
+  `f5-sublista-vieja` / `SALSA64_F5_SUBLISTA_VIEJA=1` vuelve a lo de antes.
+  Unitarias 791, 0 fallos (2 nuevas en `gfx-f5indy`); escenas del host 34
+  de 34 idénticas a main; Indy en juego (12 imágenes desde el estado)
+  idéntico con y sin el arreglo. Falta la PS3: salir de la cascada.
+
 ## 2026-10-29 — Indiana Jones: el RSX dejó de avanzar tras una color image fuera de la RDRAM; blindaje y datos de un cuelgue (rama `indy-rsx`)
 
 - En la PS3 real, tras once minutos de juego, al salir por segunda vez de

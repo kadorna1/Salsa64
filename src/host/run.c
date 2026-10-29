@@ -170,6 +170,7 @@ static uint8_t isv_buf[SALSA64_ISV_SIZE] __attribute__((aligned(16)));
 static struct salsa64_rec rec;
 static bool gfx_affine_chain;
 static bool gfx_no_fog_1cycle;
+static bool gfx_f5_sub_old;  /* SALSA64_F5_SUBLISTA_VIEJA: GFX_JOB_F5_SUB_OLD */
 
 /* fastmem (docs/fastmem.md): un acceso del código generado fuera de la RDRAM
  * cae en la ventana sin permisos; el manejador parchea el sitio hacia su
@@ -1304,6 +1305,8 @@ static void gfx_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_AFFINE_CHAIN;
 	if (gfx_no_fog_1cycle)
 		job->flags |= GFX_JOB_NO_FOG_1CYCLE;
+	if (gfx_f5_sub_old)
+		job->flags |= GFX_JOB_F5_SUB_OLD;
 #ifdef SALSA64_GFX_TRACE
 	salsa64_gfx_trace_now = trace_gfx_verbose && trace_gfx_left && n64.bus.vi.fields > (trace_from ? trace_from : 500);
 	trace_draw = trace_states = 0;
@@ -3883,6 +3886,7 @@ int main(int argc, char **argv)
 	const char *affine = getenv("SALSA64_GFX_AFFINE_CHAIN");
 	gfx_affine_chain = !affine || strcmp(affine, "0");
 	gfx_no_fog_1cycle = salsa64_host_env_on("SALSA64_SIN_NIEBLA_1CICLO");
+	gfx_f5_sub_old = salsa64_host_env_on("SALSA64_F5_SUBLISTA_VIEJA");
 	if (getenv("SALSA64_GFX_CYCLES"))
 		n64.bus.rsp.gfx_cycles = (uint32_t)strtoul(getenv("SALSA64_GFX_CYCLES"), NULL, 0);
 	if (getenv("SALSA64_DP_CYCLES"))

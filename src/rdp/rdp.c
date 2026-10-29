@@ -2738,6 +2738,9 @@ static void translate(uint32_t n)
 					    rdp.cache, CACHE_BYTES, rdp.rdram, rdp.rdram_size };
 		rdp.task_hook(rdp.task_ctx, n, &src, res);
 	}
+	if (res->flags & GFX_RES_F5_SUB_END)
+		LOGN(5, "gfx: tarea %u: una lista secundaria de Factor 5 acabó en un G_ENDDL que no es B8 … FFFFFFFF "
+		     "(f5-sublista-vieja seguiría por lo que hay detrás)", n);
 	rsxkit_vertices(s->vtx_off, RSXKIT_MEM_MAIN);
 	s->interp_ok = false;
 	to_rsxkit_fb = false;

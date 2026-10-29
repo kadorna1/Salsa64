@@ -514,3 +514,36 @@ la tarea que no se ve sin su volcado.
   `sys_sm_shutdown` 0x200) o `reinicio-directo` (0x1200) hace que el
   cierre forzado reinicie la consola en vez de volver al XMB, después de
   escribir todo lo anterior.
+
+### Segunda ronda: de dónde salían 900000/455 y 880000/18 (2026-10-29)
+
+Con el blindaje, Indiana Jones ya no colgó la PS3, pero al salir de la
+cascada pidió 880000/18 (y una z image en 0x820000) en cada tarea: Indy
+invisible y la mitad derecha de la pantalla negra. Las cajas negras de esas
+tareas lo muestran en la salida de la HLE: los dibujos de Indy (tijeras en
+su recuadro) van a 880000/18, y un rectángulo de (240, 0) a (670, 430) con
+s = t = 0 pinta de negro la derecha.
+
+**Origen: la HLE ejecutaba vértices como comandos.** El G_SETCIMG
+`FFB00011 00880000` tiene formato 5, que no existe: son los 8 bytes de un
+vértice de Factor 5 (x −80, y 17, z 136, bandera 0); 900000/455 es otro
+(y 454, z 144), y el rectángulo, un G_FILLRECT de otro vértice. La lista
+secundaria (la dirección de DMEM 0x58C que el microcódigo corre antes de
+dibujar) se seguía hasta un B8 000000 FFFFFFFF; Indiana Jones deja ahí
+también listas que acaban en un B8 000000 00000000 (en la RDRAM de una
+partida en el host, 58 de los punteros a 0x58C), y la HLE seguía de largo
+por los vértices de detrás y ejecutaba como comandos del RDP las palabras
+desde 0xC0. El estado que dejan (color image, z image, rectángulos, modos)
+persiste: por eso pasa en cada tarea de la escena.
+
+**Comprobado contra el microcódigo real** (`salsa64-run --lle=all`, desde
+un estado de una partida en el mismo nivel): con la lista de un material
+cambiada para acabar en `B8000000 00000000` y un G_SETCIMG a 0x900000
+detrás, la HLE vieja lo ejecuta (aviso «fuera de la RDRAM») y el microcódigo
+real no; con el G_SETCIMG dentro de la lista (antes del B8 … FFFFFFFF), lo
+ejecutan los dos. El microcódigo termina la lista en cualquier G_ENDDL.
+
+**Arreglo:** `do_sub_dlist` (`src/rsp/gfx/f5indy.c`) termina en cualquier
+G_ENDDL (`GFX_RES_F5_SUB_END` en el resultado; la PS3 lo anota en el log);
+`f5-sublista-vieja` en `dev_hdd0/salsa64` (`SALSA64_F5_SUBLISTA_VIEJA=1` en
+el host) vuelve a lo de antes. El blindaje del RSX se queda como red.

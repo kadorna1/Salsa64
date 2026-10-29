@@ -931,6 +931,7 @@ static const struct salsa64_gfx_sink *rdp_sink;
 static bool gfx_affine_chain;
 static bool gfx_s2dex_old_modes;
 static bool gfx_no_fog_1cycle;
+static bool gfx_f5_sub_old;
 
 static void front_acquire(void *ctx, struct gfx_job *job)
 {
@@ -942,6 +943,8 @@ static void front_acquire(void *ctx, struct gfx_job *job)
 		job->flags |= GFX_JOB_S2DEX_OLD_MODES;
 	if (gfx_no_fog_1cycle)
 		job->flags |= GFX_JOB_NO_FOG_1CYCLE;
+	if (gfx_f5_sub_old)
+		job->flags |= GFX_JOB_F5_SUB_OLD;
 }
 
 /* DMA a la RDRAM (hilo de emulación): las copias del RDP no lo pisan. */
@@ -5586,6 +5589,12 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	gfx_no_fog_1cycle = file_exists(SALSA64_DATA_DIR "/sin-niebla-1ciclo");
 	salsa64_log("gfx: niebla del blender en un ciclo %s (sin-niebla-1ciclo)",
 		    gfx_no_fog_1cycle ? "apagada" : "activa");
+	/* Indiana Jones: la lista secundaria de Factor 5 termina en cualquier
+	 * G_ENDDL (f5indy.c, do_sub_dlist); f5-sublista-vieja vuelve a seguir
+	 * hasta el B8 … FFFFFFFF, que ejecutaba vértices como comandos. */
+	gfx_f5_sub_old = file_exists(SALSA64_DATA_DIR "/f5-sublista-vieja");
+	salsa64_log("gfx: lista secundaria de Factor 5 %s (f5-sublista-vieja)",
+		    gfx_f5_sub_old ? "hasta el B8 … FFFFFFFF (vieja)" : "hasta cualquier G_ENDDL");
 	salsa64_log("gfx: escala afin de tramos 3D encadenados %s (sin-afin-cadena)",
 		    gfx_affine_chain ? "activa" : "referencia");
 	gfx_on_spu = !file_exists(GFX_PPE_PATH);
