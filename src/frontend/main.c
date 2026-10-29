@@ -143,6 +143,7 @@
  * (pausectl.h, docs/hilos-ppe.md).
  * Lo que la ROM imprime por el ISViewer va al log.
  */
+#include <errno.h>
 #include <io/pad.h>
 #include <lv2/process.h>
 #include <malloc.h>
@@ -1437,6 +1438,7 @@ static void isv_out(void *ctx, const uint8_t *text, uint32_t len)
  * resto, y la ROM de 64 MB siguiente ya no cabe aunque sobre memoria. Las
  * páginas del sistema no dependen de eso (docs/memory-budget.md). */
 static void *rom_pages;  /* la ROM en curso, si salió de las páginas del sistema */
+static bool rom_no_memory;  /* fallo de reserva en la lectura actual, no de E/S */
 static void heap_report(const char *when);
 static bool menu_release_memory(void);
 
@@ -1453,12 +1455,15 @@ static void *rom_alloc(size_t len)
 		heap_report("sin páginas para la ROM");
 		if (menu_release_memory() && sysMemoryAllocate(bytes, SYS_MEMORY_PAGE_SIZE_1M, &addr) == 0) {
 			rom_pages = (void *)(uintptr_t)addr;
-			salsa64_log("ROM de %zu MB: cupo en páginas de 1 MB al soltar lo del menú", bytes >> 20);
+			salsa64_log("ROM de %u MB: cupo en páginas de 1 MB al soltar lo del menú", (unsigned)(bytes >> 20));
 			return rom_pages;
 		}
 	}
-	salsa64_log("ROM de %zu MB: sin páginas de 1 MB del sistema, va en el heap", bytes >> 20);
-	return memalign(128, len);
+	salsa64_log("ROM de %u MB: sin páginas de 1 MB del sistema, va en el heap", (unsigned)(bytes >> 20));
+	void *p = memalign(128, len);
+	if (!p)
+		rom_no_memory = true;
+	return p;
 }
 
 static FILE *rom_fp;             /* ROM por fragmentos (más abajo): el archivo abierto, */
@@ -1582,6 +1587,7 @@ static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool for
 	uint8_t *head = memalign(128, ROM_HEAD);
 	void *cache = head ? rom_cache_alloc(&cache_bytes) : NULL;
 	if (!head || !cache || fseek(f, 0, SEEK_SET) != 0 || fread(head, 1, ROM_HEAD, f) != ROM_HEAD) {
+		rom_no_memory = !head || !cache;
 		salsa64_log("ROM %s: no pude preparar la lectura por fragmentos (caché de %u MB)", path,
 			    (unsigned)(cache_bytes >> 20));
 		if (cache) {
@@ -1593,7 +1599,9 @@ static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool for
 	}
 	setvbuf(f, NULL, _IONBF, 0);  /* lecturas de 256 KB directas, sin pasar por el búfer de stdio */
 	enum salsa64_rom_format fmt = salsa64_rom_normalize(head, ROM_HEAD);
+	errno = 0;
 	if (salsa64_rompg_open(&rom_pg, rom_rd, f, len, fmt, ROM_PAGE_SHIFT, cache, cache_bytes) != 0) {
+		rom_no_memory = errno == ENOMEM;
 		sysMemoryFree((sys_mem_addr_t)(uintptr_t)rom_pages);
 		rom_pages = NULL;
 		free(head);
@@ -1619,6 +1627,7 @@ static uint8_t *rom_open_paged(FILE *f, const char *path, uint32_t len, bool for
  * fragmentos). */
 static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint32_t *size)
 {
+	rom_no_memory = false;
 	/* ZIP: se inspecciona la entrada elegida antes de reservar memoria, para que
 	 * el archivo no necesite un segundo búfer grande. La extracción completa
 	 * verifica el flujo Deflate, el tamaño descomprimido y el CRC-32 antes de
@@ -1627,9 +1636,11 @@ static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint
 		uint8_t header[SALSA64_ROM_HEADER_SIZE];
 		uint32_t rom_len = 0, actual_len = 0;
 		uint32_t limit = buf ? cap : ROM_MAX;
-		if (salsa64_ziprom_read_header(path, header, &rom_len, NULL, 0) != 0 ||
-		    rom_len < 0x1000u || rom_len > limit || rom_len > SALSA64_ZIPROM_MAX_SIZE)
+		int rc = salsa64_ziprom_read_header(path, header, &rom_len, NULL, 0);
+		if (rc != 0 || rom_len < 0x1000u || rom_len > limit || rom_len > SALSA64_ZIPROM_MAX_SIZE) {
+			rom_no_memory = rc == SALSA64_ZIPROM_NOMEM;
 			return NULL;
+		}
 		uint8_t *dst = buf ? buf : rom_alloc(rom_len);
 		if (!dst)
 			return NULL;
@@ -1637,7 +1648,9 @@ static uint8_t *read_rom_file(const char *path, uint8_t *buf, uint32_t cap, uint
 		 * El archivo se abre dos veces (vista previa y extracción), así que
 		 * debe seguir siendo seguro aunque cambie entre las dos lecturas. */
 		uint32_t dst_cap = buf ? cap : rom_len;
-		if (salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0) != 0 || actual_len != rom_len) {
+		rc = salsa64_ziprom_extract(path, dst, dst_cap, &actual_len, NULL, 0);
+		if (rc != 0 || actual_len != rom_len) {
+			rom_no_memory = rc == SALSA64_ZIPROM_NOMEM;
 			if (!buf)
 				rom_free(dst);
 			return NULL;
@@ -4709,7 +4722,7 @@ static void profile_open(const uint8_t *rom)
 	/* La tabla, la primera vez que se enciende (fuera del bucle de
 	 * emulación); queda para los juegos siguientes. */
 	if (!rec_profile && !(rec_profile = memalign(128, sizeof *rec_profile))) {
-		salsa64_log("perfil del recompilador: sin memoria para la tabla (%zu bytes): apagado", sizeof *rec_profile);
+		salsa64_log("perfil del recompilador: sin memoria para la tabla (%u bytes): apagado", (unsigned)sizeof *rec_profile);
 		return;
 	}
 	mkdir(PROFILE_DIR, 0777);
@@ -6618,15 +6631,16 @@ static enum game_end menu_open_path(const char *path, const struct rom_entry *e)
 	beat.pres_at = "arranque del juego";
 	if (!rom) {
 		/* Una vez más, con todo lo del menú suelto. */
-		salsa64_log("menú: no se pudo leer %s: reintento tras soltar lo del menú", path);
+		salsa64_log("menú: %s %s: reintento tras soltar lo del menú",
+			    rom_no_memory ? "memoria insuficiente para abrir" : "no se pudo leer", path);
 		heap_report("antes del reintento");
 		menu_release_memory();
 		rom = read_rom_file(path, NULL, 0, &size);
 	}
 	if (!rom) {
-		salsa64_log("menú: no se pudo leer %s", path);
-		heap_report("tras fallar la lectura");
-		menu_set_status(&menu, "No se pudo leer %s", path);
+		salsa64_log("menú: %s %s", rom_no_memory ? "memoria insuficiente para abrir" : "no se pudo leer", path);
+		heap_report(rom_no_memory ? "tras faltar memoria para la ROM" : "tras fallar la lectura");
+		menu_set_status(&menu, rom_no_memory ? "Memoria insuficiente para abrir %s" : "No se pudo leer %s", title);
 		mn.games++;
 		mn.failures++;
 		menu_scan(path);

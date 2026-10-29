@@ -374,6 +374,8 @@
 	  { "Larger than the screen is", "Plus grand que l'écran =", "Größer als der Bildschirm ist", "Più grande dello schermo è", "Maior que a tela é", "Groter dan het scherm is", "Större än skärmen är", "Større end skærmen er", "Større enn skjermen er", "Näyttöä suurempi on", "Większa niż ekran to", "Ekrandan büyük olması", "Больше экрана — это", "画面より大きいと", "화면보다 크면 슈퍼샘플링:", "大於螢幕解析度即為", "大于屏幕分辨率即为" } },
 	{ "Memoria USB %c",
 	  { "USB drive %c", "Clé USB %c", "USB-Stick %c", "Chiavetta USB %c", "Pen drive USB %c", "USB-station %c", "USB-minne %c", "USB-drev %c", "USB-minne %c", "USB-muisti %c", "Pamięć USB %c", "USB bellek %c", "USB-накопитель %c", "USBメモリ %c", "USB 메모리 %c", "USB 隨身碟 %c", "USB 盘 %c" } },
+	{ "Memoria insuficiente para abrir %s",
+	  { "Not enough memory to open %s", "Mémoire insuffisante pour ouvrir %s", "Zu wenig Speicher zum Öffnen von %s", "Memoria insufficiente per aprire %s", "Memória insuficiente para abrir %s", "Onvoldoende geheugen om %s te openen", "Otillräckligt minne för att öppna %s", "Ikke nok hukommelse til at åbne %s", "Ikke nok minne til å åpne %s", "Muisti ei riitä kohteen %s avaamiseen", "Za mało pamięci, aby otworzyć %s", "%s dosyasını açmak için bellek yetersiz", "Недостаточно памяти для открытия %s", "%s を開くためのメモリが不足しています", "%s을(를) 열 메모리가 부족합니다", "記憶體不足，無法開啟 %s", "内存不足，无法打开 %s" } },
 	{ "Mostrar FPS",
 	  { "Show FPS", "Afficher FPS", "FPS anzeigen", "Mostra FPS", "Mostrar FPS", "FPS tonen", "Visa FPS", "Vis FPS", "Vis FPS", "Näytä FPS", "Pokaż FPS", "FPS göster", "Показывать FPS", "FPS表示", "FPS 표시", "顯示 FPS", "显示 FPS" } },
 	{ "Ninguno",
