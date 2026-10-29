@@ -94,7 +94,7 @@ jobs:
           import html
           import re
           import sys
-          from urllib.parse import urljoin
+          from urllib.parse import urljoin, urlsplit
 
           page = open(sys.argv[1], "r", encoding="utf-8", errors="ignore").read()
           effective = sys.argv[2]
@@ -123,6 +123,13 @@ jobs:
 
           candidates = []
           if song_id:
+              # Suno V6 publishes its full-length media_urls through CloudFront;
+              # prefer the URL tied to this exact song UUID over CDN placeholders.
+              for match in re.finditer(r'["\']url["\']\s*:\s*["\']([^"\']+\.m4a(?:\?[^"\']*)?)["\']', decoded, re.I):
+                  url = html.unescape(match.group(1))
+                  host = (urlsplit(url).hostname or "").lower()
+                  if song_id in url and host.endswith("cloudfront.net"):
+                      candidates.append(url)
               candidates.extend([
                   f"https://cdn1.suno.ai/{song_id}.mp3",
                   f"https://cdn2.suno.ai/{song_id}.mp3",
