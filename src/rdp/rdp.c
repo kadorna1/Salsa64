@@ -1789,11 +1789,30 @@ static uint32_t prime_profile_pending_spans(int i)
 			if (!w)
 				continue;
 
-			/* The stable shadow says the CPU overlay is now transparent.
-			 * Leave the just-rendered RSX scene untouched and consume only
-			 * the pending marker. RDRAM itself remains owned by the CPU. */
+			/* A coverage-zero transition must erase the previous CPU sprite
+			 * pixel. Alpha blending it would leave that old pixel behind. Use
+			 * the stable transparent source RGB to replace the destination; do
+			 * not write RDRAM from the concurrently running presentation thread. */
 			if (mode == 2) {
+				uint32_t pitch = (w * 2u + 63u) & ~63u;
+				unsigned k = rdp.prime_next;
+				uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
+						  : RB_SLOTS * RB_SLOT;
+				if (rdp.prime_fence[k] && !rsxkit_fence_done(rdp.prime_fence[k])) {
+					fence_wait(rdp.prime_fence[k]);
+					rdp.stats.prime_waits++;
+				}
+				memcpy(raw_span, shadow_row + x0 * 2u, w * 2u);
+				memcpy(rdp.rb + boff, raw_span, w * 2u);
+				uint32_t dx = x0 * scale, dy = y * scale;
+				if (rsxkit_target_replace_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+							       dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
+					continue;
 				memset(pending_row + x0, 0, w);
+				rdp.prime_fence[k] = rsxkit_fence();
+				rdp.prime_next = (k + 1) % PRIME_BUFS;
+				rdp.stats.primes++;
+				regions++;
 				continue;
 			}
 
