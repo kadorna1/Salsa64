@@ -1,18 +1,13 @@
 name: SND0.AT3 XMB audio preview package
 
 on:
+  # This is a main-only packaging workflow. Pull requests from unrelated
+  # feature branches must not run the XMB-specific package build.
   push:
     branches: [main]
     paths:
       - "assets/ps3/SND0.AT3"
       - "mk/ps3.mk"
-      - ".github/workflows/xmb-snd0-preview.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "assets/ps3/SND0.AT3"
-      - "mk/ps3.mk"
-      - ".github/workflows/xmb-snd0-preview.yml"
   workflow_dispatch:
 
 permissions:
