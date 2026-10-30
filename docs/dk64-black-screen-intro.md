@@ -39,6 +39,23 @@ The watchdog successfully saved two especially useful files on the console:
 
 Those files are needed to distinguish a fatal return from a missing-thread/message condition, and to identify whether the last blank presentation is a consequence rather than the initiating fault. Do not change DK64 framebuffer or depth-copy behavior until the saved evidence identifies a path to test.
 
+## Analysis of the supplied archive
+
+The uploaded `cuelgue-6084.tar.gz` contains both watchdog artifacts, and the 8 MiB RDRAM dump is intact. SHA-256:
+- archive: `99e59e3949651905051f77ebdcf776380e4207efd759330c54c0565463165fd1`
+- RDRAM: `4de3190d5a32e7bae2f17ee159e8b0679adeffe6b1ae6165954e085c81113b95`
+
+Scanning the RDRAM with the same structure checks as `tools/libultra-threads.py` shows a consistent stopped-thread picture:
+
+- **Thread ID 1, priority 0, is the only thread marked running**. Its saved PC and RA are both `0x8000094c`, and the code at that address is an unconditional branch to itself. The preceding startup stub explicitly loads `$t9 = 0x805fb300`, sets `$a0 = 0x80011548`, sets `$a1 = 0`, then calls through `$t9`. Since execution has returned to the branch immediately after that call, the routine at `0x805fb300` returned instead of continuing to run. The present register value of `$t9` is no longer the call target, because it is caller-saved; the call target comes from the instructions in RDRAM before the call.
+- **Thread ID 0, priority 254, is blocked receiving from an empty message queue**. Its PC/RA are `0x80004728`, inside the queue-receive wait loop. Its queue is at `0x80014d40`, with `validCount=0`, capacity 5, and no sender waiting on the queue.
+- Other recognized game threads (IDs 4, 5, 8, 9 and 11) are also blocked receiving from empty message queues. Thread 3 is stopped at `0x806ccab0`. The only runnable thread seen by the scan is stuck in the post-return loop.
+- The last part of the runtime log reports very few graphics tasks around fields 5700–5799, followed by no new game input reads or graphics tasks. The VI and audio scheduling continue independently.
+
+This is stronger evidence for a **game-thread / message-queue dead end after the routine at `0x805fb300` returns** than for an RSX presentation fault or a currently missing DP interrupt. The dump does not yet prove why that routine returned; the game's entry/worker code and the saved thread/queue state are the next things to inspect before changing the RDP.
+
+The console-generated paths in the log are available inside the archive as `cuelgue-6084.txt` and `cuelgue-6084.rdram`. The second file can be scanned locally using `python3 tools/libultra-threads.py cuelgue-6084.rdram --all`.
+
 ## Investigation order
 
 1. Read the supplied log and identify the ROM title/region/CRC, exact last successful scene, last RSP/RDP task activity, VI-origin/field changes, framebuffer-copy setting, and whether audio continues.
