@@ -310,6 +310,18 @@ static void targets_decode_rgba16(void)
 		CHECK_EQ(out[0][k], 0);
 }
 
+static void targets_profile_readback_transition(void)
+{
+	rdp_targets_init(&s);
+	rdp_targets_task(&s);
+	int slot = draw(0x3b5000, 320);
+	uint32_t x0, y0;
+	CHECK(rdp_targets_readback(&s, slot, true, true));
+	CHECK_EQ(rdp_targets_texture(&s, 0x3b5000, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	rdp_targets_rdram_uploaded(&s, slot);
+	CHECK_EQ(rdp_targets_texture(&s, 0x3b5000, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RSX);
+}
+
 /* De dónde se lee una textura que viene de un destino (docs/framebuffer.md):
  * del RSX si lo dibujó una tarea reciente y no es el ligado ni se copió a
  * la RDRAM; si no, de la RDRAM. La pausa de Zelda: el framebuffer dibujado
@@ -363,6 +375,54 @@ static void targets_texture_policy(void)
 	CHECK_EQ(s.readbacks, 1);
 	/* Sin VI presentado no se sabe qué es framebuffer: con force se copia. */
 	CHECK(rdp_targets_readback(&s, fb, true, true));
+}
+
+/* Dr. Mario 64: reconciliation clears CPU ownership for a live surface,
+ * but age still controls whether its RSX surface is safe to sample. */
+static void targets_texture_synced_surface(void)
+{
+	const uint32_t FB = 0x3da800;
+	bool fresh;
+	rdp_targets_init(&s);
+	s.task = 1;
+	int fb = rdp_targets_get(&s, FB, 320, SIZ_16b, 0, &fresh);
+	CHECK(fresh);
+	rdp_targets_drawn(&s, fb);
+	CHECK(rdp_targets_readback(&s, fb, true, true));
+	CHECK(s.t[fb].cpu_owned);
+	int slot;
+	uint32_t x0, y0;
+	CHECK_EQ(rdp_targets_texture(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, true, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(slot, fb);
+	rdp_targets_rdram_uploaded(&s, fb);
+	CHECK(!s.t[fb].cpu_owned);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, false, &slot, &x0, &y0), RDP_TEXSRC_RSX);
+	CHECK_EQ(slot, fb);
+	for (int k = 0; k < RDP_TARGETS_FRESH + 2; k++)
+		rdp_targets_task(&s);
+	CHECK_EQ(rdp_targets_texture(&s, FB, 320, 2, -1, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, false, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, false, &slot, &x0, &y0), RDP_TEXSRC_RDRAM);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(s.tex_rdram, 5);
+	CHECK_EQ(s.tex_rsx, 1);
+	CHECK_EQ(s.tex_self, 0);
+	/* The opt-in profile may sample stale data after reconciling RDRAM,
+	 * including a static source kept alive beyond the normal stale horizon.
+	 * It must still reject CPU-owned targets. */
+	for (int k = 0; k < RDP_TARGETS_STALE + 5; k++)
+		rdp_targets_task(&s);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, -1, true, &slot, &x0, &y0), RDP_TEXSRC_RSX);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(rdp_targets_texture_synced(&s, FB, 320, 2, fb, true, &slot, &x0, &y0), RDP_TEXSRC_SELF);
+	CHECK_EQ(slot, fb);
+	CHECK_EQ(s.tex_rdram, 5);
+	CHECK_EQ(s.tex_rsx, 2);
+	CHECK_EQ(s.tex_self, 1);
 }
 
 /* La misma memoria con otro tamaño de texel. Majora's Mask: la pausa usa
@@ -1048,6 +1108,7 @@ static void targets_dma_ring(void)
 	CHECK(rdp_dma_since(&r, 0x200000 + (RDP_DMA_RING + 4) * 4096, 0x200000 + (RDP_DMA_RING + 4) * 4096 + 16, 1));
 }
 
+
 /* La guarda de las copias tardías (rdp_guard): Indiana Jones arma sus
  * listas de pantalla donde estuvo el framebuffer de 640 × 480 de la pantalla
  * del Expansion Pak (0x6b3000); la copia de ese cuadro, que llega después,
@@ -1060,23 +1121,37 @@ static void targets_cpu_guard(void)
 	const uint32_t FB = 0x6b300, LINE = 1280, ROWS = 240;
 	memset(guard_ram, 0, sizeof guard_ram);
 	rdp_guard_clear(&guard_t);
+	struct rdp_target row_target = { .used = true, .addr = FB, .width = 640, .bpp = 2, .lh = ROWS };
 	/* Sin huella, todo se puede escribir (como antes de la guarda). */
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, FB >> RDP_GUARD_SHIFT));
+	CHECK(!rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	CHECK(rdp_guard_hash(guard_ram) != 0);
-	/* Termina la tarea que dibujó el cuadro: huellas de sus filas. */
+	/* Task guard and stable profile baseline are deliberately independent. */
 	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
+	rdp_guard_profile_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
 	uint32_t l0 = FB >> RDP_GUARD_SHIFT, l1 = (FB + LINE * ROWS - 1) >> RDP_GUARD_SHIFT;
 	for (uint32_t l = l0; l <= l1; l++)
 		CHECK(rdp_guard_ok(&guard_t, guard_ram, l));
-	/* El CPU escribe una lista (una sola palabra basta) en la fila 85. */
+	/* El CPU cambia una palabra en la fila 85: solo esa fila queda pendiente. */
 	uint32_t dl = FB + 85 * LINE + 0x58;
 	guard_ram[dl] = 0xDE;
 	CHECK(!rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
-	CHECK(rdp_guard_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) + 1));
-	CHECK(rdp_guard_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) - 1));
-	/* Cualquier byte de la línea, y cambios que conservan la suma. */
-	guard_ram[dl] = 0;
+	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
+	CHECK(!rdp_target_row_cpu_changed(&row_target, 84, &guard_t, guard_ram, sizeof guard_ram));
+	/* A later task snapshots the already-modified RDRAM. The ordinary guard
+	 * now permits a late readback, but the profile baseline must still block it. */
+	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
 	CHECK(rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
+	CHECK(!rdp_guard_profile_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
+	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
+	CHECK(rdp_guard_profile_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) + 1));
+	CHECK(rdp_guard_ok(&guard_t, guard_ram, (dl >> RDP_GUARD_SHIFT) - 1));
+	/* Al restaurar el byte, la fila vuelve a coincidir con la huella. */
+	guard_ram[dl] = 0;
+	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
+	CHECK(rdp_guard_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
+	CHECK(rdp_guard_profile_ok(&guard_t, guard_ram, dl >> RDP_GUARD_SHIFT));
+	CHECK(!rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 	uint32_t la = dl & ~(RDP_GUARD_LINE - 1);
 	guard_ram[la + 7] = 1;   /* +1 en la palabra 0 */
 	guard_ram[la + 15] = 0xFF;  /* y −1 en la 1: la misma suma */
@@ -1105,6 +1180,30 @@ static void targets_cpu_guard(void)
 	rdp_guard_mark(&guard_t, guard_ram, sizeof guard_ram, sizeof guard_ram - 64, sizeof guard_ram + 4096);
 	CHECK(guard_t.base[(sizeof guard_ram - 1) >> RDP_GUARD_SHIFT] != 0);
 	CHECK_EQ(guard_t.base[sizeof guard_ram >> RDP_GUARD_SHIFT], 0);
+}
+
+/* CopyColorFromRDRAM: once a changed span is uploaded, its RDRAM baseline
+ * is committed so the same CPU pixels are not copied over later RSX draws. */
+static void targets_profile_baseline_commit(void)
+{
+	const uint32_t FB = 0x6b300, LINE = 1280, ROWS = 240;
+	memset(guard_ram, 0, sizeof guard_ram);
+	rdp_guard_clear(&guard_t);
+	struct rdp_target row_target = { .used = true, .addr = FB, .width = 640, .bpp = 2, .lh = ROWS };
+	rdp_guard_profile_mark(&guard_t, guard_ram, sizeof guard_ram, FB, FB + LINE * ROWS);
+
+	uint32_t dl = FB + 85 * LINE + 0x58;
+	guard_ram[dl] = 0xDE; /* CPU updates one pixel in RDRAM. */
+	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
+
+	/* Simulate successful upload of the changed 128-byte guard span. */
+	uint32_t lo = dl & ~(RDP_GUARD_LINE - 1);
+	rdp_guard_profile_mark(&guard_t, guard_ram, sizeof guard_ram, lo, lo + RDP_GUARD_LINE);
+	CHECK(!rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
+
+	/* A later CPU write still differs from the committed baseline. */
+	guard_ram[dl + 2] = 0xAB;
+	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 }
 
 static void targets_frame_mirror(void)
@@ -1209,6 +1308,8 @@ void t_suite_targets(void)
 	RUN(targets_recycled_slot);
 	RUN(targets_dma_ring);
 	RUN(targets_cpu_guard);
+	RUN(targets_profile_baseline_commit);
+	RUN(targets_profile_readback_transition);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);
 	RUN(targets_present_interlaced);
@@ -1217,6 +1318,7 @@ void t_suite_targets(void)
 	RUN(targets_locate);
 	RUN(targets_decode_rgba16);
 	RUN(targets_texture_policy);
+	RUN(targets_texture_synced_surface);
 	RUN(targets_readback_wanted);
 	RUN(targets_same_memory_other_size);
 	RUN(targets_repeated_copy_stays_rsx);

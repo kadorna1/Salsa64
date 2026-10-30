@@ -27,6 +27,7 @@ static inline uint64_t tb_now(void);  /* abajo; la usa el reloj de layer8 */
 #include <malloc.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/systime.h>
 
@@ -325,6 +326,17 @@ static struct {
 	uint32_t alias_sum[RDP_TARGETS_MAX];
 	bool alias_full[RDP_TARGETS_MAX];
 	struct rdp_box alias_dirty[RDP_TARGETS_MAX];
+	/* Per-target RDRAM snapshots let CopyColorFromRDRAM upload exact changed
+	 * pixels without replacing neighboring RSX-only pixels in the same 128-byte
+	 * guard line. The allocation exists only for active targets. */
+	uint32_t profile_prime_task[RDP_TARGETS_MAX];
+	uint8_t *profile_shadow[RDP_TARGETS_MAX];
+	uint32_t profile_shadow_bytes[RDP_TARGETS_MAX];
+	bool profile_shadow_valid[RDP_TARGETS_MAX];
+	/* CPU-written screen pixels uploaded before later RDP draws need one final
+	 * replay just before VI presentation, even after the stable shadow commits. */
+	uint8_t *profile_pending[RDP_TARGETS_MAX];
+	uint32_t profile_pending_bytes[RDP_TARGETS_MAX];
 	unsigned ppe_wr_next;
 	int bound_t;                 /* ranura ligada, o -1 */
 	struct depth *bound_d;
@@ -334,6 +346,8 @@ static struct {
 	struct salsa64_rdp_tb tb;
 	/* Efectos de framebuffer (docs/framebuffer.md). */
 	int fbfx;                    /* 0 apagado, 1 render a textura, 2 también copias */
+	bool copy_color_from_rdram;  /* perfil por juego: repoblar destinos desde RDRAM */
+	bool copy_color_to_rdram;    /* espejo automático del framebuffer principal */
 	bool aa_edges;               /* salsa64_rdp_aa_edges */
 	bool target_alpha;           /* salsa64_rdp_target_alpha */
 	bool texture_wait;           /* serialización diagnóstica de escrituras de textura */
@@ -551,6 +565,7 @@ int salsa64_rdp_init(uint32_t scale)
 	rdp.rb = rdp.cache + CACHE_BYTES;
 	rdp.rb_off = rdp.cache_off + CACHE_BYTES;
 	rdp.fbfx = 2;
+	rdp.copy_color_to_rdram = true;
 	rdp.big8_prime = true;
 	rdp.layer8_on = true;
 	rdp.copy_alpha = true;
@@ -582,6 +597,34 @@ void salsa64_rdp_target_alpha(bool on)
 void salsa64_rdp_fbfx(int level)
 {
 	rdp.fbfx = level < 0 ? 0 : level > 2 ? 2 : level;
+}
+
+static void profile_guard_reset(void);
+static bool profile_shadow_capture(int i);
+
+void salsa64_rdp_copy_color_from_rdram(bool on)
+{
+	if (rdp.copy_color_from_rdram != on) {
+		profile_guard_reset();
+		for (int i = 0; i < RDP_TARGETS_MAX; i++) {
+			free(rdp.profile_shadow[i]);
+			rdp.profile_shadow[i] = NULL;
+			rdp.profile_shadow_bytes[i] = 0;
+			rdp.profile_shadow_valid[i] = false;
+			free(rdp.profile_pending[i]);
+			rdp.profile_pending[i] = NULL;
+			rdp.profile_pending_bytes[i] = 0;
+			if (on && rdp.surf[i] && rdp.rdram && !profile_shadow_capture(i))
+				LOGN(10, "gfx: CopyColorFromRDRAM: no se pudo crear la sombra de %06x/%u",
+				     rdp.tg.t[i].addr, rdp.tg.t[i].width);
+		}
+	}
+	rdp.copy_color_from_rdram = on;
+}
+
+void salsa64_rdp_copy_color_to_rdram(bool on)
+{
+	rdp.copy_color_to_rdram = on;
 }
 
 int salsa64_rdp_interp(int mode, float t)
@@ -653,7 +696,12 @@ bool salsa64_rdp_last_present(struct salsa64_rdp_present_info *out)
 }
 
 static uint32_t find_black(uint32_t lo, uint32_t hi);
-static struct rdp_guard guard;  /* huellas de la guarda contra el CPU (más abajo) */
+static struct rdp_guard guard;  /* guardas tardías y baseline de CopyColorFromRDRAM */
+
+static void profile_guard_reset(void)
+{
+	memset(guard.profile, 0, sizeof guard.profile);
+}
 
 void salsa64_rdp_rdram_written(uint32_t pa, uint32_t len, bool gfx_in_flight)
 {
@@ -694,9 +742,17 @@ static void release_targets(void)
 	for (unsigned i = 0; i < SETS; i++)
 		rdp.sets[i].tg_task = 0;
 	memset(&rdp.again_last, 0, sizeof rdp.again_last);
-	for (int i = 0; i < RDP_TARGETS_MAX; i++)
+	for (int i = 0; i < RDP_TARGETS_MAX; i++) {
 		if (rdp.surf[i])
 			rsxkit_target_destroy(rdp.surf[i]);
+		free(rdp.profile_shadow[i]);
+		rdp.profile_shadow[i] = NULL;
+		rdp.profile_shadow_bytes[i] = 0;
+		rdp.profile_shadow_valid[i] = false;
+		free(rdp.profile_pending[i]);
+		rdp.profile_pending[i] = NULL;
+		rdp.profile_pending_bytes[i] = 0;
+	}
 	for (int i = 0; i < MAX_DEPTHS; i++)
 		if (rdp.depths[i].used)
 			rsxkit_depth_destroy(rdp.depths[i].d);
@@ -728,6 +784,7 @@ static void release_targets(void)
 	/* La tabla de destinos, vacía. Sus contadores de texturas siguen: el
 	 * log los resta entre informes y, al cargar un estado, salían negativos. */
 	uint32_t tex_rsx = rdp.tg.tex_rsx, tex_rdram = rdp.tg.tex_rdram, tex_self = rdp.tg.tex_self;
+	memset(rdp.profile_prime_task, 0, sizeof rdp.profile_prime_task);
 	rdp_targets_init(&rdp.tg);
 	rdp.tg.tex_rsx = tex_rsx;
 	rdp.tg.tex_rdram = tex_rdram;
@@ -1112,7 +1169,7 @@ static inline bool rb_argb(int slot)
 
 /* ---- Guarda contra el CPU y vigilante (rdp_guard, targets.h) ---- */
 
-/* `guard`: 512 KB en el BSS (docs/memory-budget.md), declarada arriba. */
+/* `guard`: 768 KB en el BSS (docs/memory-budget.md): dos guardas y un baseline por perfil. */
 
 void salsa64_rdp_guard(bool on, uint32_t watch_lo, uint32_t watch_hi)
 {
@@ -1147,7 +1204,9 @@ static uint32_t find_black(uint32_t lo, uint32_t hi)
  * de la tarea. */
 static void guard_mark_task(const struct set *s, const struct gfx_result *res)
 {
-	if (!rdp.rdram || rdp.fbfx < 2 || rdp.guard_off)
+	/* CopyColorFromRDRAM needs task-end snapshots even when normal readbacks
+	 * are disabled through fbfx.cfg. */
+	if (!rdp.rdram || (rdp.fbfx < 2 && !rdp.copy_color_from_rdram) || rdp.guard_off)
 		return;
 	uint64_t t0 = tb_now();
 	uint32_t addr = 0, line = 0, y0 = ~0u, y1 = 0, off = 0;
@@ -1189,8 +1248,14 @@ static bool guard_row(uint32_t d0, uint32_t d1, bool ok[ROW_LINES], uint32_t *sk
 	uint32_t l0 = d0 >> RDP_GUARD_SHIFT, l1 = (d1 - 1) >> RDP_GUARD_SHIFT;
 	bool all = true;
 	for (uint32_t l = l0; l <= l1 && l - l0 < ROW_LINES; l++) {
-		ok[l - l0] = rdp_guard_ok(&guard, rdp.rdram, l);
-		if (!ok[l - l0]) {
+		bool can_write = rdp_guard_ok(&guard, rdp.rdram, l);
+		/* Dr. Mario 64 also needs the opposite protection: a CPU write made
+		 * before guard_mark_task() is already present in the task-end hash.
+		 * Keep it by refusing to copy this line until its target is refreshed. */
+		if (can_write && rdp.copy_color_from_rdram && !rdp_guard_profile_ok(&guard, rdp.rdram, l))
+			can_write = false;
+		ok[l - l0] = can_write;
+		if (!can_write) {
 			all = false;
 			(*skipped)++;
 		}
@@ -1200,6 +1265,15 @@ static bool guard_row(uint32_t d0, uint32_t d1, bool ok[ROW_LINES], uint32_t *sk
 
 static void guard_wrote(uint32_t d0, uint32_t d1, const bool *ok)
 {
+	if (d1 > d0 && rdp.copy_color_from_rdram && rdp.rdram) {
+		uint32_t l0 = d0 >> RDP_GUARD_SHIFT, l1 = (d1 - 1) >> RDP_GUARD_SHIFT;
+		for (uint32_t l = l0; l <= l1 && l - l0 < ROW_LINES; l++) {
+			if (rdp.guard_off || !ok || ok[l - l0]) {
+				uint32_t lo = l << RDP_GUARD_SHIFT;
+				rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, lo, lo + RDP_GUARD_LINE);
+			}
+		}
+	}
 	if (rdp.guard_off)
 		return;
 	uint32_t l0 = d0 >> RDP_GUARD_SHIFT, l1 = (d1 - 1) >> RDP_GUARD_SHIFT;
@@ -1405,10 +1479,82 @@ static void readbacks_finish(bool wait)
 /* Ceba la superficie de la ranura con lo que hay en la RDRAM (lo que el
  * CPU dibujó o dejó ahí): la N64 siempre dibuja encima de la memoria. Solo
  * color images de 16 bits que caben en el búfer de cebado. */
-static void prime_rows(int i, uint32_t y0, uint32_t y1);
-static void prime(int i)
+static bool profile_shadow_ensure(int i)
 {
-	prime_rows(i, 0, ~0u);
+	if (i < 0 || i >= RDP_TARGETS_MAX || !rdp.rdram)
+		return false;
+	const struct rdp_target *t = &rdp.tg.t[i];
+	if (!t->used || t->bpp != 2 || !t->width || !t->lw || !t->lh || t->lw > t->width ||
+	    t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+		return false;
+	uint64_t bytes64 = (uint64_t)t->width * 2u * t->lh;
+	if (!bytes64 || bytes64 > 0xFFFFFFFFu)
+		return false;
+	uint32_t bytes = (uint32_t)bytes64;
+	uint64_t pending64 = (uint64_t)t->width * t->lh;
+	if (!pending64 || pending64 > 0xFFFFFFFFu)
+		return false;
+	uint32_t pending_bytes = (uint32_t)pending64;
+
+	if (!rdp.profile_shadow[i] || rdp.profile_shadow_bytes[i] != bytes) {
+		uint8_t *p = realloc(rdp.profile_shadow[i], bytes);
+		if (!p)
+			return false;
+		rdp.profile_shadow[i] = p;
+		rdp.profile_shadow_bytes[i] = bytes;
+		rdp.profile_shadow_valid[i] = false;
+	}
+	if (!rdp.profile_pending[i] || rdp.profile_pending_bytes[i] != pending_bytes) {
+		uint8_t *p = realloc(rdp.profile_pending[i], pending_bytes);
+		if (!p)
+			return false;
+		memset(p, 0, pending_bytes);
+		rdp.profile_pending[i] = p;
+		rdp.profile_pending_bytes[i] = pending_bytes;
+	}
+	return true;
+}
+
+/* Capture the current RDRAM as a baseline when the profile is enabled for an
+ * already-live target. Normal target creation instead seeds the snapshot from
+ * the exact staging bytes that were uploaded to the RSX. */
+static bool profile_shadow_capture(int i)
+{
+	if (!profile_shadow_ensure(i))
+		return false;
+	const struct rdp_target *t = &rdp.tg.t[i];
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	uint64_t end = (uint64_t)t->addr + (uint64_t)row_bytes * t->lh;
+	if (end > rdp.rdram_size || end > 0xFFFFFFFFu)
+		return false;
+	for (uint32_t y = 0; y < t->lh; y++)
+		memcpy(rdp.profile_shadow[i] + y * row_bytes, rdp.rdram + t->addr + y * row_bytes, visible_bytes);
+	rdp.profile_shadow_valid[i] = true;
+	return true;
+}
+
+static void profile_shadow_rows_from_buffer(int i, uint32_t y0, uint32_t y1, const uint8_t *src,
+					    uint32_t src_pitch)
+{
+	if (i < 0 || i >= RDP_TARGETS_MAX || !src || !rdp.profile_shadow[i])
+		return;
+	const struct rdp_target *t = &rdp.tg.t[i];
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	if (rdp.profile_shadow_bytes[i] < (uint64_t)row_bytes * t->lh || y1 > t->lh || y0 > y1)
+		return;
+	bool full = y0 == 0 && y1 == t->lh;
+	if (!rdp.profile_shadow_valid[i] && !full)
+		return;
+	for (uint32_t y = y0; y < y1; y++)
+		memcpy(rdp.profile_shadow[i] + y * row_bytes, src + y * src_pitch, visible_bytes);
+	if (full)
+		rdp.profile_shadow_valid[i] = true;
+}
+
+static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile);
+static void prime(int i, bool commit_profile)
+{
+	(void)prime_rows(i, 0, ~0u, commit_profile);
 }
 
 /* Suma de muestras (32 bits cada 64 bytes) de la RDRAM [lo, hi). */
@@ -1426,24 +1572,26 @@ static uint32_t rdram_sum(uint32_t lo, uint32_t hi)
 }
 
 /* El cebado de las filas [y0, y1) (y1 = ~0u: todas). */
-static void prime_rows(int i, uint32_t y0, uint32_t y1)
+static bool prime_rows(int i, uint32_t y0, uint32_t y1, bool commit_profile)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
-	/* Las capas de 8 bits (big8) también: el índice entero en XRGB8888,
-	 * como lo devuelve su copia. Las otras de 8 bits (sombras de Conker,
-	 * cobertura de Zelda) las rehace el RDP enteras y no se ceban. */
+	/* The v2.15 big8 path primes supported XRGB8888 index buffers as well
+	 * as normal 16-bit color images. Dr. Mario's profile is 16-bit only. */
 	bool x8 = big8(t->bpp, t->lw) && rdp.big8_prime;
 	if (!rdp.rdram || rdp.fbfx < 1 || (t->bpp != 2 && !x8) || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
-		return;
+		return false;
 	uint32_t line = t->width * t->bpp, bytes = line * t->lh;
 	if (t->addr + bytes > rdp.rdram_size)
-		return;
+		return false;
 	if (x8 && rb_pitch(t->bpp, t->lw) * t->lh > RB_SLOT)
-		return;
+		return false;
 	if (y1 > t->lh)
 		y1 = t->lh;
 	if (y0 >= y1)
-		return;
+		return false;
+	if (!x8 && rdp.copy_color_from_rdram && y0 == 0 && y1 == t->lh && !profile_shadow_ensure(i))
+		LOGN(10, "gfx: CopyColorFromRDRAM: sin memoria para la sombra exacta de %06x/%u",
+		     t->addr, t->width);
 	/* Búfer de la rotación: si el RSX aún no leyó el cebado que lo usó, se
 	 * espera su barrera (casi nunca: son PRIME_BUFS). */
 	unsigned k = rdp.prime_next;
@@ -1470,17 +1618,28 @@ static void prime_rows(int i, uint32_t y0, uint32_t y1)
 	}
 	rdp.tb.copy += tb_now() - t0;
 	if (rsxkit_target_fill_rows(rdp.surf[i], rdp.rb_off + boff, pitch, t->lw, t->lh, y0, y1,
-				    x8 ? RSXKIT_XRGB8888 : RSXKIT_RGBA5551) == RSXKIT_OK) {
-		rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
-		rdp.stats.primes++;
-		rdp.stats.big8_primes += x8;
-		rdp.surf_gen[i] = ++rdp.gen_seq;
-		/* La barrera va tras el blit: pasada, el RSX ya leyó el búfer. */
-		rdp.prime_fence[k] = rsxkit_fence();
-		rdp.prime_next = (k + 1) % PRIME_BUFS;
+				    x8 ? RSXKIT_XRGB8888 : RSXKIT_RGBA5551) != RSXKIT_OK)
+		return false;
+	if (!x8 && rdp.copy_color_from_rdram)
+		profile_shadow_rows_from_buffer(i, y0, y1, dst, pitch);
+	/* The baseline describes RDRAM bytes already uploaded to RSX. RDP
+	 * draws later in this task change the surface, not RDRAM, so keep the
+	 * baseline committed to avoid reapplying stale pixels on the next task. */
+	if (!x8 && commit_profile && rdp.copy_color_from_rdram) {
+		rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size, t->addr + y0 * line, t->addr + y1 * line);
+		/* Only a full-image prime proves the whole CPU-owned surface synced. */
+		if (y0 == 0 && y1 == t->lh)
+			rdp_targets_rdram_uploaded(&rdp.tg, i);
 	}
+	rdp.bound_t = -1;  /* rsxkit_target_fill ligó la superficie sin profundidad */
+	rdp.stats.primes++;
+	rdp.stats.big8_primes += x8;
+	rdp.surf_gen[i] = ++rdp.gen_seq;
+	/* La barrera va tras el blit: pasada, el RSX ya leyó el búfer. */
+	rdp.prime_fence[k] = rsxkit_fence();
+	rdp.prime_next = (k + 1) % PRIME_BUFS;
+	return true;
 }
-
 /* Suelta el scratch (se vuelve a crear cuando un dibujo lo pida). */
 static void drop_scratch(void)
 {
@@ -1504,6 +1663,13 @@ static void drop_surface(int i)
 		rdp.again.surf = NULL;
 	rsxkit_target_destroy(rdp.surf[i]);
 	rdp.surf[i] = NULL;
+	free(rdp.profile_shadow[i]);
+	rdp.profile_shadow[i] = NULL;
+	rdp.profile_shadow_bytes[i] = 0;
+	rdp.profile_shadow_valid[i] = false;
+	free(rdp.profile_pending[i]);
+	rdp.profile_pending[i] = NULL;
+	rdp.profile_pending_bytes[i] = 0;
 	rdp.surf_dirty[i] = false;
 	rdp.vram -= rdp.surf_bytes[i];
 	rdp.surf_bytes[i] = 0;
@@ -1544,6 +1710,265 @@ static bool make_room(uint32_t bytes, int keep)
 static inline uint32_t alias_rows(const struct rdp_target *t)
 {
 	return t->box.y1 ? t->box.y1 : t->lh;
+}
+
+/* Per-target pixel comparisons distinguish CPU-written pixels from neighboring
+ * stale RDRAM bytes. A 128-byte guard line is still useful for late-readback
+ * protection, but is too coarse as an upload unit for a mixed RSX/RDRAM image. */
+static bool profile_cpu_rows_changed(int i)
+{
+	const struct rdp_target *t = &rdp.tg.t[i];
+	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || t->bpp != 2 ||
+	    !t->width || !t->lw || !t->lh || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+		return false;
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	uint64_t bytes = (uint64_t)row_bytes * t->lh;
+	if ((uint64_t)t->addr + bytes > rdp.rdram_size)
+		return true;
+	if (!rdp.profile_shadow_valid[i] || !rdp.profile_shadow[i] || rdp.profile_shadow_bytes[i] < bytes)
+		return true;
+	for (uint32_t y = 0; y < t->lh; y++)
+		if (memcmp(rdp.rdram + t->addr + y * row_bytes,
+			   rdp.profile_shadow[i] + y * row_bytes, visible_bytes))
+			return true;
+	return false;
+}
+
+/* Upload contiguous runs of changed 16-bit pixels only. Uploading the entire
+ * 128-byte hash line used by the older implementation replaced up to 63
+ * neighboring pixels that had been rendered only on the RSX, causing trails
+ * and corruption across the rest of the screen. Late VI composites are
+ * one-shot per changed span; do not clear live RDRAM here, because the
+ * emulated CPU can write it concurrently with the presentation thread. */
+static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_to_vi)
+{
+	const struct rdp_target *t = &rdp.tg.t[i];
+	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || !rdp.surf[i] ||
+	    t->bpp != 2 || !t->width || !t->lw || !t->lh || t->lw > RB_MAX_W || t->lh > RB_MAX_H)
+		return 0;
+
+	uint32_t row_bytes = t->width * 2u, visible_bytes = t->lw * 2u;
+	uint64_t bytes = (uint64_t)row_bytes * t->lh;
+	uint64_t end64 = (uint64_t)t->addr + bytes;
+	if (end64 > rdp.rdram_size || !rdp.profile_shadow_valid[i] || !rdp.profile_shadow[i] ||
+	    rdp.profile_shadow_bytes[i] < bytes)
+		return 0;
+
+	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
+	uint32_t regions = 0;
+	bool any = false;
+	/* Preserve the N64 RGBA5551 coverage bit. The RSX blitter composites
+	 * changed source pixels using SRC_ALPHA / ONE_MINUS_SRC_ALPHA, matching
+	 * GLideN64's RDRAMtoColorBuffer path. */
+	uint8_t raw_span[RB_MAX_W * 2u];
+
+	for (uint32_t y = 0; y < t->lh; y++) {
+		uint32_t row_off = y * row_bytes;
+		uint8_t *ram_row = rdp.rdram + t->addr + row_off;
+		uint8_t *shadow_row = rdp.profile_shadow[i] + row_off;
+		if (!memcmp(ram_row, shadow_row, visible_bytes))
+			continue;
+
+		uint32_t x = 0;
+		while (x < t->lw) {
+			while (x < t->lw && !memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+				x++;
+			if (x == t->lw)
+				break;
+			uint32_t x0 = x;
+			while (x < t->lw && memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+				x++;
+			uint32_t w = x - x0;
+			if (!w)
+				continue;
+
+			uint32_t pitch = (w * 2u + 63u) & ~63u;
+			unsigned k = rdp.prime_next;
+			uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
+					  : RB_SLOTS * RB_SLOT;
+			if (rdp.prime_fence[k] && !rsxkit_fence_done(rdp.prime_fence[k])) {
+				fence_wait(rdp.prime_fence[k]);
+				rdp.stats.prime_waits++;
+			}
+			memcpy(raw_span, ram_row + x0 * 2u, w * 2u);
+			memcpy(rdp.rb + boff, raw_span, w * 2u);
+			uint32_t dx = x0 * scale, dy = y * scale;
+			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
+				continue;
+
+			/* Queue one late composite only for VI-visible targets. Mode 1 is
+			 * a newly changed covered pixel; mode 2 marks a formerly covered pixel
+			 * whose coverage is now zero. The marker is consumed at this VI and
+			 * never latched for an additional field. */
+			if (defer_to_vi && rdp.profile_pending[i] &&
+			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width))) {
+				uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
+				for (uint32_t px = 0; px < w; px++) {
+					uint32_t x = x0 + px;
+					bool was_covered = (shadow_row[x * 2u + 1] & 1u) != 0;
+					bool is_covered = (raw_span[px * 2u + 1] & 1u) != 0;
+					if (is_covered)
+						pending_row[x] = 1;
+					else if (was_covered || pending_row[x] == 1)
+						pending_row[x] = 2;
+				}
+			}
+			/* Commit the bytes uploaded to RSX. Deferred pre-draw uploads
+			 * queue a single late composite; the pending marker, not a write
+			 * to live RDRAM, is consumed after VI presentation. */
+			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
+			rdp.prime_fence[k] = rsxkit_fence();
+			rdp.prime_next = (k + 1) % PRIME_BUFS;
+			rdp.stats.primes++;
+			regions++;
+			any = true;
+		}
+	}
+
+	/* Keep the late-readback guard baseline only for complete 128-byte lines
+	 * whose visible pixels are now exactly represented by this target shadow.
+	 * Partial boundary lines must not hide writes belonging to another image. */
+	if (commit_profile) {
+		uint64_t visible_end = (uint64_t)t->addr + (uint64_t)(t->lh - 1) * row_bytes + visible_bytes;
+		uint32_t first_line = (t->addr + RDP_GUARD_LINE - 1u) & ~(RDP_GUARD_LINE - 1u);
+		for (uint64_t line = first_line; line + RDP_GUARD_LINE <= visible_end; line += RDP_GUARD_LINE) {
+			uint32_t off = (uint32_t)(line - t->addr);
+			uint32_t y = off / row_bytes, xoff = off % row_bytes;
+			if (y < t->lh && xoff + RDP_GUARD_LINE <= visible_bytes &&
+			    !memcmp(rdp.rdram + line, rdp.profile_shadow[i] + off, RDP_GUARD_LINE))
+				rdp_guard_profile_mark(&guard, rdp.rdram, rdp.rdram_size,
+						       (uint32_t)line, (uint32_t)line + RDP_GUARD_LINE);
+		}
+	}
+
+	if (any) {
+		rdp.bound_t = -1;
+		rdp.surf_gen[i] = ++rdp.gen_seq;
+	}
+	/* A readback marks the target CPU-owned because the game may edit RDRAM.
+	 * Once the stable snapshot has been compared and every changed pixel has
+	 * been uploaded, the live RSX surface is authoritative again—even when
+	 * this pass found no new span. Without this transition, texture sampling
+	 * keeps falling back to RDRAM forever after a synchronous readback. */
+	if (commit_profile && !profile_cpu_rows_changed(i))
+		rdp_targets_rdram_uploaded(&rdp.tg, i);
+	return regions;
+}
+
+/* Replay CPU-written pixels immediately before VI presentation. Their stable
+ * RDRAM baseline may already be committed by an earlier pre-draw copy, but
+ * later RDP work can cover them on the RSX without changing RDRAM. */
+static uint32_t prime_profile_pending_spans(int i)
+{
+	if (i < 0 || i >= RDP_TARGETS_MAX || !rdp.rdram || !rdp.copy_color_from_rdram ||
+	    !rdp.surf[i] || !rdp.profile_shadow_valid[i] || !rdp.profile_shadow[i] ||
+	    !rdp.profile_pending[i] || rdp.tg.t[i].bpp != 2)
+		return 0;
+
+	const struct rdp_target *t = &rdp.tg.t[i];
+	uint32_t row_bytes = t->width * 2u;
+	uint64_t bytes = (uint64_t)row_bytes * t->lh;
+	if (!t->width || !t->lw || !t->lh || t->lw > RB_MAX_W || t->lh > RB_MAX_H ||
+	    (uint64_t)t->addr + bytes > rdp.rdram_size ||
+	    rdp.profile_shadow_bytes[i] < bytes ||
+	    rdp.profile_pending_bytes[i] < (uint64_t)t->width * t->lh)
+		return 0;
+
+	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
+	uint32_t regions = 0;
+	uint8_t raw_span[RB_MAX_W * 2u];
+
+	for (uint32_t y = 0; y < t->lh; y++) {
+		uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
+		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
+
+		/* A live overlay whose coverage bit goes low becomes a transparent
+		 * erase marker. Covered spans are consumed after this VI's final blit;
+		 * they are not retained as a cross-field replay latch. */
+		for (uint32_t px = 0; px < t->lw; px++) {
+			if (!pending_row[px])
+				continue;
+			bool covered = (shadow_row[px * 2u + 1] & 1u) != 0;
+			if (covered) {
+				pending_row[px] = 1;
+			} else if (pending_row[px] == 1) {
+				pending_row[px] = 2;
+			}
+		}
+
+		uint32_t x = 0;
+		while (x < t->lw) {
+			while (x < t->lw && !pending_row[x])
+				x++;
+			if (x == t->lw)
+				break;
+			uint8_t mode = pending_row[x];
+			uint32_t x0 = x;
+			while (x < t->lw && pending_row[x] == mode)
+				x++;
+			uint32_t w = x - x0;
+			if (!w)
+				continue;
+
+			/* A coverage-zero transition must erase the previous CPU sprite
+			 * pixel. Alpha blending it would leave that old pixel behind. Use
+			 * the stable transparent source RGB to replace the destination; do
+			 * not write RDRAM from the concurrently running presentation thread. */
+			if (mode == 2) {
+				uint32_t pitch = (w * 2u + 63u) & ~63u;
+				unsigned k = rdp.prime_next;
+				uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
+						  : RB_SLOTS * RB_SLOT;
+				if (rdp.prime_fence[k] && !rsxkit_fence_done(rdp.prime_fence[k])) {
+					fence_wait(rdp.prime_fence[k]);
+					rdp.stats.prime_waits++;
+				}
+				memcpy(raw_span, shadow_row + x0 * 2u, w * 2u);
+				memcpy(rdp.rb + boff, raw_span, w * 2u);
+				uint32_t dx = x0 * scale, dy = y * scale;
+				if (rsxkit_target_replace_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+							       dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
+					continue;
+				memset(pending_row + x0, 0, w);
+				rdp.prime_fence[k] = rsxkit_fence();
+				rdp.prime_next = (k + 1) % PRIME_BUFS;
+				rdp.stats.primes++;
+				regions++;
+				continue;
+			}
+
+			uint32_t pitch = (w * 2u + 63u) & ~63u;
+			unsigned k = rdp.prime_next;
+			uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
+					  : RB_SLOTS * RB_SLOT;
+			if (rdp.prime_fence[k] && !rsxkit_fence_done(rdp.prime_fence[k])) {
+				fence_wait(rdp.prime_fence[k]);
+				rdp.stats.prime_waits++;
+			}
+			memcpy(raw_span, shadow_row + x0 * 2u, w * 2u);
+			memcpy(rdp.rb + boff, raw_span, w * 2u);
+			uint32_t dx = x0 * scale, dy = y * scale;
+			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
+						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
+				continue;
+
+			/* The late VI blit is the final composite for this pending span.
+			 * Consume the marker without mutating RDRAM from the presentation
+			 * thread; the stable shadow remains the latest observed CPU value. */
+			memset(pending_row + x0, 0, w);
+			rdp.prime_fence[k] = rsxkit_fence();
+			rdp.prime_next = (k + 1) % PRIME_BUFS;
+			rdp.stats.primes++;
+			regions++;
+		}
+	}
+
+	if (regions) {
+		rdp.bound_t = -1;
+		rdp.surf_gen[i] = ++rdp.gen_seq;
+	}
+	return regions;
 }
 
 /* La última tarea en que el PPE escribió en la RDRAM [lo, hi) en lugar del
@@ -1760,6 +2185,13 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	if (!fresh) {
 		/* Sin dibujar desde hace tareas: lo que vale está en la RDRAM. */
 		bool stale = rdp.tg.task - rdp.tg.t[i].last_task > RDP_TARGETS_FRESH;
+		/* CopyColorFromRDRAM must preserve RSX-only pixels: with the main
+		 * framebuffer mirror disabled, a full upload from RDRAM on every task
+		 * would replace those pixels with stale data. Refresh only spans whose
+		 * stable RDRAM baseline changed; VI presentation catches later writes. */
+		bool profile_refresh = rdp.fbfx >= 1 && rdp.copy_color_from_rdram &&
+				       rdp.profile_prime_task[i] != rdp.tg.task && !stale &&
+				       profile_cpu_rows_changed(i);
 		/* La misma memoria dibujada después con otro ancho (Resident Evil 2:
 		 * el fondo se copia a 0x63E000 de 512 de ancho y los personajes van
 		 * encima a 596): la superficie de este ancho quedó vieja. La copia
@@ -1782,11 +2214,62 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			if (wt && (int32_t)(wt - t->last_task) > 0)
 				alias = true;
 		}
-		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" : alias ? "cebada (otro ancho)" : "viva");
-		if (stale) {
-			prime(i);
+		snprintf(rdp.last_get.how, sizeof rdp.last_get.how, stale ? "cebada" :
+			 profile_refresh ? "CopyColorFromRDRAM forzado" :
+			 alias ? "cebada (otro ancho)" : "viva");
+		if (stale && rdp.copy_color_from_rdram && rdp.fbfx >= 1 && rdp.tg.t[i].cpu_owned) {
+			/* A CPU-owned stale target must be reconstructed in full from RDRAM.
+			 * Its RSX surface may never have received the untouched rows; partial
+			 * span reconciliation cannot make it a valid texture. */
+			prime(i, true);
+			if (!profile_cpu_rows_changed(i))
+				rdp.profile_prime_task[i] = rdp.tg.task;
+			rdp.surf_dirty[i] = true;
+			if (rdp.scratch_slot == i) {
+				rdp.scratch_slot = -1;
+				memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+			}
 			rdp.alias_full[i] = false;
-		} else if (alias) {
+			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
+		} else if (stale && rdp.copy_color_from_rdram && rdp.fbfx >= 1) {
+			/* For an RSX-owned stale framebuffer, preserve RSX-only pixels and
+			 * upload only CPU-modified spans. */
+			uint32_t regions = prime_profile_cpu_spans(i, true, true);
+			if (regions) {
+				rdp.surf_dirty[i] = true;
+				if (rdp.scratch_slot == i) {
+					rdp.scratch_slot = -1;
+					memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+				}
+				LOGN(40, "gfx: CopyColorFromRDRAM refreshed stale RSX target %06x/%u with %u CPU spans (task %u)",
+				     rdp.tg.t[i].addr, rdp.tg.t[i].width, regions, rdp.tg.task);
+			}
+			if (!profile_cpu_rows_changed(i)) {
+				rdp_targets_rdram_uploaded(&rdp.tg, i);
+				rdp.profile_prime_task[i] = rdp.tg.task;
+			}
+			rdp.alias_full[i] = false;
+			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
+		} else if (stale) {
+			prime(i, true);
+			if (rdp.copy_color_from_rdram)
+				rdp.profile_prime_task[i] = rdp.tg.task;
+			rdp.alias_full[i] = false;
+			memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
+		} else if (profile_refresh) {
+			/* Upload only CPU-modified RDRAM spans. Commit their stable
+			 * baseline after the upload so later tasks do not reapply those
+			 * same stale pixels over newer RSX draws. */
+			uint32_t regions = prime_profile_cpu_spans(i, true, true);
+			if (regions) {
+				rdp.alias_full[i] = false;
+				memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
+				LOGN(40, "gfx: CopyColorFromRDRAM uploaded %u CPU spans to %06x/%u before drawing (task %u)",
+				     regions, rdp.tg.t[i].addr, rdp.tg.t[i].width, rdp.tg.task);
+			}
+			if (!profile_cpu_rows_changed(i))
+				rdp.profile_prime_task[i] = rdp.tg.task;
+		} else if (alias && !rdp.copy_color_from_rdram) {
 			/* Con la misma RDRAM que en el último cebado entero, solo las
 			 * filas dibujadas encima desde entonces (Leon). */
 			const struct rdp_target *t = &rdp.tg.t[i];
@@ -1794,11 +2277,11 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			if (rdp.alias_full[i] && sum == rdp.alias_sum[i]) {
 				const struct rdp_box *b = &rdp.alias_dirty[i];
 				if (b->y1 > b->y0) {
-					prime_rows(i, b->y0, b->y1);
+					prime_rows(i, b->y0, b->y1, !rdp.copy_color_from_rdram);
 					rdp.stats.primes_alias++;
 				}
 			} else {
-				prime(i);
+				prime(i, !rdp.copy_color_from_rdram);
 				rdp.alias_full[i] = true;
 				rdp.alias_sum[i] = sum;
 				rdp.stats.primes_alias++;
@@ -1845,7 +2328,9 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 	rdp.surf_dirty[i] = false;
 	rdp.tg.t[i].fmt = (uint8_t)fmt;
 	rdp.stats.targets_created++;
-	prime(i);
+	prime(i, true);
+	if (rdp.copy_color_from_rdram)
+		rdp.profile_prime_task[i] = rdp.tg.task;
 	return i;
 }
 
@@ -2191,10 +2676,63 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 	uint32_t bpp = gt->src_siz == 2u ? 2 : gt->src_siz == 1u && gt->where == GFX_TEX_TARGET ? 1 : 0;
 	if (rdp.fbfx < 1 || !gt->src_addr || !bpp)
 		return false;
-	int slot;
-	uint32_t x0, y0;
-	enum rdp_texsrc src = rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
-	if ((src != RDP_TEXSRC_RSX && src != RDP_TEXSRC_SELF) || !rdp.surf[slot])
+	uint32_t x0 = 0, y0 = 0;
+	int slot = rdp_targets_locate(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, &x0, &y0);
+	/* Dr. Mario's RDRAM copy omits RSX-only pixels, so a live RSX-owned
+	 * surface remains authoritative after the normal three-task freshness
+	 * window, including for static textures sampled much later. Do not use age
+	 * as a proxy for recycling: locate() has already matched the address/pitch/
+	 * bpp to a live target, and this slot must still own both its surface and
+	 * valid RDRAM baseline. A recycled/dropped target cannot pass these checks. */
+	bool profile_surface_synced = false;
+	uint32_t source_age = slot >= 0 ? rdp.tg.task - rdp.tg.t[slot].last_task : UINT32_MAX;
+	/* Match GLideN64's per-game CopyColorFromRDRAM behavior: a readback
+	 * does not make the live RSX surface unusable. Reconcile RDRAM edits
+	 * against the stable per-target baseline first, then let the synced
+	 * surface serve as a texture again. cpu_owned is cleared only after the
+	 * reconciliation succeeds below. */
+	if (slot >= 0 && rdp.surf[slot] && rdp.copy_color_from_rdram &&
+	    rdp.profile_shadow_valid[slot]) {
+		/* RDRAM is not mutated during one translated RDP task. Reconcile at
+		 * most once per target per task; repeatedly scanning the full 328x246
+		 * image for every texture load starved the RSX queue in v0.2.13d. */
+		if (rdp.profile_prime_task[slot] != rdp.tg.task) {
+			if (profile_cpu_rows_changed(slot)) {
+				uint32_t regions = prime_profile_cpu_spans(slot, true, true);
+				if (regions) {
+					rdp.surf_dirty[slot] = true;
+					/* A SELF texture may already have a cached copy of this surface. */
+					if (rdp.scratch_slot == slot) {
+						rdp.scratch_slot = -1;
+						memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+					}
+					LOGN(40, "gfx: CopyColorFromRDRAM uploaded %u CPU spans to %06x/%u before texture sampling (task %u)",
+					     regions, rdp.tg.t[slot].addr, rdp.tg.t[slot].width, rdp.tg.task);
+				}
+			}
+			/* Never trust a partially reconciled surface. */
+			if (profile_cpu_rows_changed(slot)) {
+				rdp.tg.tex_rdram++;
+				LOGN(20, "gfx: CopyColorFromRDRAM keeps RDRAM fallback for %06x/%u: CPU pixels remain unsynced",
+				     rdp.tg.t[slot].addr, rdp.tg.t[slot].width);
+				return false;
+			}
+			rdp.profile_prime_task[slot] = rdp.tg.task;
+		}
+		profile_surface_synced = true;
+	}
+	enum rdp_texsrc src = profile_surface_synced
+		? rdp_targets_texture_synced(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, true, &slot, &x0, &y0)
+		: rdp_targets_texture(&rdp.tg, gt->src_addr, gt->src_pitch, bpp, cur, &slot, &x0, &y0);
+	if (profile_surface_synced) {
+		const char *source = src == RDP_TEXSRC_SELF ? "SELF" :
+			src == RDP_TEXSRC_RSX ? "RSX" :
+			src == RDP_TEXSRC_RDRAM ? "RDRAM fallback" : "none";
+		LOGN(20, "gfx: CopyColorFromRDRAM selected %s for %06x/%u (age %u tasks)",
+		     source, rdp.tg.t[slot].addr, rdp.tg.t[slot].width,
+		     rdp.tg.task - rdp.tg.t[slot].last_task);
+	}
+	if ((src != RDP_TEXSRC_RSX && src != RDP_TEXSRC_SELF) || slot < 0 || !rdp.surf[slot])
 		return false;
 	const struct rdp_target *tg = &rdp.tg.t[slot];
 	/* Una textura que se repite a lo ancho no cabe en filas enteras. */
@@ -2771,6 +3309,7 @@ static bool tall_fill_target(int i, float xa, float ya, float xb, float yb, uint
 	struct rdp_box r = { 0, 0, 0, 0 };
 	const uint16_t all[4] = { 0, 0, (uint16_t)(t->lw * 4), (uint16_t)(t->lh * 4) };
 	rdp_box_add(&r, xa, ya, xb, yb, true, all, t->lw, t->lh);
+	/* Pending CPU deltas are consumed after one VI presentation. */
 	rdp_box_union(&drawn_box[i], &r);
 	rdp_box_union(&rdp.tg.t[i].box, &r);
 	rdp.stats.tall_fills++;
@@ -3078,6 +3617,7 @@ static void translate(uint32_t n)
 				const struct rdp_target *t = &rdp.tg.t[cur];
 				struct rdp_box r = { 0, 0, 0, 0 };
 				rdp_box_add(&r, x0, y0, x1, y1, front, g->scissor, t->lw, t->lh);
+				/* Late CPU pixels are composed after the RDP scene at VI presentation. */
 				rdp_box_union(&drawn_box[cur], &r);
 				rdp_box_union(&rdp.tg.t[cur].box, &r);
 			if (d && (g->depth & GFX_DEPTH_WRITE))
@@ -3273,8 +3813,15 @@ static void translate(uint32_t n)
 	 * ver una sin barrera). */
 	for (int i = 0; rdp.rdram && rdp.fbfx >= 2 && i < RDP_TARGETS_MAX; i++) {
 		uint32_t rows = drawn_box[i].y1 < rdp.tg.t[i].lh ? drawn_box[i].y1 : rdp.tg.t[i].lh;
-		if (drawn[i] && !sync_rb[i] && rdp_targets_mirror_at_task_end(&rdp.tg, i))
+		if (!drawn[i] || sync_rb[i] || !rdp_targets_mirror_at_task_end(&rdp.tg, i))
+			continue;
+		if (rdp.copy_color_to_rdram) {
 			frame_mirror(i, rows, true);
+		} else {
+			/* The per-game profile intentionally skips the framebuffer
+			 * readback; retire its dirty-box bookkeeping all the same. */
+			rdp_targets_mirrored(&rdp.tg, i);
+		}
 	}
 	lwsync();  /* la RDRAM, antes de decir que está */
 	rdp.readback_done = n + 1;
@@ -3346,7 +3893,7 @@ static void frame_mirror(int slot, uint32_t rows, bool wait)
 		fence_wait(rdp.frame.fence);
 		readbacks_finish(false);
 	}
-	if (rdp.frame.used || !rdp.rdram || rdp.fbfx < 2 || !rdp.surf[slot] || t->bpp != 2 || t->lw > RB_MAX_W ||
+	if (rdp.frame.used || !rdp.rdram || rdp.fbfx < 2 || !rdp.copy_color_to_rdram || !rdp.surf[slot] || t->bpp != 2 || t->lw > RB_MAX_W ||
 	    rows > RB_MAX_H || !rows || t->addr + t->width * 2 * rows > rdp.rdram_size ||
 	    !rdp_targets_mirror_wanted(&rdp.tg, slot))
 		return;
@@ -3586,6 +4133,40 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 	rdp_targets_present(&rdp.tg, f, field, &p);
 	if (p.slot < 0 || !rdp.surf[p.slot] || !p.w || !p.h)
 		return false;
+	/* GLideN64 applies CopyColorFromRDRAM at the VI update as well as when
+	 * a framebuffer is first created. CPU-written pixels can arrive after
+	 * the last RDP task, so get_target() alone is too early to notice them.
+	 * Re-upload only rows that differ from the stable RDRAM baseline, just
+	 * before presenting the VI-selected target. */
+	if (rdp.copy_color_from_rdram) {
+		/* CPU writes can happen after the last RDP task and immediately before
+		 * VI presentation. Upload only guard spans whose RDRAM hash changed
+		 * since the last upload/readback. A full-frame prime here replaces
+		 * RSX-only pixels (background and other GPU-rendered objects) with stale
+		 * RDRAM, leaving only CPU-written elements such as the falling pill. */
+		uint32_t regions = prime_profile_cpu_spans(p.slot, true, false);
+		if (regions) {
+			rdp.profile_prime_task[p.slot] = rdp.tg.task;
+			rdp.surf_dirty[p.slot] = true;
+			/* This VI surface may already have a cached SELF-texture copy. */
+			if (rdp.scratch_slot == p.slot) {
+				rdp.scratch_slot = -1;
+				memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+			}
+			LOGN(40, "gfx: VI CopyColorFromRDRAM uploaded %u changed spans to %06x/%u before presentation",
+			     regions, rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width);
+		}
+		uint32_t pending_regions = prime_profile_pending_spans(p.slot);
+		if (pending_regions) {
+			rdp.surf_dirty[p.slot] = true;
+			if (rdp.scratch_slot == p.slot) {
+				rdp.scratch_slot = -1;
+				memset(&rdp.scratch_dirty, 0, sizeof rdp.scratch_dirty);
+			}
+			LOGN(40, "gfx: VI CopyColorFromRDRAM reapplied %u pending CPU spans to %06x/%u after RDP draws",
+			     pending_regions, rdp.tg.t[p.slot].addr, rdp.tg.t[p.slot].width);
+		}
+	}
 	rdp.last_p = p;
 	rdp.stats.age_sum += p.age;
 	if (p.age > rdp.stats.age_max)
