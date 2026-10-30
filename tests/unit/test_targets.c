@@ -1211,22 +1211,28 @@ static void targets_profile_pending_lifetime(void)
 	uint8_t pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
 
-	/* Keep a covered pill pixel alive across repeated returns to this VI buffer. */
-	for (int field = 0; field < 4; field++) {
-		pending = rdp_profile_pending_refresh(pending, true);
-		CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
-		pending = rdp_profile_pending_complete(pending);
-		CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
-	}
+	/* One covered CPU delta is replayed once, then consumed. If the shadow
+	 * remains covered but the CPU writes nothing new, it must not be replayed
+	 * over a later scene or menu on a subsequent VI. */
+	pending = rdp_profile_pending_refresh(pending, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
+	CHECK_EQ(rdp_profile_pending_refresh(pending, true), RDP_PROFILE_PENDING_NONE);
 
-	/* When the CPU moves/erases the pixel, replace once and then stop replaying. */
-	pending = rdp_profile_pending_note(pending, true, false);
+	/* A fresh CPU write to the same still-covered pixel queues one new replay. */
+	pending = rdp_profile_pending_note(pending, true, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
+
+	/* When the CPU moves/erases the pixel, replace once to clear the old sprite. */
+	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, true, false);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
 	pending = rdp_profile_pending_refresh(pending, false);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
-	CHECK_EQ(rdp_profile_pending_refresh(pending, false), RDP_PROFILE_PENDING_NONE);
 
 	/* A clear before first replay must also remove an already-seeded pixel. */
 	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, true, false);
@@ -1237,6 +1243,8 @@ static void targets_profile_pending_lifetime(void)
 	/* A new covered write supersedes an erase still waiting for VI. */
 	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_REPLACE, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
 }
 
 static void targets_frame_mirror(void)

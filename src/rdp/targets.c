@@ -848,7 +848,11 @@ uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered)
 /* Covered overlays persist; transparent replacements are one-shot. */
 uint8_t rdp_profile_pending_complete(uint8_t mode)
 {
-	return mode == RDP_PROFILE_PENDING_REPLACE ? RDP_PROFILE_PENDING_NONE : mode;
+	/* A CPU overlay is composed into one VI presentation only. Leaving a
+	 * covered-pixel marker latched replays an old pill over later RDP scene
+	 * content (and recreates trails). A fresh CPU RDRAM delta queues it again. */
+	(void)mode;
+	return RDP_PROFILE_PENDING_NONE;
 }
 
 /* A CPU-modified row is uploaded only if a previously initialized profile
