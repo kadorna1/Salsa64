@@ -1808,10 +1808,7 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 					uint32_t x = x0 + px;
 					bool was_covered = (shadow_row[x * 2u + 1] & 1u) != 0;
 					bool is_covered = (raw_span[px * 2u + 1] & 1u) != 0;
-					if (is_covered)
-						pending_row[x] = 1;
-					else if (was_covered || pending_row[x] == 1)
-						pending_row[x] = 2;
+					pending_row[x] = rdp_profile_pending_note(pending_row[x], was_covered, is_covered);
 				}
 			}
 			/* Commit the bytes uploaded to RSX. Deferred pre-draw uploads
@@ -1883,18 +1880,14 @@ static uint32_t prime_profile_pending_spans(int i)
 		uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
 
-		/* A live overlay whose coverage bit goes low becomes a transparent
-		 * erase marker. Covered spans are consumed after this VI's final blit;
-		 * they are not retained as a cross-field replay latch. */
+		/* Reapply covered CPU pixels whenever this VI buffer returns. A pixel
+		 * whose coverage bit goes low becomes a one-shot transparent replace,
+		 * which is consumed after the old sprite pixel has been removed. */
 		for (uint32_t px = 0; px < t->lw; px++) {
 			if (!pending_row[px])
 				continue;
 			bool covered = (shadow_row[px * 2u + 1] & 1u) != 0;
-			if (covered) {
-				pending_row[px] = 1;
-			} else if (pending_row[px] == 1) {
-				pending_row[px] = 2;
-			}
+			pending_row[px] = rdp_profile_pending_refresh(pending_row[px], covered);
 		}
 
 		uint32_t x = 0;
@@ -1915,7 +1908,7 @@ static uint32_t prime_profile_pending_spans(int i)
 			 * pixel. Alpha blending it would leave that old pixel behind. Use
 			 * the stable transparent source RGB to replace the destination; do
 			 * not write RDRAM from the concurrently running presentation thread. */
-			if (mode == 2) {
+			if (mode == RDP_PROFILE_PENDING_REPLACE) {
 				uint32_t pitch = (w * 2u + 63u) & ~63u;
 				unsigned k = rdp.prime_next;
 				uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
@@ -1930,7 +1923,8 @@ static uint32_t prime_profile_pending_spans(int i)
 				if (rsxkit_target_replace_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
 							       dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 					continue;
-				memset(pending_row + x0, 0, w);
+				for (uint32_t px = 0; px < w; px++)
+					pending_row[x0 + px] = rdp_profile_pending_complete(mode);
 				rdp.prime_fence[k] = rsxkit_fence();
 				rdp.prime_next = (k + 1) % PRIME_BUFS;
 				rdp.stats.primes++;
@@ -1953,10 +1947,11 @@ static uint32_t prime_profile_pending_spans(int i)
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
-			/* The late VI blit is the final composite for this pending span.
-			 * Consume the marker without mutating RDRAM from the presentation
-			 * thread; the stable shadow remains the latest observed CPU value. */
-			memset(pending_row + x0, 0, w);
+			/* Keep the live CPU overlay pending until the CPU clears coverage.
+			 * This makes alternating VI buffers show the same falling/flipping
+			 * pill while leaving RDRAM exclusively owned by the emulation thread. */
+			for (uint32_t px = 0; px < w; px++)
+				pending_row[x0 + px] = rdp_profile_pending_complete(mode);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
 			rdp.stats.primes++;
@@ -4144,7 +4139,7 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 		 * since the last upload/readback. A full-frame prime here replaces
 		 * RSX-only pixels (background and other GPU-rendered objects) with stale
 		 * RDRAM, leaving only CPU-written elements such as the falling pill. */
-		uint32_t regions = prime_profile_cpu_spans(p.slot, true, false);
+		uint32_t regions = prime_profile_cpu_spans(p.slot, true, true);
 		if (regions) {
 			rdp.profile_prime_task[p.slot] = rdp.tg.task;
 			rdp.surf_dirty[p.slot] = true;

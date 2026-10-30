@@ -452,6 +452,16 @@ void rdp_guard_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, ui
 void rdp_guard_profile_mark(struct rdp_guard *g, const uint8_t *rdram, uint32_t size, uint32_t lo, uint32_t hi);
 /* ¿Una copia RSX->RDRAM puede escribir esta línea sin pisar datos del CPU? */
 bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint32_t line);
+
+/* CPU-written overlay lifetime for CopyColorFromRDRAM. */
+enum rdp_profile_pending_mode {
+	RDP_PROFILE_PENDING_NONE = 0,
+	RDP_PROFILE_PENDING_BLEND = 1,
+	RDP_PROFILE_PENDING_REPLACE = 2,
+};
+uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_covered);
+uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered);
+uint8_t rdp_profile_pending_complete(uint8_t mode);
 /* ¿Se puede escribir la línea `line` (dirección >> RDP_GUARD_SHIFT)? */
 static inline bool rdp_guard_ok(const struct rdp_guard *g, const uint8_t *rdram, uint32_t line)
 {

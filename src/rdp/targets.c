@@ -824,6 +824,33 @@ bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint3
 	return !baseline || rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT)) == baseline;
 }
 
+/* Keep a covered CPU-written pixel over later RDP draws. When the CPU clears
+ * it, schedule one replace operation even if it was never replayed before. */
+uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_covered)
+{
+	if (is_covered)
+		return RDP_PROFILE_PENDING_BLEND;
+	if (was_covered || pending == RDP_PROFILE_PENDING_BLEND)
+		return RDP_PROFILE_PENDING_REPLACE;
+	return pending;
+}
+
+/* Refresh pending state against the latest stable RDRAM coverage bit. */
+uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered)
+{
+	if (!pending)
+		return RDP_PROFILE_PENDING_NONE;
+	if (is_covered)
+		return RDP_PROFILE_PENDING_BLEND;
+	return pending == RDP_PROFILE_PENDING_BLEND ? RDP_PROFILE_PENDING_REPLACE : pending;
+}
+
+/* Covered overlays persist; transparent replacements are one-shot. */
+uint8_t rdp_profile_pending_complete(uint8_t mode)
+{
+	return mode == RDP_PROFILE_PENDING_REPLACE ? RDP_PROFILE_PENDING_NONE : mode;
+}
+
 /* A CPU-modified row is uploaded only if a previously initialized profile
  * baseline no longer matches. Guard lines are absolute 128-byte spans, so
  * unaligned row strides conservatively mark adjacent rows when they overlap

@@ -1206,6 +1206,39 @@ static void targets_profile_baseline_commit(void)
 	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 }
 
+static void targets_profile_pending_lifetime(void)
+{
+	uint8_t pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+
+	/* Keep a covered pill pixel alive across repeated returns to this VI buffer. */
+	for (int field = 0; field < 4; field++) {
+		pending = rdp_profile_pending_refresh(pending, true);
+		CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+		pending = rdp_profile_pending_complete(pending);
+		CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	}
+
+	/* When the CPU moves/erases the pixel, replace once and then stop replaying. */
+	pending = rdp_profile_pending_note(pending, true, false);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
+	pending = rdp_profile_pending_refresh(pending, false);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
+	CHECK_EQ(rdp_profile_pending_refresh(pending, false), RDP_PROFILE_PENDING_NONE);
+
+	/* A clear before first replay must also remove an already-seeded pixel. */
+	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, true, false);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
+
+	/* A new covered write supersedes an erase still waiting for VI. */
+	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_REPLACE, false, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+}
+
 static void targets_frame_mirror(void)
 {
 	const uint32_t A = 0x38f800, B = 0x3b5000, C = 0x3da800, LINE = 640;
@@ -1309,6 +1342,7 @@ void t_suite_targets(void)
 	RUN(targets_dma_ring);
 	RUN(targets_cpu_guard);
 	RUN(targets_profile_baseline_commit);
+	RUN(targets_profile_pending_lifetime);
 	RUN(targets_profile_readback_transition);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);
