@@ -21,6 +21,22 @@ These are leads, not proof that Salsa64 has the same bug:
 - `src/rdp/targets.c` already has special handling for DK64's interlaced opening logos: a 640×480 target can be presented through a 1280-wide VI with alternating field origins.
 - `docs/framebuffer.md` records two other DK64-specific facts: the game reads its 320×240 depth image at `0x5d5600` from the CPU, and a later 320×459 transition framebuffer is read back by the CPU. The depth values written by rendered geometry are not currently copied back to RDRAM; the RDRAM currently contains the depth clear only. That could affect game behavior, but is not yet established as the cause of this opening freeze.
 
+## Findings from the first console capture (2026-10-29)
+
+The supplied excerpt contains a hang-detector snapshot at runtime 123.082 s, VI field 6084. This changes the working hypothesis from a possible presentation-only failure to a game-CPU wait/failure path:
+
+- At about 120.543 s the renderer drops to 60 RSX-presented fields and 220 fields without an image in that interval; in the following interval all 299 fields have no image. The VI timer continues.
+- The watchdog observes no controller reads or new graphics/RDP work for 6 seconds.
+- CPU `cur_pc=0xffffffff8000094c`, `ra=0xffffffff8000094c`; the code words show `jalr $ra,$t9` at PC−8, with its delay-slot instruction at PC−4, followed by `beq $zero,$zero,-1` at the current PC and a `nop` delay slot. The branch target is the same address. The matching return address strongly suggests that a called routine returned into a deliberate terminal spin loop; we still need the saved registers and RDRAM image to identify the call target and why the caller chose this path.
+- At the snapshot, the RSP has no active task, DPC START/END/CURRENT are zero, and there is no current DP interrupt scheduled. The lifetime counters have equal `DP programadas` and `DP levantadas` counts (2723 each); `DP retenida por el congelado` is a cumulative counter, while the live `DP retenida` flag is zero. The excerpt therefore does not by itself show a currently missing DP interrupt.
+- Audio task processing and VI fields continue after the CPU enters the loop. This is consistent with the scheduler advancing independently while the game's normal input/graphics thread has stopped making progress.
+
+The watchdog successfully saved two especially useful files on the console:
+- `/dev_hdd0/salsa64/cuelgue-6084.txt`: all GPRs, including `$t9`, CPU state and RCP snapshot.
+- `/dev_hdd0/salsa64/cuelgue-6084.rdram`: full RDRAM image. Run `python3 tools/libultra-threads.py cuelgue-6084.rdram --all` on the host copy to enumerate likely libultra threads and their PCs/message-queue waits.
+
+Those files are needed to distinguish a fatal return from a missing-thread/message condition, and to identify whether the last blank presentation is a consequence rather than the initiating fault. Do not change DK64 framebuffer or depth-copy behavior until the saved evidence identifies a path to test.
+
 ## Investigation order
 
 1. Read the supplied log and identify the ROM title/region/CRC, exact last successful scene, last RSP/RDP task activity, VI-origin/field changes, framebuffer-copy setting, and whether audio continues.
