@@ -1222,8 +1222,9 @@ static void targets_write_marks(void)
 	CHECK_EQ(pixels[3], 0);
 	CHECK(!salsa64_write_marks_any_range(marks, 256, 10, 2));
 
-	/* Big-endian masked stores touch only the enabled pixel lanes. */
-	salsa64_write_marks_mark_mask(marks, 256, 32, 0xFFFF0000u, 4);
+	/* Big-endian masked stores touch only enabled byte lanes. Here the
+	 * first pixel is fully written and the second has only its low byte set. */
+	salsa64_write_marks_mark_mask(marks, 256, 32, 0xFFFF00FFu, 4);
 	CHECK(salsa64_write_marks_any_range(marks, 256, 32, 4));
 	CHECK(!salsa64_write_marks_any_range(marks, 256, 36, 4));
 	CHECK_EQ(salsa64_write_marks_take_range(marks, 256, 32, 8, pixels, 4), 2);
