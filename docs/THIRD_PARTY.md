@@ -179,7 +179,12 @@ y revisando los repositorios.
 | Componente | Origen fijado | Licencia | Uso |
 |---|---|---|---|
 | `third_party/libun7zip` | [kadorna1/libun7zip](https://github.com/kadorna1/libun7zip), commit `e2a195d2767d64c9c52ab0bd147ebb52124066ef` (7-Zip SDK 19.00) | Apache-2.0; conserva los avisos de dominio público de los fuentes originales del SDK | API `SzArEx_Extract`: inspecciona el directorio 7z y extrae un único miembro N64 a RAM, comprobando el CRC. No crea rutas en disco. Asignadores con límites para metadatos, temporales y bloque sólido. |
-| `third_party/libunrar-ps3` | [kadorna1/libunrar-ps3](https://github.com/kadorna1/libunrar-ps3), commit `43ded7b024b75ad08c5e3f56d41942fc950e0b95` (UnRAR 5.9.2) | Licencia UnRAR de Alexander Roshal, `license.txt` en el submódulo (no es GPL) | Modo `RAR_TEST` con callback: los bloques descomprimidos van a RAM y UnRAR verifica el CRC. Los miembros anteriores de un archivo sólido se procesan con un presupuesto acumulado de 64 MiB. |
+| `third_party/libunrar-ps3` | [kadorna1/libunrar-ps3](https://github.com/kadorna1/libunrar-ps3), commit `1f2c10b31bd38454bc54008ba93289297df868c1` (UnRAR 5.9.2 + PPU compatibility fix) | Licencia UnRAR de Alexander Roshal, `license.txt` en el submódulo (no es GPL) | Modo `RAR_TEST` con callback: los bloques descomprimidos van a RAM y UnRAR verifica el CRC. Los miembros anteriores de un archivo sólido se procesan con un presupuesto acumulado de 64 MiB. |
+
+La versión PS3 de libunrar omite la consulta de espacio libre `sysFsStat`
+(no está disponible en el toolchain PSL1GHT usado aquí); el helper devuelve
+capacidad desconocida en PPU. El frontend usa `RAR_TEST` y un callback a RAM,
+por lo que no escribe miembros del archivo en el filesystem.
 
 Los lectores admiten el primer miembro `.z64`, `.v64` o `.n64` válido.
 No extraen nombres ni carpetas del archivo al sistema de archivos. ZIP sigue
