@@ -458,6 +458,7 @@ enum rdp_profile_pending_mode {
 	RDP_PROFILE_PENDING_NONE = 0,
 	RDP_PROFILE_PENDING_BLEND = 1,
 	RDP_PROFILE_PENDING_REPLACE = 2,
+	RDP_PROFILE_PENDING_FOLLOWUP = 3,
 };
 uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_covered);
 uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered);

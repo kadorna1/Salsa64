@@ -830,7 +830,8 @@ uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_cove
 {
 	if (is_covered)
 		return RDP_PROFILE_PENDING_BLEND;
-	if (was_covered || pending == RDP_PROFILE_PENDING_BLEND)
+	if (was_covered || pending == RDP_PROFILE_PENDING_BLEND ||
+	    pending == RDP_PROFILE_PENDING_FOLLOWUP)
 		return RDP_PROFILE_PENDING_REPLACE;
 	return pending;
 }
@@ -840,19 +841,23 @@ uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered)
 {
 	if (!pending)
 		return RDP_PROFILE_PENDING_NONE;
-	if (is_covered)
-		return RDP_PROFILE_PENDING_BLEND;
-	return pending == RDP_PROFILE_PENDING_BLEND ? RDP_PROFILE_PENDING_REPLACE : pending;
+	if (is_covered) {
+		if (pending != RDP_PROFILE_PENDING_FOLLOWUP)
+			return RDP_PROFILE_PENDING_BLEND;
+	} else if (pending == RDP_PROFILE_PENDING_BLEND ||
+		   pending == RDP_PROFILE_PENDING_FOLLOWUP) {
+		return RDP_PROFILE_PENDING_REPLACE;
+	}
+	return pending;
 }
 
 /* Covered overlays persist; transparent replacements are one-shot. */
 uint8_t rdp_profile_pending_complete(uint8_t mode)
 {
-	/* A CPU overlay is composed into one VI presentation only. Leaving a
-	 * covered-pixel marker latched replays an old pill over later RDP scene
-	 * content (and recreates trails). A fresh CPU RDRAM delta queues it again. */
-	(void)mode;
-	return RDP_PROFILE_PENDING_NONE;
+	/* One bounded follow-up bridges the alternating VI buffers. Never retain
+	 * the marker beyond that second presentation. Erases are always one-shot. */
+	return mode == RDP_PROFILE_PENDING_BLEND ? RDP_PROFILE_PENDING_FOLLOWUP
+		: RDP_PROFILE_PENDING_NONE;
 }
 
 /* A CPU-modified row is uploaded only if a previously initialized profile

@@ -1211,30 +1211,39 @@ static void targets_profile_pending_lifetime(void)
 	uint8_t pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
 
-	/* One covered CPU delta is replayed once, then consumed. If the shadow
-	 * remains covered but the CPU writes nothing new, it must not be replayed
-	 * over a later scene or menu on a subsequent VI. */
+	/* A newly changed covered pixel is replayed on this VI and retained for
+	 * one bounded follow-up because the two framebuffer targets alternate. */
 	pending = rdp_profile_pending_refresh(pending, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+
+	/* Still covered: preserve the follow-up state for exactly this second VI. */
+	pending = rdp_profile_pending_refresh(pending, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
 	CHECK_EQ(rdp_profile_pending_refresh(pending, true), RDP_PROFILE_PENDING_NONE);
 
-	/* A fresh CPU write to the same still-covered pixel queues one new replay. */
+	/* A fresh CPU write queues another bounded pair. */
 	pending = rdp_profile_pending_note(pending, true, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
 	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
 
-	/* When the CPU moves/erases the pixel, replace once to clear the old sprite. */
-	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, true, false);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
+	/* If coverage disappears before the follow-up, replace once to erase. */
+	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
 	pending = rdp_profile_pending_refresh(pending, false);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
 
-	/* A clear before first replay must also remove an already-seeded pixel. */
+	/* A pixel erased before its first replay is also replaced exactly once. */
 	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, true, false);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
 	pending = rdp_profile_pending_complete(pending);
@@ -1244,7 +1253,7 @@ static void targets_profile_pending_lifetime(void)
 	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_REPLACE, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
 	pending = rdp_profile_pending_complete(pending);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
 }
 
 static void targets_frame_mirror(void)
