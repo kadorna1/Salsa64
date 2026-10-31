@@ -1240,7 +1240,7 @@ static void targets_profile_pending_lifetime(void)
 	CHECK(rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
 					    &last_batch_valid, 17));
 	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_REPLACE);
-	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_NONE);
+	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_REPLACE);
 	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_REPLACE);
 	batch_pending[1] = RDP_PROFILE_PENDING_FOLLOWUP;
 	CHECK(!rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,

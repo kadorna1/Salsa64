@@ -834,16 +834,14 @@ bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *l
 		return false;
 	if (*last_batch_valid && *last_batch == batch)
 		return false;
-	/* An already-replayed overlay has been blended into the RSX surface, so
-	 * retire it with a one-shot transparent replacement. A BLEND not yet
-	 * presented never reached the surface and can simply be discarded.
-	 * Existing replacements remain queued until the VI thread applies them. */
-	for (uint32_t i = 0; i < count; i++) {
-		if (pending[i] == RDP_PROFILE_PENDING_FOLLOWUP)
+	/* Both BLEND (the initial span upload) and FOLLOWUP (the late VI replay)
+	 * have reached the RSX surface. Retire either with a one-shot transparent
+	 * replacement; the current batch can change that coordinate back to BLEND
+	 * if it writes a new covered pixel there. Existing replacements persist. */
+	for (uint32_t i = 0; i < count; i++)
+		if (pending[i] == RDP_PROFILE_PENDING_BLEND ||
+		    pending[i] == RDP_PROFILE_PENDING_FOLLOWUP)
 			pending[i] = RDP_PROFILE_PENDING_REPLACE;
-		else if (pending[i] == RDP_PROFILE_PENDING_BLEND)
-			pending[i] = RDP_PROFILE_PENDING_NONE;
-	}
 	*last_batch = batch;
 	*last_batch_valid = true;
 	return true;
