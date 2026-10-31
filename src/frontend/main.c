@@ -5879,6 +5879,9 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	title_compact[title_compact_len] = '\0';
 	bool dr_mario64 = strstr(title_compact, "DRMARIO64") != NULL;
 	salsa64_rdp_copy_color_from_rdram(dr_mario64);
+	n64.cpu.rdram_write_marks = salsa64_rdp_write_marks();
+	if (dr_mario64)
+		salsa64_log("compatibilidad: FBWrite por píxel %s", n64.cpu.rdram_write_marks ? "activo" : "sin memoria; se conserva la detección por cambios");
 	/* Avoid stale main-framebuffer RSX→RDRAM copy-back for this game, while
 	 * retaining the other framebuffer effects. */
 	salsa64_rdp_copy_color_to_rdram(!dr_mario64);
@@ -5982,6 +5985,10 @@ static enum game_end run_game_once(uint8_t *rom, uint32_t rom_size, const char *
 	}
 
 	rec.opts = SALSA64_REC_OPT_PIN;  /* +7 % en nemu64-test (docs/perf-log.md) */
+	if (n64.cpu.rdram_write_marks) {
+		rec.opts |= SALSA64_REC_OPT_NO_GROUP;
+		salsa64_log("recompilador: escrituras CPU con FBWrite pasan por el camino de tienda trazada (sin grupos)");
+	}
 	if (file_exists(SALSA64_DATA_DIR "/jit-diag")) {
 		rec.opts |= SALSA64_REC_OPT_DIAG;
 		salsa64_log("recompilador: diagnóstico de huellas activo (jit-diag)");

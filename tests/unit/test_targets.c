@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "rdp/targets.h"
+#include "core/write_marks.h"
 
 #define SIZ_16b 2u
 
@@ -1206,6 +1207,26 @@ static void targets_profile_baseline_commit(void)
 	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 }
 
+static void targets_write_marks(void)
+{
+	uint32_t marks[4] = { 0 }; uint8_t pixels[8];
+	salsa64_write_marks_mark_range(marks,256,11,1);
+	CHECK(salsa64_write_marks_any_range(marks,256,10,2)); CHECK(!salsa64_write_marks_any_range(marks,256,8,2));
+	CHECK_EQ(salsa64_write_marks_take_range(marks,256,8,8,pixels,4),1);
+	CHECK_EQ(pixels[0],0); CHECK_EQ(pixels[1],1); CHECK_EQ(pixels[2],0); CHECK_EQ(pixels[3],0);
+	CHECK(!salsa64_write_marks_any_range(marks,256,10,2));
+	salsa64_write_marks_mark_mask(marks,256,32,0xFFFF0000u,4);
+	CHECK(salsa64_write_marks_any_range(marks,256,32,4)); CHECK(!salsa64_write_marks_any_range(marks,256,36,4));
+	CHECK_EQ(salsa64_write_marks_take_range(marks,256,32,8,pixels,4),2);
+	CHECK_EQ(pixels[0],1); CHECK_EQ(pixels[1],1); CHECK_EQ(pixels[2],0); CHECK_EQ(pixels[3],0);
+	salsa64_write_marks_mark_range(marks,256,62,8);
+	CHECK_EQ(salsa64_write_marks_take_range(marks,256,62,8,pixels,4),4);
+	for(unsigned i=0;i<4;i++) CHECK_EQ(pixels[i],1);
+	salsa64_write_marks_mark_range(marks,256,255,8);
+	CHECK(salsa64_write_marks_any_range(marks,256,254,2));
+	CHECK_EQ(salsa64_write_marks_take_range(marks,256,254,2,pixels,1),1);
+}
+
 static void targets_profile_pending_lifetime(void)
 {
 	uint8_t pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
@@ -1360,6 +1381,7 @@ void t_suite_targets(void)
 	RUN(targets_cpu_guard);
 	RUN(targets_profile_baseline_commit);
 	RUN(targets_profile_pending_lifetime);
+	RUN(targets_write_marks);
 	RUN(targets_profile_readback_transition);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);

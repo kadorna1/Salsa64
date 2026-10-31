@@ -1557,7 +1557,7 @@ static void emit_store(struct ctx *c, unsigned k, unsigned kind, unsigned from)
 	static const uint8_t align[] = { 0, 1, 3, 7 };
 	uint32_t i = c->d[k].w;
 	unsigned rt = I_RT(i), v = T_S1, fv = 0;
-	int slow = new_label(c), resume = new_label(c);
+	int slow = c->rec->cpu->rdram_write_marks ? -1 : new_label(c), resume = new_label(c);
 
 	/* SWC1/SDC1 de un valor residente: directo del registro de la FPU a la
 	 * RDRAM (rec_emit_fpu.h); el camino lento lo lee de casa. */
