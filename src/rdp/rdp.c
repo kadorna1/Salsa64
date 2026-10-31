@@ -33,7 +33,6 @@ static inline uint64_t tb_now(void);  /* abajo; la usa el reloj de layer8 */
 
 #include "rdp/gfxdump.h"
 #include "rdp/targets.h"
-#include "core/write_marks.h"
 #include "rdp/vmatch.h"
 #include "rsp/gfx/gfx.h"
 #include "rsp/gfx/hle.h"
@@ -338,8 +337,6 @@ static struct {
 	 * replay just before VI presentation, even after the stable shadow commits. */
 	uint8_t *profile_pending[RDP_TARGETS_MAX];
 	uint32_t profile_pending_bytes[RDP_TARGETS_MAX];
-	uint32_t *write_marks; /* one bit per RGBA5551 RDRAM pixel; Dr. Mario only */
-	uint32_t write_mark_words;
 	unsigned ppe_wr_next;
 	int bound_t;                 /* ranura ligada, o -1 */
 	struct depth *bound_d;
@@ -622,20 +619,7 @@ void salsa64_rdp_copy_color_from_rdram(bool on)
 				     rdp.tg.t[i].addr, rdp.tg.t[i].width);
 		}
 	}
-	if (on && !rdp.write_marks && rdp.rdram_size) {
-		uint32_t pixels = (rdp.rdram_size + 1u) >> 1;
-		rdp.write_mark_words = (pixels + 31u) >> 5;
-		rdp.write_marks = calloc(rdp.write_mark_words, sizeof(*rdp.write_marks));
-		if (!rdp.write_marks) { rdp.write_mark_words = 0; LOGN(1, "gfx: no se pudo reservar el mapa FBWrite de Dr. Mario 64"); }
-	} else if (!on && rdp.write_marks) {
-		free(rdp.write_marks); rdp.write_marks = NULL; rdp.write_mark_words = 0;
-	}
 	rdp.copy_color_from_rdram = on;
-}
-
-uint32_t *salsa64_rdp_write_marks(void)
-{
-	return rdp.copy_color_from_rdram ? rdp.write_marks : NULL;
 }
 
 void salsa64_rdp_copy_color_to_rdram(bool on)
@@ -837,7 +821,6 @@ void salsa64_rdp_shutdown(void)
 		return;
 	rsxkit_finish();
 	release_targets();
-	free(rdp.write_marks); rdp.write_marks = NULL; rdp.write_mark_words = 0;
 	/* La memoria mapeada queda reservada hasta el fin del proceso. */
 	rdp.ready = false;
 }
@@ -865,7 +848,6 @@ uint32_t salsa64_rdp_reset(void)
 	memset(&rdp.frame, 0, sizeof rdp.frame);
 	memset(rdp.big, 0, sizeof rdp.big);
 	memset(rdp.prime_fence, 0, sizeof rdp.prime_fence);
-	if (rdp.write_marks) memset(rdp.write_marks, 0, (size_t)rdp.write_mark_words * sizeof(*rdp.write_marks));
 	rdp.prime_next = 0;
 	memset(rdp.rb_prev_n, 0, sizeof rdp.rb_prev_n);
 	memset(rdp.rb_task, 0, sizeof rdp.rb_task);
@@ -1745,12 +1727,10 @@ static bool profile_cpu_rows_changed(int i)
 		return true;
 	if (!rdp.profile_shadow_valid[i] || !rdp.profile_shadow[i] || rdp.profile_shadow_bytes[i] < bytes)
 		return true;
-	for (uint32_t y = 0; y < t->lh; y++) {
-		uint32_t row_pa = t->addr + y * row_bytes;
-		if (memcmp(rdp.rdram + row_pa, rdp.profile_shadow[i] + y * row_bytes, visible_bytes) ||
-		    salsa64_write_marks_any_range(rdp.write_marks, rdp.rdram_size, row_pa, visible_bytes))
+	for (uint32_t y = 0; y < t->lh; y++)
+		if (memcmp(rdp.rdram + t->addr + y * row_bytes,
+			   rdp.profile_shadow[i] + y * row_bytes, visible_bytes))
 			return true;
-	}
 	return false;
 }
 
@@ -1760,7 +1740,7 @@ static bool profile_cpu_rows_changed(int i)
  * and corruption across the rest of the screen. Late VI composites are
  * one-shot per changed span; do not clear live RDRAM here, because the
  * emulated CPU can write it concurrently with the presentation thread. */
-static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_to_vi, bool take_write_marks)
+static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_to_vi)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
 	if (!rdp.rdram || rdp.guard_off || !rdp.copy_color_from_rdram || !rdp.surf[i] ||
@@ -1777,29 +1757,27 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
 	uint32_t regions = 0;
 	bool any = false;
-	bool vi_target = defer_to_vi &&
-		(t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width));
-	bool track_writes = take_write_marks && vi_target && rdp.write_marks;
+	/* Preserve the N64 RGBA5551 coverage bit. The RSX blitter composites
+	 * changed source pixels using SRC_ALPHA / ONE_MINUS_SRC_ALPHA, matching
+	 * GLideN64's RDRAMtoColorBuffer path. */
 	uint8_t raw_span[RB_MAX_W * 2u];
-	uint8_t marked_row[RB_MAX_W];
 
 	for (uint32_t y = 0; y < t->lh; y++) {
 		uint32_t row_off = y * row_bytes;
-		uint32_t row_pa = t->addr + row_off;
-		uint8_t *ram_row = rdp.rdram + row_pa;
+		uint8_t *ram_row = rdp.rdram + t->addr + row_off;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + row_off;
-		uint32_t marked_count = track_writes
-			? salsa64_write_marks_take_range(rdp.write_marks, rdp.rdram_size, row_pa,
-							 visible_bytes, marked_row, t->lw) : 0;
-		if (!track_writes) memset(marked_row, 0, t->lw);
-		if (!marked_count && !memcmp(ram_row, shadow_row, visible_bytes)) continue;
+		if (!memcmp(ram_row, shadow_row, visible_bytes))
+			continue;
 
 		uint32_t x = 0;
 		while (x < t->lw) {
-			while (x < t->lw && !marked_row[x] && !memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2)) x++;
-			if (x == t->lw) break;
+			while (x < t->lw && !memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+				x++;
+			if (x == t->lw)
+				break;
 			uint32_t x0 = x;
-			while (x < t->lw && (marked_row[x] || memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))) x++;
+			while (x < t->lw && memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+				x++;
 			uint32_t w = x - x0;
 			if (!w)
 				continue;
@@ -1816,16 +1794,15 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
 			uint32_t dx = x0 * scale, dy = y * scale;
 			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
-						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK) {
-				if (track_writes) salsa64_write_marks_mark_range(rdp.write_marks, rdp.rdram_size, row_pa + x0 * 2u, w * 2u);
+						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
-			}
 
 			/* Queue one late composite only for VI-visible targets. Mode 1 is
 			 * a newly changed covered pixel; mode 2 marks a formerly covered pixel
 			 * whose coverage is now zero. The marker is consumed at this VI and
 			 * never latched for an additional field. */
-			if (vi_target && rdp.profile_pending[i]) {
+			if (defer_to_vi && rdp.profile_pending[i] &&
+			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width))) {
 				uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 				for (uint32_t px = 0; px < w; px++) {
 					uint32_t x = x0 + px;
@@ -2252,7 +2229,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 		} else if (stale && rdp.copy_color_from_rdram && rdp.fbfx >= 1) {
 			/* For an RSX-owned stale framebuffer, preserve RSX-only pixels and
 			 * upload only CPU-modified spans. */
-			uint32_t regions = prime_profile_cpu_spans(i, true, true, false);
+			uint32_t regions = prime_profile_cpu_spans(i, true, true);
 			if (regions) {
 				rdp.surf_dirty[i] = true;
 				if (rdp.scratch_slot == i) {
@@ -2278,7 +2255,7 @@ static int get_target(uint32_t addr, uint32_t width, uint32_t fmt, uint32_t siz,
 			/* Upload only CPU-modified RDRAM spans. Commit their stable
 			 * baseline after the upload so later tasks do not reapply those
 			 * same stale pixels over newer RSX draws. */
-			uint32_t regions = prime_profile_cpu_spans(i, true, true, false);
+			uint32_t regions = prime_profile_cpu_spans(i, true, true);
 			if (regions) {
 				rdp.alias_full[i] = false;
 				memset(&rdp.alias_dirty[i], 0, sizeof rdp.alias_dirty[i]);
@@ -2716,7 +2693,7 @@ static bool texture_from_target(const struct gfx_tex *gt, int cur, rsxkit_textur
 		 * image for every texture load starved the RSX queue in v0.2.13d. */
 		if (rdp.profile_prime_task[slot] != rdp.tg.task) {
 			if (profile_cpu_rows_changed(slot)) {
-				uint32_t regions = prime_profile_cpu_spans(slot, true, true, false);
+				uint32_t regions = prime_profile_cpu_spans(slot, true, true);
 				if (regions) {
 					rdp.surf_dirty[slot] = true;
 					/* A SELF texture may already have a cached copy of this surface. */
@@ -4162,7 +4139,7 @@ bool salsa64_rdp_present(const struct salsa64_vi_frame *f, uint32_t field, const
 		 * since the last upload/readback. A full-frame prime here replaces
 		 * RSX-only pixels (background and other GPU-rendered objects) with stale
 		 * RDRAM, leaving only CPU-written elements such as the falling pill. */
-		uint32_t regions = prime_profile_cpu_spans(p.slot, true, true, true);
+		uint32_t regions = prime_profile_cpu_spans(p.slot, true, true);
 		if (regions) {
 			rdp.profile_prime_task[p.slot] = rdp.tg.task;
 			rdp.surf_dirty[p.slot] = true;
