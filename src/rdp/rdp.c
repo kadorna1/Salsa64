@@ -1773,9 +1773,10 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 	uint8_t raw_span[RB_MAX_W * 2u];
 	bool pending_visible = defer_to_vi && rdp.profile_pending[i] &&
 		(t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width));
-	/* rdp_targets_present() advances the VI field before the late upload. RDP
-	 * translation runs before that call, so tag its writes for the next field. */
-	uint32_t pending_batch = rdp.tg.field + (rdp.in_task ? 1u : 0u);
+	/* All reconciliations during one translated RDP task share a batch. A new
+	 * task supersedes old covered pixels; a late VI-only write belongs to the
+	 * next task so it gets the same lifetime as the next translation. */
+	uint32_t pending_batch = rdp.tg.task + (rdp.in_task ? 0u : 1u);
 	bool pending_batch_started = false;
 
 	for (uint32_t y = 0; y < t->lh; y++) {

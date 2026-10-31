@@ -824,9 +824,9 @@ bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint3
 	return !baseline || rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT)) == baseline;
 }
 
-/* Start a fresh CPU overlay batch only when new framebuffer bytes are observed.
- * This bounds a moving sprite to its latest CPU-written positions while an
- * unchanged sprite remains pending across repeated VI presentations. */
+/* Start a fresh CPU overlay batch when a newer RDP task updates framebuffer
+ * bytes. Retire older covered overlays but retain erase tombstones until the
+ * VI thread applies them; unchanged pixels survive repeated presentations. */
 bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *last_batch,
 				   bool *last_batch_valid, uint32_t batch)
 {
@@ -834,7 +834,12 @@ bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *l
 		return false;
 	if (*last_batch_valid && *last_batch == batch)
 		return false;
-	memset(pending, 0, count);
+	/* A pending transparent replacement is a tombstone for a pixel whose
+	 * old CPU sprite value has already been removed from RDRAM. Keep it until
+	 * the VI thread applies it; only retire older covered overlays. */
+	for (uint32_t i = 0; i < count; i++)
+		if (pending[i] != RDP_PROFILE_PENDING_REPLACE)
+			pending[i] = RDP_PROFILE_PENDING_NONE;
 	*last_batch = batch;
 	*last_batch_valid = true;
 	return true;
