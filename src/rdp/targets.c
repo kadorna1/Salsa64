@@ -834,14 +834,15 @@ bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *l
 		return false;
 	if (*last_batch_valid && *last_batch == batch)
 		return false;
-	/* Both BLEND (the initial span upload) and FOLLOWUP (the late VI replay)
-	 * have reached the RSX surface. Retire either with a one-shot transparent
-	 * replacement; the current batch can change that coordinate back to BLEND
-	 * if it writes a new covered pixel there. Existing replacements persist. */
+	/* A newer task redraws the target underneath old CPU overlays. Retire
+	 * already-applied overlays without drawing their stale RDRAM pixels back.
+	 * Keep REPLACE tombstones: those represent CPU-cleared pixels that still
+	 * need one transparent RSX write. A changed pixel in this new batch can
+	 * explicitly replace RETIRE with BLEND via rdp_profile_pending_note(). */
 	for (uint32_t i = 0; i < count; i++)
 		if (pending[i] == RDP_PROFILE_PENDING_BLEND ||
 		    pending[i] == RDP_PROFILE_PENDING_FOLLOWUP)
-			pending[i] = RDP_PROFILE_PENDING_REPLACE;
+			pending[i] = RDP_PROFILE_PENDING_RETIRE;
 	*last_batch = batch;
 	*last_batch_valid = true;
 	return true;
@@ -855,7 +856,7 @@ uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_cove
 	if (is_covered)
 		return RDP_PROFILE_PENDING_BLEND;
 	if (was_covered || pending == RDP_PROFILE_PENDING_BLEND ||
-	    pending == RDP_PROFILE_PENDING_FOLLOWUP)
+	    pending == RDP_PROFILE_PENDING_FOLLOWUP || pending == RDP_PROFILE_PENDING_RETIRE)
 		return RDP_PROFILE_PENDING_REPLACE;
 	return pending;
 }
@@ -865,13 +866,11 @@ uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered)
 {
 	if (!pending)
 		return RDP_PROFILE_PENDING_NONE;
-	/* REPLACE is a retirement tombstone, not a hint to re-read coverage.
-	 * A new task may leave the old CPU pixel covered in the stable RDRAM
-	 * snapshot, but that does not make the superseded RSX overlay current
-	 * again. Only an actual changed-pixel upload in prime_profile_cpu_spans()
-	 * may turn it back into BLEND via rdp_profile_pending_note(). */
-	if (pending == RDP_PROFILE_PENDING_REPLACE)
-		return RDP_PROFILE_PENDING_REPLACE;
+	/* A task-retirement marker is independent of the old RDRAM coverage bit:
+	 * the new RDP task redraws the target, so the stale overlay must not be
+	 * replayed just because its old source pixel is still covered. */
+	if (pending == RDP_PROFILE_PENDING_RETIRE)
+		return RDP_PROFILE_PENDING_RETIRE;
 	if (is_covered) {
 		if (pending != RDP_PROFILE_PENDING_FOLLOWUP)
 			return RDP_PROFILE_PENDING_BLEND;

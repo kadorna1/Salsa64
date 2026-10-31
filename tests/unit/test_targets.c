@@ -1239,20 +1239,29 @@ static void targets_profile_pending_lifetime(void)
 	bool last_batch_valid = false;
 	CHECK(rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
 					    &last_batch_valid, 17));
-	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_REPLACE);
-	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_REPLACE);
+	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_RETIRE);
+	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_REPLACE);
+	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], true), RDP_PROFILE_PENDING_RETIRE);
+	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], false), RDP_PROFILE_PENDING_RETIRE);
+	CHECK_EQ(rdp_profile_pending_complete(batch_pending[0]), RDP_PROFILE_PENDING_NONE);
 	batch_pending[1] = RDP_PROFILE_PENDING_FOLLOWUP;
 	CHECK(!rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
 					     &last_batch_valid, 17));
 	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_FOLLOWUP);
 	CHECK(rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
 					    &last_batch_valid, 18));
-	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_REPLACE);
-	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_REPLACE);
+	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_RETIRE);
+	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_REPLACE);
 	batch_pending[2] = rdp_profile_pending_note(batch_pending[2], false, true);
 	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_BLEND);
+	/* A fresh write at a retired coordinate becomes a new overlay. */
+	CHECK_EQ(rdp_profile_pending_note(RDP_PROFILE_PENDING_RETIRE, false, true),
+		 RDP_PROFILE_PENDING_BLEND);
+	/* A CPU clear of a retired covered coordinate still needs a transparent erase. */
+	CHECK_EQ(rdp_profile_pending_note(RDP_PROFILE_PENDING_RETIRE, true, false),
+		 RDP_PROFILE_PENDING_REPLACE);
 
 	/* A later CPU write queues another persistent covered overlay. */
 	pending = rdp_profile_pending_note(pending, false, true);
@@ -1274,13 +1283,7 @@ static void targets_profile_pending_lifetime(void)
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
 
-	/* Coverage remaining set in the stable RDRAM snapshot must not revive
-	 * an old RSX overlay retired by a newer task batch. A genuinely new CPU
-	 * write at that coordinate is the only operation that may revive it. */
-	CHECK_EQ(rdp_profile_pending_refresh(RDP_PROFILE_PENDING_REPLACE, true), RDP_PROFILE_PENDING_REPLACE);
-	CHECK_EQ(rdp_profile_pending_refresh(RDP_PROFILE_PENDING_REPLACE, false), RDP_PROFILE_PENDING_REPLACE);
-
-	/* A new covered write supersedes an erase still waiting for VI. */
+	/* A new CPU write supersedes an erase still waiting for VI. */
 	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_REPLACE, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
 	pending = rdp_profile_pending_complete(pending);

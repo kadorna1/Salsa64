@@ -459,6 +459,9 @@ enum rdp_profile_pending_mode {
 	RDP_PROFILE_PENDING_BLEND = 1,
 	RDP_PROFILE_PENDING_REPLACE = 2,
 	RDP_PROFILE_PENDING_FOLLOWUP = 3,
+	/* An applied overlay superseded by a newer RDP task. Retire without
+	 * uploading; REPLACE remains reserved for a CPU-cleared transparent pixel. */
+	RDP_PROFILE_PENDING_RETIRE = 4,
 };
 bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *last_batch,
 				   bool *last_batch_valid, uint32_t batch);
