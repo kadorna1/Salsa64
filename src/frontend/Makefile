@@ -107,7 +107,7 @@ ARCHIVE_7Z_DIR := $(R)/third_party/libun7zip
 ARCHIVE_RAR_DIR := $(R)/third_party/libunrar-ps3
 ARCHIVE_LIBS := $(ARCHIVE_7Z_DIR)/libun7zip.a $(ARCHIVE_RAR_DIR)/libunrar.a
 CFLAGS  := -I$(ZLIB_PREFIX)/include -I$(ARCHIVE_7Z_DIR)/include -I$(ARCHIVE_RAR_DIR)/include -ffp-contract=off -fno-math-errno $(RC_DEFS) $(RC_INC)
-LIBS    := -lrsx -lgcm_sys -laudio -lio -lfontFT -lfont -lsysutil -lhttp -lhttputil -lssl -lnetctl -lnet -lsysmodule -lrt -llv2 -lm -lz -lstdc++
+LIBS    := -lrsx -lgcm_sys -laudio -lio -lfontFT -lfont -lsysutil -lhttp -lhttputil -lssl -lnetctl -lnet -lsysmodule -lrt -llv2 -lstdc++ -lm -lz
 # Caché del recompilador al final del segmento de texto (docs/rec-ppe.md).
 LDFLAGS := -L$(ZLIB_PREFIX)/lib -T $(abspath $(R))/mk/rec-cache.ld -T lv2.ld
 
