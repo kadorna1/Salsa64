@@ -827,6 +827,11 @@ bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint3
 /* Start a fresh CPU overlay batch when a newer RDP task updates framebuffer
  * bytes. Retire older covered overlays but retain erase tombstones until the
  * VI thread applies them; unchanged pixels survive repeated presentations. */
+bool rdp_profile_pending_retire_ready(uint32_t target_task, uint32_t batch, bool batch_valid)
+{
+	return !batch_valid || (int32_t)(target_task - batch) >= 0;
+}
+
 bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *last_batch,
 				   bool *last_batch_valid, uint32_t batch)
 {
@@ -834,14 +839,12 @@ bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *l
 		return false;
 	if (*last_batch_valid && *last_batch == batch)
 		return false;
-	/* A newer task redraws the target underneath old CPU overlays. Retire
-	 * already-applied overlays without drawing their stale RDRAM pixels back.
-	 * Keep REPLACE tombstones: those represent CPU-cleared pixels that still
-	 * need one transparent RSX write. A changed pixel in this new batch can
-	 * explicitly replace RETIRE with BLEND via rdp_profile_pending_note(). */
+	/* A newer task redraws the target underneath all older CPU overlays.
+	 * Retire every old state (including an unapplied transparent erase)
+	 * without writing stale pixels over the new render. Changed pixels in
+	 * this batch are then re-queued as BLEND or REPLACE by pending_note(). */
 	for (uint32_t i = 0; i < count; i++)
-		if (pending[i] == RDP_PROFILE_PENDING_BLEND ||
-		    pending[i] == RDP_PROFILE_PENDING_FOLLOWUP)
+		if (pending[i] != RDP_PROFILE_PENDING_NONE)
 			pending[i] = RDP_PROFILE_PENDING_RETIRE;
 	*last_batch = batch;
 	*last_batch_valid = true;

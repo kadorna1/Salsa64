@@ -465,6 +465,9 @@ enum rdp_profile_pending_mode {
 };
 bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *last_batch,
 				   bool *last_batch_valid, uint32_t batch);
+/* A retired overlay is safe to drop only after its own target was drawn in
+ * the task that superseded the batch. */
+bool rdp_profile_pending_retire_ready(uint32_t target_task, uint32_t batch, bool batch_valid);
 uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_covered);
 uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered);
 uint8_t rdp_profile_pending_complete(uint8_t mode);

@@ -1235,13 +1235,19 @@ static void targets_profile_pending_lifetime(void)
 	 * reconciliation within the same batch must preserve its pending pixels. */
 	uint8_t batch_pending[4] = { RDP_PROFILE_PENDING_FOLLOWUP, RDP_PROFILE_PENDING_BLEND,
 				     RDP_PROFILE_PENDING_REPLACE, 0 };
+	CHECK(!rdp_profile_pending_retire_ready(16, 17, true));
+	CHECK(rdp_profile_pending_retire_ready(17, 17, true));
+	CHECK(rdp_profile_pending_retire_ready(18, 17, true));
+	CHECK(rdp_profile_pending_retire_ready(0, 0, false));
+	CHECK(rdp_profile_pending_retire_ready(0, UINT32_MAX, true)); /* task counter wrap */
+
 	uint32_t last_batch = 0;
 	bool last_batch_valid = false;
 	CHECK(rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
 					    &last_batch_valid, 17));
 	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_RETIRE);
-	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_REPLACE);
+	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], true), RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], false), RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(rdp_profile_pending_complete(batch_pending[0]), RDP_PROFILE_PENDING_NONE);
@@ -1253,7 +1259,7 @@ static void targets_profile_pending_lifetime(void)
 					    &last_batch_valid, 18));
 	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_RETIRE);
-	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_REPLACE);
+	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_RETIRE);
 	batch_pending[2] = rdp_profile_pending_note(batch_pending[2], false, true);
 	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_BLEND);
 	/* A fresh write at a retired coordinate becomes a new overlay. */
