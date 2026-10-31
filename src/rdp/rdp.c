@@ -1773,9 +1773,9 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 	uint8_t raw_span[RB_MAX_W * 2u];
 	bool pending_visible = defer_to_vi && rdp.profile_pending[i] &&
 		(t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width));
-	/* translate() runs before the task counter advances; add one there so
-	 * in-task uploads and the following VI update share the same batch. */
-	uint32_t pending_batch = rdp.tg.task + (rdp.in_task ? 1u : 0u);
+	/* rdp_targets_present() advances the VI field before the late upload. RDP
+	 * translation runs before that call, so tag its writes for the next field. */
+	uint32_t pending_batch = rdp.tg.field + (rdp.in_task ? 1u : 0u);
 	bool pending_batch_started = false;
 
 	for (uint32_t y = 0; y < t->lh; y++) {
@@ -1832,9 +1832,8 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 					pending_row[x] = rdp_profile_pending_note(pending_row[x], was_covered, is_covered);
 				}
 			}
-			/* Commit the bytes uploaded to RSX. Deferred pre-draw uploads
-			 * queue a single late composite; the pending marker, not a write
-			 * to live RDRAM, is consumed after VI presentation. */
+			/* Commit the uploaded bytes to the stable shadow. The pending batch
+			 * supplies the late VI replay; this path never writes live RDRAM. */
 			memcpy(shadow_row + x0 * 2u, raw_span, w * 2u);
 			rdp.prime_fence[k] = rsxkit_fence();
 			rdp.prime_next = (k + 1) % PRIME_BUFS;
