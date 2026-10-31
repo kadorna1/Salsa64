@@ -858,8 +858,12 @@ uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_cove
 {
 	if (is_covered)
 		return RDP_PROFILE_PENDING_BLEND;
+	/* RETIRE alone is not evidence that this source pixel was visible.
+	 * A changed but still-uncovered pixel must stay retired: replacing it with
+	 * transparent alpha would punch a hole in the newly rendered RSX image.
+	 * Only a real old covered pixel (or a current covered overlay) needs erase. */
 	if (was_covered || pending == RDP_PROFILE_PENDING_BLEND ||
-	    pending == RDP_PROFILE_PENDING_FOLLOWUP || pending == RDP_PROFILE_PENDING_RETIRE)
+	    pending == RDP_PROFILE_PENDING_FOLLOWUP)
 		return RDP_PROFILE_PENDING_REPLACE;
 	return pending;
 }

@@ -1265,6 +1265,10 @@ static void targets_profile_pending_lifetime(void)
 	/* A fresh write at a retired coordinate becomes a new overlay. */
 	CHECK_EQ(rdp_profile_pending_note(RDP_PROFILE_PENDING_RETIRE, false, true),
 		 RDP_PROFILE_PENDING_BLEND);
+	/* An uncovered retired coordinate has no old sprite to erase; keep the
+	 * retire tombstone instead of writing transparent alpha over the RSX scene. */
+	CHECK_EQ(rdp_profile_pending_note(RDP_PROFILE_PENDING_RETIRE, false, false),
+		 RDP_PROFILE_PENDING_RETIRE);
 	/* A CPU clear of a retired covered coordinate still needs a transparent erase. */
 	CHECK_EQ(rdp_profile_pending_note(RDP_PROFILE_PENDING_RETIRE, true, false),
 		 RDP_PROFILE_PENDING_REPLACE);
