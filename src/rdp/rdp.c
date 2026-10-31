@@ -1798,13 +1798,6 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 			if (!w)
 				continue;
 
-			if (pending_visible && !pending_batch_started) {
-				rdp_profile_pending_new_batch(rdp.profile_pending[i], rdp.profile_pending_bytes[i],
-						     &rdp.profile_pending_batch[i],
-						     &rdp.profile_pending_batch_valid[i], pending_batch);
-				pending_batch_started = true;
-			}
-
 			uint32_t pitch = (w * 2u + 63u) & ~63u;
 			unsigned k = rdp.prime_next;
 			uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
@@ -1825,6 +1818,12 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 			 * remain pending across VI presentations and coverage clears erase
 			 * them with a one-shot transparent replacement. */
 			if (pending_visible) {
+				if (!pending_batch_started) {
+					rdp_profile_pending_new_batch(rdp.profile_pending[i], rdp.profile_pending_bytes[i],
+							     &rdp.profile_pending_batch[i],
+							     &rdp.profile_pending_batch_valid[i], pending_batch);
+					pending_batch_started = true;
+				}
 				uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 				for (uint32_t px = 0; px < w; px++) {
 					uint32_t x = x0 + px;
