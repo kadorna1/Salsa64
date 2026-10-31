@@ -32,6 +32,7 @@ static inline uint64_t tb_now(void);  /* abajo; la usa el reloj de layer8 */
 #include <sys/systime.h>
 
 #include "rdp/gfxdump.h"
+#include "core/write_marks.h"
 #include "rdp/targets.h"
 #include "rdp/vmatch.h"
 #include "rsp/gfx/gfx.h"
@@ -339,6 +340,9 @@ static struct {
 	uint32_t profile_pending_bytes[RDP_TARGETS_MAX];
 	uint32_t profile_pending_batch[RDP_TARGETS_MAX];
 	bool profile_pending_batch_valid[RDP_TARGETS_MAX];
+	/* CPU store events; only VI-visible targets consult or consume these bits. */
+	uint32_t *write_marks;
+	uint32_t write_mark_words;
 	unsigned ppe_wr_next;
 	int bound_t;                 /* ranura ligada, o -1 */
 	struct depth *bound_d;
@@ -606,6 +610,16 @@ static bool profile_shadow_capture(int i);
 
 void salsa64_rdp_copy_color_from_rdram(bool on)
 {
+	/* One atomic bit per 16-bit RDRAM pixel (256 KiB for 8 MiB RDRAM). */
+	if (on && !rdp.write_marks && rdp.rdram_size) {
+		uint32_t pixels = (rdp.rdram_size + 1u) >> 1;
+		rdp.write_mark_words = (pixels + 31u) >> 5;
+		rdp.write_marks = calloc(rdp.write_mark_words, sizeof(*rdp.write_marks));
+		if (!rdp.write_marks) {
+			rdp.write_mark_words = 0;
+			LOGN(1, "gfx: no se pudo reservar el mapa FBWrite de Dr. Mario 64");
+		}
+	}
 	if (rdp.copy_color_from_rdram != on) {
 		profile_guard_reset();
 		for (int i = 0; i < RDP_TARGETS_MAX; i++) {
@@ -623,7 +637,17 @@ void salsa64_rdp_copy_color_from_rdram(bool on)
 				     rdp.tg.t[i].addr, rdp.tg.t[i].width);
 		}
 	}
+	if (!on && rdp.write_marks) {
+		free(rdp.write_marks);
+		rdp.write_marks = NULL;
+		rdp.write_mark_words = 0;
+	}
 	rdp.copy_color_from_rdram = on;
+}
+
+uint32_t *salsa64_rdp_write_marks(void)
+{
+	return rdp.copy_color_from_rdram ? rdp.write_marks : NULL;
 }
 
 void salsa64_rdp_copy_color_to_rdram(bool on)
@@ -817,6 +841,8 @@ void salsa64_rdp_set_scale(uint32_t scale)
 	memset(rdp.mirrors, 0, sizeof rdp.mirrors);
 	memset(&rdp.frame, 0, sizeof rdp.frame);
 	memset(rdp.big, 0, sizeof rdp.big);
+	if (rdp.write_marks)
+		memset(rdp.write_marks, 0, (size_t)rdp.write_mark_words * sizeof(*rdp.write_marks));
 	memset(rdp.rb_task, 0, sizeof rdp.rb_task);
 	apply_scale(scale);
 }
@@ -827,6 +853,9 @@ void salsa64_rdp_shutdown(void)
 		return;
 	rsxkit_finish();
 	release_targets();
+	free(rdp.write_marks);
+	rdp.write_marks = NULL;
+	rdp.write_mark_words = 0;
 	/* La memoria mapeada queda reservada hasta el fin del proceso. */
 	rdp.ready = false;
 }
@@ -1737,10 +1766,14 @@ static bool profile_cpu_rows_changed(int i)
 		return true;
 	if (!rdp.profile_shadow_valid[i] || !rdp.profile_shadow[i] || rdp.profile_shadow_bytes[i] < bytes)
 		return true;
-	for (uint32_t y = 0; y < t->lh; y++)
-		if (memcmp(rdp.rdram + t->addr + y * row_bytes,
-			   rdp.profile_shadow[i] + y * row_bytes, visible_bytes))
+	bool track_writes = rdp.write_marks && rdp_target_profile_vi_visible(t, &rdp.vi_ring);
+	for (uint32_t y = 0; y < t->lh; y++) {
+		uint32_t row_pa = t->addr + y * row_bytes;
+		if (memcmp(rdp.rdram + row_pa, rdp.profile_shadow[i] + y * row_bytes, visible_bytes) ||
+		    (track_writes && salsa64_write_marks_any_range(rdp.write_marks, rdp.rdram_size,
+								 row_pa, visible_bytes)))
 			return true;
+	}
 	return false;
 }
 
@@ -1771,8 +1804,11 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 	 * changed source pixels using SRC_ALPHA / ONE_MINUS_SRC_ALPHA, matching
 	 * GLideN64's RDRAMtoColorBuffer path. */
 	uint8_t raw_span[RB_MAX_W * 2u];
-	bool pending_visible = defer_to_vi && rdp.profile_pending[i] &&
-		(t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width));
+	uint8_t marked_row[RB_MAX_W];
+	bool vi_target = rdp_target_profile_vi_visible(t, &rdp.vi_ring);
+	bool track_writes = vi_target && rdp.write_marks;
+	bool pending_visible = defer_to_vi && vi_target && rdp.profile_pending[i];
+	uint32_t marked_pixels_total = 0;
 	/* All reconciliations during one translated RDP task share a batch. A new
 	 * task supersedes old covered pixels; a late VI-only write belongs to the
 	 * next task so it gets the same lifetime as the next translation. */
@@ -1781,19 +1817,28 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 
 	for (uint32_t y = 0; y < t->lh; y++) {
 		uint32_t row_off = y * row_bytes;
-		uint8_t *ram_row = rdp.rdram + t->addr + row_off;
+		uint32_t row_pa = t->addr + row_off;
+		uint8_t *ram_row = rdp.rdram + row_pa;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + row_off;
-		if (!memcmp(ram_row, shadow_row, visible_bytes))
+		uint32_t marked_count = track_writes
+			? salsa64_write_marks_take_range(rdp.write_marks, rdp.rdram_size, row_pa,
+							 visible_bytes, marked_row, t->lw) : 0;
+		if (!track_writes)
+			memset(marked_row, 0, t->lw);
+		marked_pixels_total += marked_count;
+		if (!marked_count && !memcmp(ram_row, shadow_row, visible_bytes))
 			continue;
 
 		uint32_t x = 0;
 		while (x < t->lw) {
-			while (x < t->lw && !memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+			while (x < t->lw && !marked_row[x] &&
+			       !memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
 				x++;
 			if (x == t->lw)
 				break;
 			uint32_t x0 = x;
-			while (x < t->lw && memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2))
+			while (x < t->lw && (marked_row[x] ||
+			       memcmp(ram_row + x * 2u, shadow_row + x * 2u, 2)))
 				x++;
 			uint32_t w = x - x0;
 			if (!w)
@@ -1811,8 +1856,12 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 			memcpy(rdp.rb + boff, raw_span, w * 2u);
 			uint32_t dx = x0 * scale, dy = y * scale;
 			if (rsxkit_target_fill_rect(rdp.surf[i], rdp.rb_off + boff, pitch, w, 1,
-						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
+						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK) {
+				if (track_writes)
+					salsa64_write_marks_mark_range(rdp.write_marks, rdp.rdram_size,
+								       row_pa + x0 * 2u, w * 2u);
 				continue;
+			}
 
 			/* Queue a late composite only for VI-visible targets. A fresh CPU
 			 * batch replaces old positions; within that batch, covered pixels
@@ -1864,6 +1913,9 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 		rdp.bound_t = -1;
 		rdp.surf_gen[i] = ++rdp.gen_seq;
 	}
+	if (marked_pixels_total)
+		LOGN(40, "gfx: CopyColorFromRDRAM consumed %u explicit CPU pixel writes for %06x/%u",
+		     marked_pixels_total, t->addr, t->width);
 	/* A readback marks the target CPU-owned because the game may edit RDRAM.
 	 * Once the stable snapshot has been compared and every changed pixel has
 	 * been uploaded, the live RSX surface is authoritative again—even when

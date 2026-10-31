@@ -471,6 +471,11 @@ bool rdp_vi_ring_covers(const struct rdp_vi_ring *r, uint32_t addr, uint32_t wid
 	return false;
 }
 
+bool rdp_target_profile_vi_visible(const struct rdp_target *t, const struct rdp_vi_ring *r)
+{
+	return t && t->used && (t->presented || rdp_vi_ring_covers(r, t->addr, t->width));
+}
+
 uint32_t rdp_vi_ring_min_height(const struct rdp_vi_ring *r, uint32_t addr, uint32_t width, uint32_t bpp)
 {
 	uint32_t line = width * bpp, need = 0;

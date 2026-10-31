@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "src/rdp/**"
+      - "src/core/**"
+      - "src/cpu/**"
       - "src/frontend/main.c"
       - "lib/rsxkit/**"
       - "tests/unit/test_targets.c"

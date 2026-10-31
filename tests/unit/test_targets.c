@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "rdp/targets.h"
+#include "core/write_marks.h"
 
 #define SIZ_16b 2u
 
@@ -1206,6 +1207,64 @@ static void targets_profile_baseline_commit(void)
 	CHECK(rdp_target_row_cpu_changed(&row_target, 85, &guard_t, guard_ram, sizeof guard_ram));
 }
 
+static void targets_write_marks(void)
+{
+	uint32_t marks[4] = { 0 };
+	uint8_t pixels[8];
+
+	/* Explicit same-value stores are represented by their write event. */
+	salsa64_write_marks_mark_range(marks, 256, 11, 1);
+	CHECK(salsa64_write_marks_any_range(marks, 256, 10, 2));
+	CHECK(!salsa64_write_marks_any_range(marks, 256, 8, 2));
+	CHECK_EQ(salsa64_write_marks_take_range(marks, 256, 8, 8, pixels, 4), 1);
+	CHECK_EQ(pixels[0], 0);
+	CHECK_EQ(pixels[1], 1);
+	CHECK_EQ(pixels[2], 0);
+	CHECK_EQ(pixels[3], 0);
+	CHECK(!salsa64_write_marks_any_range(marks, 256, 10, 2));
+
+	/* Big-endian masked stores touch only enabled byte lanes. */
+	salsa64_write_marks_mark_mask(marks, 256, 32, 0xFFFF00FFu, 4);
+	CHECK(salsa64_write_marks_any_range(marks, 256, 32, 4));
+	CHECK(!salsa64_write_marks_any_range(marks, 256, 36, 4));
+	CHECK_EQ(salsa64_write_marks_take_range(marks, 256, 32, 8, pixels, 4), 2);
+	CHECK_EQ(pixels[0], 1);
+	CHECK_EQ(pixels[1], 1);
+	CHECK_EQ(pixels[2], 0);
+	CHECK_EQ(pixels[3], 0);
+
+	/* A range crossing a bitmap word boundary retains all pixels. */
+	salsa64_write_marks_mark_range(marks, 256, 62, 8);
+	CHECK_EQ(salsa64_write_marks_take_range(marks, 256, 62, 8, pixels, 4), 4);
+	for (unsigned i = 0; i < 4; i++)
+		CHECK_EQ(pixels[i], 1);
+
+	/* End-of-RDRAM writes are safely clipped. */
+	salsa64_write_marks_mark_range(marks, 256, 255, 8);
+	CHECK(salsa64_write_marks_any_range(marks, 256, 254, 2));
+	CHECK_EQ(salsa64_write_marks_take_range(marks, 256, 254, 2, pixels, 1), 1);
+}
+
+static void targets_profile_write_scope(void)
+{
+	struct rdp_vi_ring ring;
+	memset(&ring, 0, sizeof ring);
+	struct rdp_target main_fb = { .used = true, .addr = 0x3b5000, .width = 320 };
+	struct rdp_target second_fb = { .used = true, .addr = 0x3da800, .width = 320 };
+	struct rdp_target auxiliary = { .used = true, .addr = 0x214e00, .width = 328 };
+
+	/* A global bitmap must not make an auxiliary target CPU-owned/dirty. */
+	CHECK(!rdp_target_profile_vi_visible(&main_fb, &ring));
+	CHECK(!rdp_target_profile_vi_visible(&auxiliary, &ring));
+	rdp_vi_ring_push(&ring, 0x3b5000, 320);
+	rdp_vi_ring_push(&ring, 0x3da800, 320);
+	CHECK(rdp_target_profile_vi_visible(&main_fb, &ring));
+	CHECK(rdp_target_profile_vi_visible(&second_fb, &ring));
+	CHECK(!rdp_target_profile_vi_visible(&auxiliary, &ring));
+	auxiliary.presented = true;
+	CHECK(rdp_target_profile_vi_visible(&auxiliary, &ring));
+}
+
 static void targets_profile_pending_lifetime(void)
 {
 	uint8_t pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
@@ -1403,6 +1462,8 @@ void t_suite_targets(void)
 	RUN(targets_cpu_guard);
 	RUN(targets_profile_baseline_commit);
 	RUN(targets_profile_pending_lifetime);
+	RUN(targets_write_marks);
+	RUN(targets_profile_write_scope);
 	RUN(targets_profile_readback_transition);
 	RUN(targets_inside);
 	RUN(targets_tall_pending);

@@ -274,6 +274,8 @@ void salsa64_rdp_vi(const struct salsa64_vi_frame *f);
 void salsa64_rdp_fbfx(int level);
 /* Force color-image uploads from RDRAM for games that draw CPU-updated pixels. */
 void salsa64_rdp_copy_color_from_rdram(bool on);
+/* Dr. Mario's optional per-pixel CPU FBWrite event map. */
+uint32_t *salsa64_rdp_write_marks(void);
 /* Enable/disable automatic RSX -> RDRAM mirroring of the main VI framebuffer. */
 void salsa64_rdp_copy_color_to_rdram(bool on);
 /* Interpolación de cuadros por geometría (docs/interpolacion.md). Con un

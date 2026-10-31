@@ -527,6 +527,9 @@ bool rdp_readback_wanted(const struct rdp_vi_ring *r, uint32_t addr, uint32_t wi
 /* ¿La color image (addr, width) está dentro de alguno de los framebuffers
  * recientes del VI? Las que no lo están son imágenes auxiliares. */
 bool rdp_vi_ring_covers(const struct rdp_vi_ring *r, uint32_t addr, uint32_t width);
+/* Only visible/recent VI buffers consume CPU FBWrite events; auxiliary targets
+ * retain the byte-difference path and cannot stay permanently dirty. */
+bool rdp_target_profile_vi_visible(const struct rdp_target *t, const struct rdp_vi_ring *r);
 /* Alto mínimo de la color image (addr, width, bpp) que cubre una ventana
  * VI reciente. 0 si no hay una compatible. */
 uint32_t rdp_vi_ring_min_height(const struct rdp_vi_ring *r, uint32_t addr, uint32_t width, uint32_t bpp);
