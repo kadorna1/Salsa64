@@ -1572,6 +1572,31 @@ static void emit_store(struct ctx *c, unsigned k, unsigned kind, unsigned from)
 	} else {
 		v = get(c, rt, T_S1);
 	}
+	/* FBInfo-equivalent path: byte-difference tracking misses CPU stores
+	 * that rewrite the same pixel value. The title-specific bitmap routes
+	 * these stores through the C helper that records their physical address. */
+	if (c->rec->cpu->rdram_write_marks) {
+		unsigned base = get(c, I_RS(i), T_ADDR);
+		if ((int16_t)i || base != T_ADDR)
+			E(c, ppc_addi(T_ADDR, base, (int16_t)i));
+		if (fv)
+			E(c, from == DST_FPR64 ? ppc_ld(5, fpr64_off(c, rt), R_CPU) : ppc_lwz(5, fpr32_off(c, rt), R_CPU));
+		else if (v != 5)
+			E(c, ppc_mr(5, v));
+		if (c->wide) {
+			store_regs(c, c->written_start);
+			li64(c, 7, c->pc);
+			li32u(c, 6, slow_arg(c, SLOW_STORE, kind, k) | (uint32_t)c->n << 16);
+			emit_b(c, abs_label(c, c->rec->slow_rtn), true);
+		} else {
+			emit_slow_call(c, SLOW_STORE, kind, k);
+		}
+		emit_bc(c, PPC_BO_FALSE_UNLIKELY, PPC_BI(1, PPC_EQ), exit_label(c, k, false, false));
+		emit_bc(c, PPC_BO_TRUE_UNLIKELY, PPC_BI(5, PPC_GT), exit_label(c, k, true, false));
+		emit_b(c, resume, false);
+		bind(c, resume);
+		return;
+	}
 	const struct grp *g = &c->grp[k];
 	if (g->head != GRP_NONE) {
 		/* Base en caché: la prueba de code_flags sobre el desplazamiento
