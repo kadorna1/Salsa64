@@ -824,8 +824,9 @@ bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint3
 	return !baseline || rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT)) == baseline;
 }
 
-/* Keep a covered CPU-written pixel over later RDP draws. When the CPU clears
- * it, schedule one replace operation even if it was never replayed before. */
+/* Keep a covered CPU-written pixel over later RDP draws until the CPU clears
+ * its RGBA5551 coverage bit. A transparent replacement is consumed once, even
+ * when the covered pixel was never replayed before. */
 uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_covered)
 {
 	if (is_covered)
@@ -851,13 +852,14 @@ uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered)
 	return pending;
 }
 
-/* Covered overlays persist; transparent replacements are one-shot. */
+/* Covered overlays persist until the CPU clears coverage; erases are one-shot. */
 uint8_t rdp_profile_pending_complete(uint8_t mode)
 {
-	/* One bounded follow-up bridges the alternating VI buffers. Never retain
-	 * the marker beyond that second presentation. Erases are always one-shot. */
-	return mode == RDP_PROFILE_PENDING_BLEND ? RDP_PROFILE_PENDING_FOLLOWUP
-		: RDP_PROFILE_PENDING_NONE;
+	/* Each VI buffer is presented independently. Keep covered CPU pixels on
+	 * the RSX surface through every later RDP redraw; refresh() turns the
+	 * marker into a one-shot replacement as soon as RDRAM coverage goes low. */
+	return mode == RDP_PROFILE_PENDING_BLEND || mode == RDP_PROFILE_PENDING_FOLLOWUP
+		? RDP_PROFILE_PENDING_FOLLOWUP : RDP_PROFILE_PENDING_NONE;
 }
 
 /* A CPU-modified row is uploaded only if a previously initialized profile

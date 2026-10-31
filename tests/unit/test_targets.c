@@ -1211,40 +1211,42 @@ static void targets_profile_pending_lifetime(void)
 	uint8_t pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
 
-	/* A newly changed covered pixel is replayed on this VI and retained for
-	 * one bounded follow-up because the two framebuffer targets alternate. */
+	/* A CPU-written covered pixel must survive arbitrarily many presentations
+	 * because RDP redraws can overwrite either alternating VI buffer. */
 	pending = rdp_profile_pending_refresh(pending, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
-
-	/* Still covered: preserve the follow-up state for exactly this second VI. */
-	pending = rdp_profile_pending_refresh(pending, true);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
-	pending = rdp_profile_pending_complete(pending);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
-	CHECK_EQ(rdp_profile_pending_refresh(pending, true), RDP_PROFILE_PENDING_NONE);
-
-	/* A fresh CPU write queues another bounded pair. */
-	pending = rdp_profile_pending_note(pending, true, true);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
-	pending = rdp_profile_pending_complete(pending);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
-	pending = rdp_profile_pending_complete(pending);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
-
-	/* If coverage disappears before the follow-up, replace once to erase. */
-	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
-	pending = rdp_profile_pending_complete(pending);
-	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+	for (int field = 0; field < 8; field++) {
+		pending = rdp_profile_pending_refresh(pending, true);
+		CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+		pending = rdp_profile_pending_complete(pending);
+		CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+	}
+	/* The CPU clearing the coverage bit schedules one transparent replacement,
+	 * which erases the old sprite and then consumes the marker. */
 	pending = rdp_profile_pending_refresh(pending, false);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
+	CHECK_EQ(rdp_profile_pending_refresh(pending, true), RDP_PROFILE_PENDING_NONE);
 
-	/* A pixel erased before its first replay is also replaced exactly once. */
-	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, true, false);
+	/* A later CPU write queues another persistent covered overlay. */
+	pending = rdp_profile_pending_note(pending, false, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+	pending = rdp_profile_pending_refresh(pending, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+	pending = rdp_profile_pending_complete(pending);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
+
+	/* If coverage disappears before the first VI replay, replace it once. */
+	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_NONE, false, true);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
+	pending = rdp_profile_pending_note(pending, true, false);
+	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
+	pending = rdp_profile_pending_refresh(pending, false);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_REPLACE);
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
@@ -1255,7 +1257,6 @@ static void targets_profile_pending_lifetime(void)
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_FOLLOWUP);
 }
-
 static void targets_frame_mirror(void)
 {
 	const uint32_t A = 0x38f800, B = 0x3b5000, C = 0x3da800, LINE = 640;
