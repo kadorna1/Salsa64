@@ -1274,6 +1274,12 @@ static void targets_profile_pending_lifetime(void)
 	pending = rdp_profile_pending_complete(pending);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
 
+	/* Coverage remaining set in the stable RDRAM snapshot must not revive
+	 * an old RSX overlay retired by a newer task batch. A genuinely new CPU
+	 * write at that coordinate is the only operation that may revive it. */
+	CHECK_EQ(rdp_profile_pending_refresh(RDP_PROFILE_PENDING_REPLACE, true), RDP_PROFILE_PENDING_REPLACE);
+	CHECK_EQ(rdp_profile_pending_refresh(RDP_PROFILE_PENDING_REPLACE, false), RDP_PROFILE_PENDING_REPLACE);
+
 	/* A new covered write supersedes an erase still waiting for VI. */
 	pending = rdp_profile_pending_note(RDP_PROFILE_PENDING_REPLACE, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);
