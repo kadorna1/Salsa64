@@ -824,9 +824,25 @@ bool rdp_guard_profile_ok(const struct rdp_guard *g, const uint8_t *rdram, uint3
 	return !baseline || rdp_guard_hash(rdram + (line << RDP_GUARD_SHIFT)) == baseline;
 }
 
-/* Keep a covered CPU-written pixel over later RDP draws until the CPU clears
- * its RGBA5551 coverage bit. A transparent replacement is consumed once, even
- * when the covered pixel was never replayed before. */
+/* Start a fresh CPU overlay batch only when new framebuffer bytes are observed.
+ * This bounds a moving sprite to its latest CPU-written positions while an
+ * unchanged sprite remains pending across repeated VI presentations. */
+bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *last_batch,
+				   bool *last_batch_valid, uint32_t batch)
+{
+	if (!pending || !count || !last_batch || !last_batch_valid)
+		return false;
+	if (*last_batch_valid && *last_batch == batch)
+		return false;
+	memset(pending, 0, count);
+	*last_batch = batch;
+	*last_batch_valid = true;
+	return true;
+}
+
+/* Keep a covered CPU-written pixel over later RDP draws until a newer CPU
+ * overlay batch replaces it or the CPU clears its RGBA5551 coverage bit. A
+ * transparent replacement is consumed once, even before the first replay. */
 uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_covered)
 {
 	if (is_covered)
@@ -852,7 +868,8 @@ uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered)
 	return pending;
 }
 
-/* Covered overlays persist until the CPU clears coverage; erases are one-shot. */
+/* Covered overlays persist for the current CPU update batch; a newer batch
+ * replaces stale positions, while coverage clears are one-shot erases. */
 uint8_t rdp_profile_pending_complete(uint8_t mode)
 {
 	/* Each VI buffer is presented independently. Keep covered CPU pixels on

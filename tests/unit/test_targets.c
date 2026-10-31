@@ -1231,6 +1231,23 @@ static void targets_profile_pending_lifetime(void)
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_NONE);
 	CHECK_EQ(rdp_profile_pending_refresh(pending, true), RDP_PROFILE_PENDING_NONE);
 
+	/* A new CPU update batch replaces old sprite locations, but repeated
+	 * reconciliation within the same batch must preserve its pending pixels. */
+	uint8_t batch_pending[4] = { RDP_PROFILE_PENDING_FOLLOWUP, 0, RDP_PROFILE_PENDING_REPLACE, 0 };
+	uint32_t last_batch = 0;
+	bool last_batch_valid = false;
+	CHECK(rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
+					    &last_batch_valid, 17));
+	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_NONE);
+	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_NONE);
+	batch_pending[1] = RDP_PROFILE_PENDING_FOLLOWUP;
+	CHECK(!rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
+					     &last_batch_valid, 17));
+	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_FOLLOWUP);
+	CHECK(rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
+					    &last_batch_valid, 18));
+	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_NONE);
+
 	/* A later CPU write queues another persistent covered overlay. */
 	pending = rdp_profile_pending_note(pending, false, true);
 	CHECK_EQ(pending, RDP_PROFILE_PENDING_BLEND);

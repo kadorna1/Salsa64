@@ -460,6 +460,8 @@ enum rdp_profile_pending_mode {
 	RDP_PROFILE_PENDING_REPLACE = 2,
 	RDP_PROFILE_PENDING_FOLLOWUP = 3,
 };
+bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *last_batch,
+				   bool *last_batch_valid, uint32_t batch);
 uint8_t rdp_profile_pending_note(uint8_t pending, bool was_covered, bool is_covered);
 uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered);
 uint8_t rdp_profile_pending_complete(uint8_t mode);

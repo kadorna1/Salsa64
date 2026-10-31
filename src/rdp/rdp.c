@@ -333,10 +333,12 @@ static struct {
 	uint8_t *profile_shadow[RDP_TARGETS_MAX];
 	uint32_t profile_shadow_bytes[RDP_TARGETS_MAX];
 	bool profile_shadow_valid[RDP_TARGETS_MAX];
-	/* CPU-written screen pixels uploaded before later RDP draws need one final
-	 * replay just before VI presentation, even after the stable shadow commits. */
+	/* CPU-written screen pixels need late VI replay after RDP draws. Keep the
+	 * current overlay batch until a newer CPU update replaces its positions. */
 	uint8_t *profile_pending[RDP_TARGETS_MAX];
 	uint32_t profile_pending_bytes[RDP_TARGETS_MAX];
+	uint32_t profile_pending_batch[RDP_TARGETS_MAX];
+	bool profile_pending_batch_valid[RDP_TARGETS_MAX];
 	unsigned ppe_wr_next;
 	int bound_t;                 /* ranura ligada, o -1 */
 	struct depth *bound_d;
@@ -614,6 +616,8 @@ void salsa64_rdp_copy_color_from_rdram(bool on)
 			free(rdp.profile_pending[i]);
 			rdp.profile_pending[i] = NULL;
 			rdp.profile_pending_bytes[i] = 0;
+			rdp.profile_pending_batch[i] = 0;
+			rdp.profile_pending_batch_valid[i] = false;
 			if (on && rdp.surf[i] && rdp.rdram && !profile_shadow_capture(i))
 				LOGN(10, "gfx: CopyColorFromRDRAM: no se pudo crear la sombra de %06x/%u",
 				     rdp.tg.t[i].addr, rdp.tg.t[i].width);
@@ -752,6 +756,8 @@ static void release_targets(void)
 		free(rdp.profile_pending[i]);
 		rdp.profile_pending[i] = NULL;
 		rdp.profile_pending_bytes[i] = 0;
+		rdp.profile_pending_batch[i] = 0;
+		rdp.profile_pending_batch_valid[i] = false;
 	}
 	for (int i = 0; i < MAX_DEPTHS; i++)
 		if (rdp.depths[i].used)
@@ -1511,6 +1517,8 @@ static bool profile_shadow_ensure(int i)
 		memset(p, 0, pending_bytes);
 		rdp.profile_pending[i] = p;
 		rdp.profile_pending_bytes[i] = pending_bytes;
+		rdp.profile_pending_batch[i] = 0;
+		rdp.profile_pending_batch_valid[i] = false;
 	}
 	return true;
 }
@@ -1670,6 +1678,8 @@ static void drop_surface(int i)
 	free(rdp.profile_pending[i]);
 	rdp.profile_pending[i] = NULL;
 	rdp.profile_pending_bytes[i] = 0;
+	rdp.profile_pending_batch[i] = 0;
+	rdp.profile_pending_batch_valid[i] = false;
 	rdp.surf_dirty[i] = false;
 	rdp.vram -= rdp.surf_bytes[i];
 	rdp.surf_bytes[i] = 0;
@@ -1738,8 +1748,8 @@ static bool profile_cpu_rows_changed(int i)
  * 128-byte hash line used by the older implementation replaced up to 63
  * neighboring pixels that had been rendered only on the RSX, causing trails
  * and corruption across the rest of the screen. Late VI composites are
- * one-shot per changed span; do not clear live RDRAM here, because the
- * emulated CPU can write it concurrently with the presentation thread. */
+ * grouped into per-target CPU update batches; newer batches retire old sprite
+ * positions. Do not clear live RDRAM from this path. */
 static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_to_vi)
 {
 	const struct rdp_target *t = &rdp.tg.t[i];
@@ -1761,6 +1771,12 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 	 * changed source pixels using SRC_ALPHA / ONE_MINUS_SRC_ALPHA, matching
 	 * GLideN64's RDRAMtoColorBuffer path. */
 	uint8_t raw_span[RB_MAX_W * 2u];
+	bool pending_visible = defer_to_vi && rdp.profile_pending[i] &&
+		(t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width));
+	/* translate() runs before the task counter advances; add one there so
+	 * in-task uploads and the following VI update share the same batch. */
+	uint32_t pending_batch = rdp.tg.task + (rdp.in_task ? 1u : 0u);
+	bool pending_batch_started = false;
 
 	for (uint32_t y = 0; y < t->lh; y++) {
 		uint32_t row_off = y * row_bytes;
@@ -1782,6 +1798,13 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 			if (!w)
 				continue;
 
+			if (pending_visible && !pending_batch_started) {
+				rdp_profile_pending_new_batch(rdp.profile_pending[i], rdp.profile_pending_bytes[i],
+						     &rdp.profile_pending_batch[i],
+						     &rdp.profile_pending_batch_valid[i], pending_batch);
+				pending_batch_started = true;
+			}
+
 			uint32_t pitch = (w * 2u + 63u) & ~63u;
 			unsigned k = rdp.prime_next;
 			uint32_t boff = k ? (RB_SLOTS + 2) * RB_SLOT + MIRRORS * MIRROR_SLOT + (k - 1) * RB_SLOT
@@ -1797,12 +1820,11 @@ static uint32_t prime_profile_cpu_spans(int i, bool commit_profile, bool defer_t
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
-			/* Queue one late composite only for VI-visible targets. Mode 1 is
-			 * a newly changed covered pixel; mode 2 marks a formerly covered pixel
-			 * whose coverage is now zero. The marker is consumed at this VI and
-			 * never latched for an additional field. */
-			if (defer_to_vi && rdp.profile_pending[i] &&
-			    (t->presented || rdp_vi_ring_covers(&rdp.vi_ring, t->addr, t->width))) {
+			/* Queue a late composite only for VI-visible targets. A fresh CPU
+			 * batch replaces old positions; within that batch, covered pixels
+			 * remain pending across VI presentations and coverage clears erase
+			 * them with a one-shot transparent replacement. */
+			if (pending_visible) {
 				uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 				for (uint32_t px = 0; px < w; px++) {
 					uint32_t x = x0 + px;
@@ -1880,9 +1902,9 @@ static uint32_t prime_profile_pending_spans(int i)
 		uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
 
-		/* Reapply covered CPU pixels whenever this VI buffer returns. A pixel
+		/* Reapply covered CPU pixels while this update batch is current. A pixel
 		 * whose coverage bit goes low becomes a one-shot transparent replace,
-		 * which is consumed after the old sprite pixel has been removed. */
+		 * consumed after the old sprite pixel has been removed. */
 		for (uint32_t px = 0; px < t->lw; px++) {
 			if (!pending_row[px])
 				continue;
@@ -1947,9 +1969,9 @@ static uint32_t prime_profile_pending_spans(int i)
 						    dx, dy, w * scale, scale, RSXKIT_RGBA5551) != RSXKIT_OK)
 				continue;
 
-			/* Keep the live CPU overlay pending until the CPU clears coverage.
-			 * This makes alternating VI buffers show the same falling/flipping
-			 * pill while leaving RDRAM exclusively owned by the emulation thread. */
+			/* Keep this batch pending so alternating VI buffers show the same
+			 * falling/flipping pill. A newer CPU batch replaces stale positions;
+			 * RDRAM remains exclusively owned by the emulation thread. */
 			for (uint32_t px = 0; px < w; px++)
 				pending_row[x0 + px] = rdp_profile_pending_complete(mode);
 			rdp.prime_fence[k] = rsxkit_fence();
