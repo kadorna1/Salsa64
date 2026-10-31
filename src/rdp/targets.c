@@ -834,12 +834,16 @@ bool rdp_profile_pending_new_batch(uint8_t *pending, uint32_t count, uint32_t *l
 		return false;
 	if (*last_batch_valid && *last_batch == batch)
 		return false;
-	/* A pending transparent replacement is a tombstone for a pixel whose
-	 * old CPU sprite value has already been removed from RDRAM. Keep it until
-	 * the VI thread applies it; only retire older covered overlays. */
-	for (uint32_t i = 0; i < count; i++)
-		if (pending[i] != RDP_PROFILE_PENDING_REPLACE)
+	/* An already-replayed overlay has been blended into the RSX surface, so
+	 * retire it with a one-shot transparent replacement. A BLEND not yet
+	 * presented never reached the surface and can simply be discarded.
+	 * Existing replacements remain queued until the VI thread applies them. */
+	for (uint32_t i = 0; i < count; i++) {
+		if (pending[i] == RDP_PROFILE_PENDING_FOLLOWUP)
+			pending[i] = RDP_PROFILE_PENDING_REPLACE;
+		else if (pending[i] == RDP_PROFILE_PENDING_BLEND)
 			pending[i] = RDP_PROFILE_PENDING_NONE;
+	}
 	*last_batch = batch;
 	*last_batch_valid = true;
 	return true;
