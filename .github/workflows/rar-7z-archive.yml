@@ -4,15 +4,21 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "src/frontend/**"
-      - "third_party/**"
+      - "src/frontend/archiverom.h"
+      - "src/frontend/rarrom.c"
+      - "src/frontend/rarrom.h"
+      - "src/frontend/sevenziprom.c"
+      - "src/frontend/sevenziprom.h"
+      - "src/frontend/romlist.c"
+      - "src/frontend/Makefile"
+      - "third_party/libun7zip/**"
+      - "third_party/libunrar-ps3/**"
       - ".gitmodules"
-      - "tests/unit/**"
-      - "mk/ps3.mk"
-      - "tools/build.sh"
-      - "tools/ci-build-version.py"
-      - "CHANGELOG.md"
-      - ".github/workflows/rar-7z-archive.yml"
+      - "tests/unit/test_archiverom.c"
+      - "tests/unit/stubs/archive_rom_stubs.c"
+      - "tests/unit/Makefile"
+      - "tests/unit/test.c"
+      - "tests/unit/test.h"
   workflow_dispatch:
 
 permissions:
