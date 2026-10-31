@@ -20,7 +20,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: rar-7z-build-\${{ github.ref }}
+  group: rar-7z-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -55,15 +55,15 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: \${{ github.actor }}
-          password: \${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Reuse or build the current PS3 toolchain image
         shell: bash
         run: |
           set -euo pipefail
           DOCKERFILE_HASH="$(sha256sum docker/Dockerfile | cut -c1-16)"
-          IMAGE="ghcr.io/\${GITHUB_REPOSITORY_OWNER,,}/salsa64-toolchain:$DOCKERFILE_HASH"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/salsa64-toolchain:$DOCKERFILE_HASH"
           COMPAT_IMAGE="ghcr.io/kadorna1/salsa64-toolchain:f24becb301d65113"
           if docker pull "$IMAGE"; then
             if docker run --rm "$IMAGE" sh -c 'test -s "$PS3DEV/portlibs/ppu/include/zlib.h" && test -s "$PS3DEV/portlibs/ppu/lib/libz.a"'; then
@@ -106,19 +106,19 @@ jobs:
           set -euo pipefail
           bash tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/rar-7z-ps3-package.log
           test -s build/salsa64/salsa64.pkg
-          cp build/salsa64/salsa64.pkg "build/salsa64/salsa64-\${BUILD_VERSION}.pkg"
-          test -s "build/salsa64/salsa64-\${BUILD_VERSION}.pkg"
+          cp build/salsa64/salsa64.pkg "build/salsa64/salsa64-${BUILD_VERSION}.pkg"
+          test -s "build/salsa64/salsa64-${BUILD_VERSION}.pkg"
 
       - name: Upload package and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: salsa64-rar7z-\${{ env.BUILD_VERSION || format('run-{0}', github.run_number) }}
+          name: salsa64-rar7z-${{ env.BUILD_VERSION || format('run-{0}', github.run_number) }}
           if-no-files-found: warn
           retention-days: 14
           compression-level: 0
           path: |
-            build/salsa64/salsa64-\${{ env.BUILD_VERSION }}.pkg
+            build/salsa64/salsa64-${{ env.BUILD_VERSION }}.pkg
             build/logs/docker-image.log
             build/logs/rar-7z-host-tests.log
             build/logs/rar-7z-ps3-package.log
