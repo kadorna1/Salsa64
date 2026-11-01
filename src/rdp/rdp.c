@@ -1982,6 +1982,7 @@ static uint32_t prime_profile_pending_spans(int i)
 	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
 	uint32_t regions = 0;
 	uint8_t raw_span[RB_MAX_W * 2u];
+	uint8_t drawn_row[RB_MAX_W];
 	bool track_draws = rdp.profile_drawn[i] != NULL;
 	bool retire_ready = rdp_profile_pending_retire_ready(rdp.tg.t[i].last_task,
 							     rdp.profile_pending_batch[i],
