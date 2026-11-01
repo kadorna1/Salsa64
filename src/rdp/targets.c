@@ -878,9 +878,9 @@ uint8_t rdp_profile_pending_refresh(uint8_t pending, bool is_covered)
 {
 	if (!pending)
 		return RDP_PROFILE_PENDING_NONE;
-	/* A task-retirement marker is independent of the old RDRAM coverage bit:
-	 * the new RDP task redraws the target, so the stale overlay must not be
-	 * replayed just because its old source pixel is still covered. */
+	/* A retired overlay waits for per-pixel RDP draw coverage. Until a later
+	 * draw reaches that pixel, retain covered source pixels or schedule a
+	 * transparent replacement when the CPU has cleared coverage. */
 	if (pending == RDP_PROFILE_PENDING_RETIRE)
 		return is_covered ? RDP_PROFILE_PENDING_FOLLOWUP : RDP_PROFILE_PENDING_REPLACE;
 	if (is_covered) {
