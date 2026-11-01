@@ -1243,6 +1243,15 @@ static void targets_write_marks(void)
 	salsa64_write_marks_mark_range(marks, 256, 255, 8);
 	CHECK(salsa64_write_marks_any_range(marks, 256, 254, 2));
 	CHECK_EQ(salsa64_write_marks_take_range(marks, 256, 254, 2, pixels, 1), 1);
+
+	/* A target-local draw rectangle maps to exact pixel bits per row. */
+	uint32_t drawn[2] = { 0 };
+	uint8_t row[8];
+	salsa64_write_marks_mark_range(drawn, 64, (2u * 8u + 3u) * 2u, 2u * 2u);
+	CHECK_EQ(salsa64_write_marks_take_range(drawn, 64, 2u * 8u * 2u, 8u * 2u, row, 8), 2);
+	for (unsigned x = 0; x < 8; x++)
+		CHECK_EQ(row[x], x == 3 || x == 4 ? 1 : 0);
+	CHECK(!salsa64_write_marks_any_range(drawn, 64, 0, 64));
 }
 
 static void targets_profile_write_scope(void)
@@ -1307,8 +1316,10 @@ static void targets_profile_pending_lifetime(void)
 	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_RETIRE);
-	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], true), RDP_PROFILE_PENDING_RETIRE);
-	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], false), RDP_PROFILE_PENDING_RETIRE);
+	/* Keep old overlays until a draw covers their exact pixels; otherwise
+	 * current coverage keeps them visible or schedules a transparent erase. */
+	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], true), RDP_PROFILE_PENDING_FOLLOWUP);
+	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], false), RDP_PROFILE_PENDING_REPLACE);
 	CHECK_EQ(rdp_profile_pending_complete(batch_pending[0]), RDP_PROFILE_PENDING_NONE);
 	batch_pending[1] = RDP_PROFILE_PENDING_FOLLOWUP;
 	CHECK(!rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
