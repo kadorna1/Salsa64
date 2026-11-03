@@ -11,10 +11,13 @@
 #ifdef USE_WINDOWS_FILE
 #include "7zWindows.h"
 
+#elif defined(USE_FOPEN)
+/* CSzFile stores a FILE pointer in this I/O mode. */
+#include <stdio.h>
+
 #else
 // note: USE_FOPEN mode is limited to 32-bit file size
 // #define USE_FOPEN
-// #include <stdio.h>
 #endif
 
 #include "7zTypes.h"
