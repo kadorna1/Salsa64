@@ -8,9 +8,10 @@
 #ifndef USE_WINDOWS_FILE
 
   #include <errno.h>
+  /* USE_FOPEN selects FILE-based I/O, so stdio is required in that branch too. */
+  #include <stdio.h>
 
   #ifndef USE_FOPEN
-    #include <stdio.h>
     #include <fcntl.h>
     #ifdef _WIN32
       #include <io.h>
