@@ -1,18 +1,8 @@
-name: RAR and 7z archive build
+name: Dr. Mario 64 framebuffer build
 
 on:
-  pull_request:
+  push:
     branches: [main]
-    paths:
-      - "src/frontend/**"
-      - "third_party/**"
-      - ".gitmodules"
-      - "tests/unit/**"
-      - "mk/ps3.mk"
-      - "tools/build.sh"
-      - "tools/ci-build-version.py"
-      - "CHANGELOG.md"
-      - ".github/workflows/rar-7z-archive.yml"
   workflow_dispatch:
 
 permissions:
@@ -20,7 +10,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: rar-7z-build-${{ github.ref }}
+  group: dr-mario64-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -28,28 +18,40 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 350
     steps:
-      - name: Check out source and pinned archive libraries
+      - name: Check out source
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
 
       - name: Derive release version and incremental build letter
         shell: bash
         run: |
           set -euo pipefail
-          git show origin/main:CHANGELOG.md > "$RUNNER_TEMP/Salsa64-main-CHANGELOG.md"
-          BUILD_VERSION="$(python3 tools/ci-build-version.py "$GITHUB_RUN_NUMBER" --changelog "$RUNNER_TEMP/Salsa64-main-CHANGELOG.md")"
-          if ! [[ "$BUILD_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+[a-z]+$ ]]; then
-            echo "Invalid derived build version: $BUILD_VERSION" >&2
-            exit 1
-          fi
-          {
-            echo "BUILD_VERSION=$BUILD_VERSION"
-            echo "SALSA64_VERSION=$BUILD_VERSION"
-            echo "SALSA64_COMMIT=$(git rev-parse --short HEAD)"
-          } >> "$GITHUB_ENV"
-          echo "Building Salsa64 $BUILD_VERSION (main changelog + workflow run $GITHUB_RUN_NUMBER)"
+          git show HEAD:CHANGELOG.md > "$RUNNER_TEMP/Salsa64-main-CHANGELOG.md"
+          python3 - "$GITHUB_RUN_NUMBER" "$RUNNER_TEMP/Salsa64-main-CHANGELOG.md" <<'PY'
+          import os, re, sys
+
+          run_number = int(sys.argv[1])
+          changelog = open(sys.argv[2], encoding="utf-8").read()
+          match = re.search(r"^## \[(\d+\.\d+\.\d+)\]", changelog, re.MULTILINE)
+          if not match:
+              raise SystemExit("No x.y.z release heading found in CHANGELOG.md")
+
+          n = run_number
+          suffix = ""
+          while n:
+              n, remainder = divmod(n - 1, 26)
+              suffix = chr(ord("a") + remainder) + suffix
+          version = f"v{match.group(1)}{suffix}"
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"BUILD_VERSION={version}\n")
+              env.write(f"SALSA64_VERSION={version}\n")
+              env.write(f"SALSA64_COMMIT={os.environ['GITHUB_SHA'][:7]}\n")
+          print(f"Building Salsa64 {version} (main changelog + workflow run {run_number})")
+          PY
+
+      - name: Validate PS3 XMB SND0.AT3 metadata
+        run: python3 tools/check-snd0.py
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -75,6 +77,9 @@ jobs:
           else
             echo "No exact Dockerfile image for hash $DOCKERFILE_HASH; checking compatibility cache."
           fi
+          # This previously successful image differs only by the runner-side
+          # zlib1g-dev package, which is installed separately below. Confirm
+          # the PPU zlib headers and library before reusing it.
           if docker pull "$COMPAT_IMAGE"; then
             if docker run --rm "$COMPAT_IMAGE" sh -c 'test -s "$PS3DEV/portlibs/ppu/include/zlib.h" && test -s "$PS3DEV/portlibs/ppu/lib/libz.a"'; then
               echo "SALSA64_IMAGE=$COMPAT_IMAGE" >> "$GITHUB_ENV"
@@ -98,13 +103,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/logs
-          make test-host 2>&1 | tee build/logs/rar-7z-host-tests.log
+          make test-host 2>&1 | tee build/logs/dr-mario-host-tests.log
 
       - name: Build installable PS3 PKG
         shell: bash
         run: |
           set -euo pipefail
-          bash tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/rar-7z-ps3-package.log
+          bash tools/build.sh -C src/frontend pkg 2>&1 | tee build/logs/dr-mario-ps3-package.log
           test -s build/salsa64/salsa64.pkg
           cp build/salsa64/salsa64.pkg "build/salsa64/salsa64-${BUILD_VERSION}.pkg"
           test -s "build/salsa64/salsa64-${BUILD_VERSION}.pkg"
@@ -113,12 +118,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: salsa64-rar7z-${{ env.BUILD_VERSION || format('run-{0}', github.run_number) }}
+          name: dr-mario64-${{ env.BUILD_VERSION || format('run-{0}', github.run_number) }}
           if-no-files-found: warn
           retention-days: 14
           compression-level: 0
           path: |
             build/salsa64/salsa64-${{ env.BUILD_VERSION }}.pkg
             build/logs/docker-image.log
-            build/logs/rar-7z-host-tests.log
-            build/logs/rar-7z-ps3-package.log
+            build/logs/dr-mario-host-tests.log
+            build/logs/dr-mario-ps3-package.log
