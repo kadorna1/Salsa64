@@ -2042,8 +2042,9 @@ static uint32_t prime_profile_pending_spans(int i)
 	for (uint32_t y = 0; y < t->lh; y++) {
 		uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
-		/* A later RDP draw retires an old CPU overlay only where it covered
-		 * that pixel. Else, current coverage decides replay versus erase. */
+		/* A superseding CPU batch stays visible until a later RDP task has
+		 * actually drawn this color target. Do not use vertex bounding boxes
+		 * as pixel coverage: triangle gaps and transparent texels are not draws. */
 		for (uint32_t px = 0; px < t->lw; px++) {
 			if (!pending_row[px])
 				continue;
