@@ -1456,10 +1456,9 @@ static void targets_profile_pending_lifetime(void)
 	CHECK_EQ(batch_pending[0], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[1], RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(batch_pending[2], RDP_PROFILE_PENDING_RETIRE);
-	/* Keep old overlays until a draw covers their exact pixels; otherwise
-	 * current coverage keeps them visible or schedules a transparent erase. */
-	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], true), RDP_PROFILE_PENDING_FOLLOWUP);
-	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], false), RDP_PROFILE_PENDING_REPLACE);
+	/* A RETIRE tombstone remains unchanged until the target-task gate is met. */
+	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], true), RDP_PROFILE_PENDING_RETIRE);
+	CHECK_EQ(rdp_profile_pending_refresh(batch_pending[0], false), RDP_PROFILE_PENDING_RETIRE);
 	CHECK_EQ(rdp_profile_pending_complete(batch_pending[0]), RDP_PROFILE_PENDING_NONE);
 	batch_pending[1] = RDP_PROFILE_PENDING_FOLLOWUP;
 	CHECK(!rdp_profile_pending_new_batch(batch_pending, sizeof batch_pending, &last_batch,
