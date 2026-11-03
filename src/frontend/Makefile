@@ -38,6 +38,11 @@ ARCHIVE_C_SRCS := $(addprefix third_party/7zip-lzma-sdk/C/, \
                    7zAlloc.c 7zArcIn.c 7zBuf.c 7zBuf2.c 7zCrc.c 7zCrcOpt.c \
                    7zDec.c 7zFile.c 7zStream.c Bcj2.c Bra.c Bra86.c BraIA64.c \
                    CpuArch.c Delta.c Lzma2Dec.c LzmaDec.c Ppmd7.c Ppmd7Dec.c)
+
+# El SDK usa stdio en PS3: evitar creat(), no disponible en el toolchain.
+# La macro debe ser idéntica en el lector y el objeto de archivo para que
+# CSzFile tenga el mismo layout en ambos translation units.
+$(OBJ)/src/frontend/sevenziprom.c.o $(OBJ)/third_party/7zip-lzma-sdk/C/7zFile.c.o: PPU_CFLAGS += -DUSE_FOPEN
 COMMON  := $(RC_FILES) $(ARCHIVE_C_SRCS) src/platform/ps3/log.c src/platform/ps3/rec_cache.c src/platform/ps3/fastmem.c src/platform/ps3/gfx_spu.c \
            src/platform/ps3/audio_spu.c src/platform/ps3/jpeg_spu.c src/platform/ps3/rsp_spu.c src/platform/ps3/bgjob.c src/platform/ps3/bgio.c src/rdp/rdp.c src/rdp/layer8.c src/rdp/mask32.c src/rdp/targets.c src/rdp/vmatch.c src/rdp/gfxdump.c src/rdp/blackbox.c \
            $(patsubst $(R)/%,%,$(wildcard $(R)/src/core/*.c $(R)/src/cpu/*.c $(R)/src/rsp/gfx/*.c $(R)/src/rsp/audio/*.c $(R)/src/rsp/jpeg/*.c \

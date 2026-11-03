@@ -137,7 +137,7 @@ static int sevenziprom_read(const char *path, uint8_t *dst, uint32_t dst_cap,
     }
     look_stream.bufSize = SEVENZIP_LOOK_BUFFER;
     look_stream.realStream = &archive_stream.vt;
-    LookToRead2_Init(&look_stream);
+    LookToRead2_INIT(&look_stream);
 
     CrcGenerateTable();
     SzArEx_Init(&db);
