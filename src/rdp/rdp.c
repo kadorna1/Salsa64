@@ -2035,25 +2035,20 @@ static uint32_t prime_profile_pending_spans(int i)
 	uint32_t scale = rdp.surf_scale[i] ? rdp.surf_scale[i] : 1;
 	uint32_t regions = 0;
 	uint8_t raw_span[RB_MAX_W * 2u];
-	bool retire_ready = rdp_profile_pending_retire_ready(rdp.tg.t[i].last_task,
-							     rdp.profile_pending_batch[i],
-							     rdp.profile_pending_batch_valid[i]);
-
 	for (uint32_t y = 0; y < t->lh; y++) {
 		uint8_t *pending_row = rdp.profile_pending[i] + (size_t)y * t->width;
 		uint8_t *shadow_row = rdp.profile_shadow[i] + (size_t)y * row_bytes;
-		/* A superseding CPU batch stays visible until a later RDP task has
-		 * actually drawn this color target. Do not use vertex bounding boxes
-		 * as pixel coverage: triangle gaps and transparent texels are not draws. */
+		/* RETIRE comes from a newer CPU update batch. If observed in the VI
+		 * thread, wait for that batch's RDP task to draw this target. */
+		bool retire_ready = rdp_profile_pending_retire_ready(rdp.tg.t[i].last_task,
+							     rdp.profile_pending_batch[i],
+							     rdp.profile_pending_batch_valid[i]);
+		/* Keep covered pixels visible; coverage clearing is a one-shot erase. */
 		for (uint32_t px = 0; px < t->lw; px++) {
 			if (!pending_row[px])
 				continue;
-			if (pending_row[px] == RDP_PROFILE_PENDING_RETIRE) {
-				if (!retire_ready)
-					continue;
-				pending_row[px] = RDP_PROFILE_PENDING_NONE;
+			if (pending_row[px] == RDP_PROFILE_PENDING_RETIRE && !retire_ready)
 				continue;
-			}
 			bool covered = (shadow_row[px * 2u + 1] & 1u) != 0;
 			pending_row[px] = rdp_profile_pending_refresh(pending_row[px], covered);
 		}
